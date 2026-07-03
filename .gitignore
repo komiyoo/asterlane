@@ -1,5 +1,12 @@
 # Rust build outputs
 /target/
+debug
+target
+
+# Rust tooling outputs
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
 
 # Local environment and secrets
 .env
