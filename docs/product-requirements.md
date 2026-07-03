@@ -13,25 +13,22 @@ Asterlane 的原始需求不是做 AI 模型网关，而是做 **第三方资源
 
 目标是把 Tavily、Jina、Exa、Firecrawl、内部 API、第三方 MCP Server 等资源统一配置在网关层。Agent 接入时不直接持有上游 API key、base URL、OAuth token 或 MCP 鉴权材料，而是只通过 Asterlane 这个统一入口访问被授权的资源。
 
-# 需求原文摘录
+# 需求来源总结
 
-以下内容保留本项目创建时的需求语境，便于后续判断实现是否偏离初衷。
+本项目的初始需求可以总结为：建设一个面向 agent 的第三方资源分发与凭据治理网关。它不以模型供应商路由为核心，而是把 Web Search、内容读取、外部 API、内部 API 和第三方 MCP server 等资源集中配置、授权、观测和代理。
 
-> 主要不是很 care AI 网关，主要是第三方资源的网关，比如 Web Search 的 tavily API key 呀、jina 的 base_url, API key, EXA 的 apikey，还有一些第三方的 MCP 的鉴权。
->
-> 希望能有一个统一的分发管理，直接走这一个平台，使用那些工具，并可以观察哪些 key 使用了多少次、分布。
->
-> 用 Rust 做，把功能规划做一下，配套使用的 skill 要有，不同的 key 支持配置不同的工具范围。
->
-> NyaProxy 的功能可以借鉴一下，支持把配置到网关层的 api 通过 mcp 提供给 ai。
->
-> 支持 ai 不一次性获取所有能使用的 mcp，允许传递正则参数过滤能返回的 mcp 工具。
->
-> 由于是网关类 mcp，预先设计好包装之后的 mcp 命名方式，或许可以支持多段式，比如 domain:tool:method 这样一个整体作为 mcp tool 的名字。
->
-> 整体设计上应该允许渐进式披露能使用的资源，Agent-native。
->
-> agent-resource 不太合适，做一个有诗意的名字吧。
+核心关注点包括：
+
+- 集中管理 Tavily、Jina、Exa 等第三方服务的 base URL、API key 和鉴权材料。
+- Agent 只接入 Asterlane，不直接持有或感知上游真实凭据。
+- 不同 gateway key 可以看到和调用不同范围的工具。
+- 平台能够统计每个 key、工具、上游资源的使用次数、分布、错误和延迟。
+- 借鉴 NyaProxy 的代理、key 池、分发、使用记录和可观测能力。
+- 支持把网关中配置的 HTTP API 和第三方 MCP server 包装成 MCP tool 提供给 AI。
+- MCP 工具发现应支持按正则过滤和分页，避免 agent 一次性获取全部工具。
+- 包装后的 MCP tool 名称需要稳定、可过滤、可扩展，默认采用 `domain:tool:method`。
+- 整体产品形态应支持渐进式资源披露，并优先服务 agent-native 工作流。
+- 项目名应具有辨识度和诗意，因此采用 **Asterlane / 星径**。
 
 # 原始需求
 
