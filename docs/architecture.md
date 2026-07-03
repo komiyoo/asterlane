@@ -13,6 +13,8 @@ Asterlane, or 星径, centralizes third-party resource access for AI agents. The
 
 Examples of upstream resources include Tavily, Jina, Exa, Firecrawl, internal REST APIs, and remote MCP servers. Agents should receive a gateway key and a filtered catalog of usable tools rather than raw upstream credentials.
 
+The original product requirements are preserved in [Product Requirements](product-requirements.md). When architecture and implementation decisions conflict with that document, prefer the product requirements unless a newer decision document explicitly supersedes them.
+
 # Design Principles
 
 - **Gateway-owned credentials**: upstream API keys and MCP auth material are referenced by secret URI and never exposed to agents.

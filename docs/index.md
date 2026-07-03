@@ -5,6 +5,7 @@ This documentation is organized as a small OKF bundle so agents and humans can l
 ## Concepts
 
 - [Architecture](architecture.md) - System purpose, boundaries, data flow, and staged roadmap.
+- [Product Requirements](product-requirements.md) - Original product intent and agent-native requirements.
 - [Configuration Schema](config-schema.md) - YAML configuration shape for API resources, proxy keys, and tool scopes.
 - [Agent Skill](agent-skill.md) - How the bundled Codex skill should be used with this project.
 - [Log](log.md) - Documentation update history.
