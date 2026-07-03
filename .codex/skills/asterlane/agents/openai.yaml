@@ -1,0 +1,4 @@
+interface:
+  display_name: "Asterlane"
+  short_description: "Manage scoped tool gateway configs"
+  default_prompt: "Use $asterlane to add a scoped third-party API tool to the gateway."

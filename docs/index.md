@@ -1,0 +1,14 @@
+# Asterlane Docs
+
+This documentation is organized as a small OKF bundle so agents and humans can load project knowledge progressively.
+
+## Concepts
+
+- [Architecture](architecture.md) - System purpose, boundaries, data flow, and staged roadmap.
+- [Configuration Schema](config-schema.md) - YAML configuration shape for API resources, proxy keys, and tool scopes.
+- [Agent Skill](agent-skill.md) - How the bundled Codex skill should be used with this project.
+- [Log](log.md) - Documentation update history.
+
+## External Format Reference
+
+- [OKF v0.1 draft specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)

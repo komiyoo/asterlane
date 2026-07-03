@@ -1,0 +1,25 @@
+# Rust build outputs
+/target/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+secrets/
+
+# Logs and runtime state
+*.log
+logs/
+tmp/
+*.sqlite
+*.sqlite3
+*.db
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
