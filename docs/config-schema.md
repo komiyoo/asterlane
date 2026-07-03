@@ -32,7 +32,7 @@ api_resources:
       type: bearer
       token_ref: secret://tavily/default
     endpoints:
-      - tool: tavily
+      - tool: web_search
         method: POST
         path: /search
         description: Search the web with Tavily.
@@ -70,7 +70,7 @@ proxy_keys:
     display_name: Basic search agent
     allowed_tools:
       - '^search:tavily:.*$'
-      - '^reader:jina-reader:get$'
+      - '^reader:jina:reader:get$'
     denied_tools: []
     default_tool_page_size: 5
 ```
@@ -84,6 +84,8 @@ The planned MCP `tools/list` extension should support:
 ```json
 {
   "include_regex": "^search:",
+  "domain_regex": "^search$",
+  "provider_regex": "^(tavily|exa)$",
   "exclude_regex": "delete",
   "limit": 20,
   "cursor": 0
@@ -91,6 +93,8 @@ The planned MCP `tools/list` extension should support:
 ```
 
 The gateway first applies the proxy key scope, then applies request-level filters. This keeps request-level filters as a narrowing mechanism, never a privilege escalation mechanism.
+
+The product target for wrapped tool names is `domain:provider:tool:method`. The current implementation may still contain prototype 3-segment names while the config and catalog model are upgraded.
 
 # Citations
 

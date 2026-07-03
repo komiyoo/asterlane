@@ -19,7 +19,7 @@ The original product requirements are preserved in [Product Requirements](produc
 
 - **Gateway-owned credentials**: upstream API keys and MCP auth material are referenced by secret URI and never exposed to agents.
 - **Per-key tool scope**: each proxy key has explicit `allowed_tools` and `denied_tools` regex rules.
-- **Stable wrapped names**: every exposed MCP tool uses `domain:tool:method`, such as `search:tavily:post`.
+- **Stable wrapped names**: exposed MCP tools should use capability-first names, preferably `domain:provider:tool:method`, such as `search:tavily:web_search:post`.
 - **Progressive disclosure**: agents list tools with regex filters, limits, and cursors instead of receiving every available tool at once.
 - **Agent-native operation**: discovery and invocation are designed around how agents ask for only the resources relevant to the current task.
 
@@ -40,7 +40,7 @@ Agent
   -> Gateway proxy key
   -> list_tools(include_regex, exclude_regex, limit, cursor)
   -> Gateway filters by key scope and query regex
-  -> Agent invokes selected domain:tool:method
+  -> Agent invokes selected domain:provider:tool:method
   -> Gateway injects upstream credential
   -> Upstream API or MCP server
   -> Gateway records usage by proxy key, upstream key, tool, status, and latency
@@ -51,7 +51,7 @@ Agent
 ## Phase 1: Core Model
 
 - Config model for upstream APIs and proxy keys.
-- Wrapped MCP tool names.
+- Wrapped MCP tool names, evolving from the current 3-segment prototype toward `domain:provider:tool:method`.
 - Per-key scope evaluation.
 - Regex-filtered, paginated tool listing.
 
@@ -83,22 +83,22 @@ Agent
 
 # Naming
 
-The canonical exposed MCP tool name is:
+The target canonical exposed MCP tool name is:
 
 ```text
-domain:tool:method
+domain:provider:tool:method
 ```
 
 Examples:
 
 ```text
-search:tavily:post
-search:exa:post
-reader:jina-reader:get
-internal:customer-lookup:get
+search:tavily:web_search:post
+search:exa:neural_search:post
+reader:jina:reader:get
+internal:crm:customer_lookup:get
 ```
 
-The multi-segment format allows broad filters (`^search:`), provider filters (`^search:exa:`), and method filters (`:post$`) without requiring agents to download the whole catalog.
+The capability-first multi-segment format allows broad task filters (`^search:`), provider filters (`^[^:]+:exa:`), resource filters (`^search:exa:neural_search:`), and method filters (`:post$`) without requiring agents to download the whole catalog. Provider-first aliases may be useful for operations, but should be implemented as metadata/index views instead of duplicate canonical names.
 
 # Citations
 
