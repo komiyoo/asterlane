@@ -134,10 +134,19 @@ async fn serve(args: ServeArgs) -> Result<()> {
         ));
     }
 
+    let ct = tokio_util::sync::CancellationToken::new();
     let listener = tokio::net::TcpListener::bind(&args.bind)
         .await
         .with_context(|| format!("failed to bind {}", args.bind))?;
-    axum::serve(listener, asterlane::http::build_app(state)).await?;
+    println!("listening on {}", args.bind);
+    println!("  REST API: http://{}/v1/tools", args.bind);
+    println!("  MCP endpoint: http://{}/mcp", args.bind);
+    axum::serve(
+        listener,
+        asterlane::http::build_app_with_ct(state, ct.clone()),
+    )
+    .with_graceful_shutdown(async move { ct.cancelled().await })
+    .await?;
     Ok(())
 }
 

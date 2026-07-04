@@ -1,8 +1,4 @@
-//! HTTP 网关骨架：Axum app、路由、错误转换。
-//!
-//! 第一阶段（First Milestone #6）提供 health/config/catalog 端点，
-//! 不接真实上游执行。详见 `docs/architecture.md` Phase 2 与
-//! `docs/development-workflow.md` First Milestone。
+//! HTTP 网关骨架：Axum app、路由、错误转换、MCP Server 端点。
 
 mod error;
 mod routes;
@@ -10,23 +6,38 @@ mod state;
 
 pub use state::AppState;
 
+use std::sync::Arc;
+
 use axum::Router;
 use axum::routing::{get, post};
+use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
+use tokio_util::sync::CancellationToken;
 
-/// 构建 Axum 应用 Router，注册所有第一阶段路由并附加 TraceLayer。
-///
-/// 路由：
-/// - `GET /healthz` — 健康检查
-/// - `GET /versionz` — 版本
-/// - `GET /config` — 配置概要（脱敏）
-/// - `GET /v1/tools` — 工具列表（按 key scope + query 过滤）
+use crate::mcp::AsterlaneToolServer;
+
+/// 构建 Axum 应用 Router，包含 REST API 和 MCP Server 端点。
 pub fn build_app(state: AppState) -> Router {
+    build_app_with_ct(state, CancellationToken::new())
+}
+
+/// 带 CancellationToken 构建，用于 graceful shutdown。
+pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
+    let mcp_state = state.clone();
+    let mcp_service: StreamableHttpService<AsterlaneToolServer, LocalSessionManager> =
+        StreamableHttpService::new(
+            move || Ok(AsterlaneToolServer::new(mcp_state.clone())),
+            Arc::new(LocalSessionManager::default()),
+            StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
+        );
+
     Router::new()
         .route("/healthz", get(routes::healthz))
         .route("/versionz", get(routes::versionz))
         .route("/config", get(routes::get_config))
         .route("/v1/tools", get(routes::list_tools))
         .route("/v1/tools/{name}/invoke", post(routes::invoke_tool))
+        .nest_service("/mcp", mcp_service)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }

@@ -30,6 +30,7 @@ pub mod adapter;
 pub mod error;
 pub mod model;
 pub mod registry;
+pub mod server;
 
 pub use adapter::PlaceholderAdapter;
 pub use error::McpError;
@@ -38,3 +39,4 @@ pub use model::{
     UpstreamToolMapping,
 };
 pub use registry::{McpServerRegistry, RemoteMcpPeer, RmcpRemoteMcpPeer};
+pub use server::AsterlaneToolServer;
