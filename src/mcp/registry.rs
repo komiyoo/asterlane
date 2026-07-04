@@ -404,6 +404,8 @@ fn wrap_tools(
             resource_id: config.id.clone(),
             description: description.clone(),
             upstream_path: upstream_name,
+            input_schema: input_schema.clone(),
+            param_locations: None,
         });
         descriptors.push(ToolDescriptor {
             name: wire_name,

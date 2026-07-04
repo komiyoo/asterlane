@@ -257,10 +257,9 @@ fn meta_str(meta: Option<&rmcp::model::Meta>, key: &str) -> Option<String> {
 }
 
 fn wrapped_to_mcp_tool(tool: &WrappedTool) -> Tool {
-    // ponytail: 静态 JSON 值，unwrap_or_default 防御性处理
-    let schema = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(json!({
-        "type": "object"
-    }))
+    let schema = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
+        tool.input_schema.clone(),
+    )
     .unwrap_or_default();
     Tool::new(
         tool.name.to_wire_name().to_string(),

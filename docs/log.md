@@ -1,5 +1,17 @@
 # Documentation Update Log
 
+## 2026-07-04（Phase 5 API 自动发现）
+
+- **OpenAPI 解析模块**: 新增 `src/openapi/mod.rs`，使用 `openapiv3` 2.0 解析 OpenAPI 3.0/3.1 spec。支持 JSON 和 YAML（serde_norway）格式，`$ref` 递归解析（深度限制 10），operationId 归一化命名与 `{method}_{path_slug}` 回退，重复 segment 自动追加序号。
+- **参数合并**: OpenAPI path/query/header/body 参数合并为单一 `inputSchema`（JSON Schema），path→必填、query→可选、header→`_` 前缀（跳过 auth headers）、body→`body` 字段。`ParamLocations` 结构记录每个参数的位置元数据。
+- **裁剪与过滤**: `include_tags`/`exclude_operations`/`default_method_exposure` 三维过滤；DELETE 默认不暴露（安全护栏）。
+- **WrappedTool 扩展**: 新增 `input_schema: serde_json::Value` 与 `param_locations: Option<ParamLocations>`。MCP `tools/list` 使用真实 JSON Schema（不再返回 `{"type": "object"}` 占位）。
+- **Config 扩展**: `ApiResource` 新增 `discovery: Option<DiscoveryConfig>`，子结构 `OpenApiSourceConfig` 含 source（file/url）、path/url、过滤字段。与手写 `endpoints` 可共存合并。
+- **Catalog 集成**: `ToolCatalog::from_config` 同时处理手写 endpoints 与 `discovery.openapi` → 调用 `openapi::discover_endpoints()` → 生成 `WrappedTool`。
+- **Proxy 参数分解**: `execute_with_retry` 接受 `param_locations`，新增 `apply_params()` 按元数据将 args 拆解为 query string、request headers 与 body（替代原来的 all-args-as-body）。
+- **依赖**: `openapiv3 = "2.0"`（已在 `docs/crate-selection.md` 记录）。
+- **验证**: 13 openapi 测试覆盖全部场景。`cargo fmt && cargo test` 需在有 Rust 工具链的环境中运行。
+
 ## 2026-07-04（Phase 4 content defense / result shaping 执行接入）
 
 - **Security config**: `ApiResource` 与 `McpServerConfig` 共用 `security` 配置，包含 `integrity_policy`、`defense.enabled` 与 `result_budget_bytes`；缺省保持兼容默认值（warn / disabled / 48KB fallback）。

@@ -42,7 +42,39 @@ pub struct ApiResource {
     #[serde(default)]
     pub endpoints: Vec<ToolEndpoint>,
     #[serde(default)]
+    pub discovery: Option<DiscoveryConfig>,
+    #[serde(default)]
     pub security: SecurityConfig,
+}
+
+/// API 自动发现配置（见 docs/api-discovery.md）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveryConfig {
+    pub openapi: OpenApiSourceConfig,
+}
+
+/// OpenAPI spec 来源与过滤配置。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenApiSourceConfig {
+    pub source: SpecSource,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub include_tags: Vec<String>,
+    #[serde(default)]
+    pub exclude_operations: Vec<String>,
+    #[serde(default)]
+    pub default_method_exposure: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpecSource {
+    #[default]
+    File,
+    Url,
 }
 
 impl ApiResource {

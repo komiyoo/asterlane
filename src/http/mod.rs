@@ -114,6 +114,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Tavily".to_string(),
                     }],
+                    discovery: None,
                     security: SecurityConfig::default(),
                 },
                 ApiResource {
@@ -132,6 +133,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Exa".to_string(),
                     }],
+                    discovery: None,
                     security: SecurityConfig::default(),
                 },
             ],
@@ -202,6 +204,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "mock search".to_string(),
                 }],
+                discovery: None,
                 security,
             }],
             mcp_servers: Vec::new(),

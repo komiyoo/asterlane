@@ -1,5 +1,6 @@
-use crate::config::{ApiResource, GatewayConfig, ProxyKey};
+use crate::config::{ApiResource, GatewayConfig, ProxyKey, SpecSource};
 use crate::naming::ToolName;
+use crate::openapi;
 use crate::policy::{PolicyError, key_can_use_tool};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,27 @@ pub struct WrappedTool {
     pub resource_id: String,
     pub description: String,
     pub upstream_path: String,
+    /// JSON Schema for MCP tool inputSchema. Default: `{"type": "object"}`.
+    #[serde(default = "default_input_schema")]
+    pub input_schema: serde_json::Value,
+    /// Parameter location metadata for OpenAPI-discovered tools.
+    /// None for hand-written endpoints (all args sent as JSON body).
+    #[serde(default)]
+    pub param_locations: Option<ParamLocations>,
+}
+
+fn default_input_schema() -> serde_json::Value {
+    serde_json::json!({"type": "object"})
+}
+
+/// Tracks where each input parameter should be placed when proxying.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParamLocations {
+    pub path_params: Vec<String>,
+    pub query_params: Vec<String>,
+    /// (input_schema_field_name, actual_header_name)
+    pub header_params: Vec<(String, String)>,
+    pub has_body: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +44,12 @@ impl ToolCatalog {
     pub fn from_config(config: &GatewayConfig) -> Result<Self, CatalogError> {
         let mut tools = Vec::new();
         for resource in &config.api_resources {
+            // Hand-written endpoints
             tools.extend(tools_for_resource(resource)?);
+            // OpenAPI discovery
+            if let Some(discovery) = &resource.discovery {
+                tools.extend(tools_from_openapi(resource, discovery)?);
+            }
         }
         tools.sort_by(|a, b| a.name.to_wire_name().cmp(&b.name.to_wire_name()));
         Ok(Self { tools })
@@ -214,6 +241,64 @@ fn tools_for_resource(resource: &ApiResource) -> Result<Vec<WrappedTool>, Catalo
                 resource_id: resource.id.clone(),
                 description: endpoint.description.clone(),
                 upstream_path: endpoint.path.clone(),
+                input_schema: default_input_schema(),
+                param_locations: None,
+            })
+        })
+        .collect()
+}
+
+fn tools_from_openapi(
+    resource: &ApiResource,
+    discovery: &crate::config::DiscoveryConfig,
+) -> Result<Vec<WrappedTool>, CatalogError> {
+    let spec_bytes = match discovery.openapi.source {
+        SpecSource::File => {
+            let path = discovery.openapi.path.as_deref().ok_or_else(|| {
+                CatalogError::OpenApi(openapi::OpenApiError::ParseError(
+                    "discovery.openapi.path required when source=file".to_string(),
+                ))
+            })?;
+            std::fs::read(path).map_err(|e| {
+                CatalogError::OpenApi(openapi::OpenApiError::ParseError(format!(
+                    "cannot read spec file {path}: {e}"
+                )))
+            })?
+        }
+        // ponytail: URL source deferred — caller would fetch and pass bytes.
+        // For now, error out; URL fetching belongs in an async startup path.
+        SpecSource::Url => {
+            return Err(CatalogError::OpenApi(openapi::OpenApiError::ParseError(
+                "discovery.openapi.source=url not yet supported (use file)".to_string(),
+            )));
+        }
+    };
+
+    let config = openapi::OpenApiDiscoveryConfig {
+        include_tags: discovery.openapi.include_tags.clone(),
+        exclude_operations: discovery.openapi.exclude_operations.clone(),
+        default_method_exposure: discovery.openapi.default_method_exposure.clone(),
+        ..Default::default()
+    };
+
+    let endpoints = openapi::discover_endpoints(&spec_bytes, &config)?;
+
+    endpoints
+        .into_iter()
+        .map(|ep| {
+            let name = ToolName::new(
+                &resource.domain,
+                resource.provider_or_id(),
+                &ep.tool_segment,
+                &ep.method,
+            )?;
+            Ok(WrappedTool {
+                name,
+                resource_id: resource.id.clone(),
+                description: ep.description,
+                upstream_path: ep.path,
+                input_schema: ep.input_schema,
+                param_locations: Some(ep.param_locations),
             })
         })
         .collect()
@@ -245,6 +330,8 @@ pub enum CatalogError {
     Regex(#[from] regex::Error),
     #[error(transparent)]
     Policy(#[from] PolicyError),
+    #[error(transparent)]
+    OpenApi(#[from] openapi::OpenApiError),
 }
 
 #[cfg(test)]
@@ -270,6 +357,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Tavily".to_string(),
                     }],
+                    discovery: None,
                     security: SecurityConfig::default(),
                 },
                 ApiResource {
@@ -288,6 +376,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Exa".to_string(),
                     }],
+                    discovery: None,
                     security: SecurityConfig::default(),
                 },
             ],
@@ -427,6 +516,8 @@ mod tests {
             resource_id: resource_id.to_string(),
             description: "mcp tool".to_string(),
             upstream_path: "upstream".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+            param_locations: None,
         }
     }
 

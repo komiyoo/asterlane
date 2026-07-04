@@ -217,6 +217,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search the web with Tavily".to_string(),
                     }],
+                    discovery: None,
                     security: SecurityConfig::default(),
                 },
                 ApiResource {
@@ -235,6 +236,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Neural search with Exa".to_string(),
                     }],
+                    discovery: None,
                     security: SecurityConfig::default(),
                 },
             ],

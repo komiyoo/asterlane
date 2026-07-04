@@ -390,6 +390,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                 &resource.auth,
                 &args,
                 &secret,
+                tool.param_locations.as_ref(),
             )
             .await;
 
@@ -451,13 +452,12 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
         auth: &UpstreamAuth,
         args: &serde_json::Value,
         secret: &Option<SecretString>,
+        param_locations: Option<&crate::catalog::ParamLocations>,
     ) -> Result<(InvokeResult, u8, String), ExecutionError> {
         let method = method_from_segment(&tool_name.method)?;
         let url = build_url(base_url, upstream_path, args);
         let is_get = tool_name.method == "get";
 
-        // backon ExponentialBuilder 作为退避时长生成器（Iterator<Duration>）。
-        // max_times = max_attempts - 1（首次不退避，只在重试间退避）。
         let backoff_builder = backon::ExponentialBuilder::default()
             .with_min_delay(Duration::from_millis(100))
             .with_max_delay(Duration::from_secs(10))
@@ -469,7 +469,6 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
         let mut upstream_key_ref = "<none>".to_string();
 
         for attempt in 1..=self.max_attempts {
-            // (可选) acquire key
             let key_guard = if let Some(pool) = &self.keys {
                 match pool.acquire(LoadBalanceStrategy::RoundRobin) {
                     Ok(guard) => {
@@ -488,12 +487,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                 None
             };
 
-            // 构造请求
             let mut builder = self.http.request(method.clone(), &url);
             builder = apply_auth(auth, secret.as_ref(), builder);
-            if !is_get {
-                builder = builder.json(args);
-            }
+            builder = apply_params(builder, args, param_locations, is_get);
 
             // 发送（带超时包裹）
             let send_future = builder.send();
@@ -877,23 +873,91 @@ fn method_from_segment(segment: &str) -> Result<reqwest::Method, ProxyError> {
     }
 }
 
-/// 拼接 base_url 与 upstream_path，替换路径参数 `{xxx}`。
-///
-/// 第一阶段：若 `args` 含对应 key 且为字符串则替换，否则保留占位符。
-/// TODO: 完整路径参数替换（URL 编码、类型转换、未匹配参数处理）。
+/// 拼接 base_url 与 upstream_path，替换路径参数 `{xxx}` 并追加 query params。
 fn build_url(base_url: &str, path: &str, args: &serde_json::Value) -> String {
     let mut resolved = path.to_string();
     if let Some(obj) = args.as_object() {
         for (key, value) in obj {
-            if let Some(s) = value.as_str() {
-                let placeholder = format!("{{{key}}}");
-                resolved = resolved.replace(&placeholder, s);
+            let placeholder = format!("{{{key}}}");
+            if resolved.contains(&placeholder) {
+                let s = match value {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                resolved = resolved.replace(&placeholder, &s);
             }
-            // TODO: 非字符串路径参数的类型转换与 URL 编码
         }
     }
-    // TODO: 未匹配占位符的报错或保留策略
     format!("{base_url}{resolved}")
+}
+
+/// Build request with parameter decomposition per ParamLocations.
+///
+/// When `param_locations` is Some (OpenAPI-discovered tool), args are decomposed:
+/// - query_params → query string
+/// - header_params → request headers
+/// - body key → JSON body
+/// When None (hand-written endpoint), falls back to legacy behavior:
+/// non-GET sends entire args as JSON body.
+fn apply_params(
+    mut builder: reqwest::RequestBuilder,
+    args: &serde_json::Value,
+    param_locations: Option<&crate::catalog::ParamLocations>,
+    is_get: bool,
+) -> reqwest::RequestBuilder {
+    let obj = args.as_object();
+
+    match param_locations {
+        Some(pl) => {
+            if let Some(obj) = obj {
+                // Query params
+                let query_pairs: Vec<(&str, String)> = pl
+                    .query_params
+                    .iter()
+                    .filter_map(|name| {
+                        obj.get(name).map(|v| {
+                            let s = match v {
+                                serde_json::Value::String(s) => s.clone(),
+                                other => other.to_string(),
+                            };
+                            (name.as_str(), s)
+                        })
+                    })
+                    .collect();
+                if !query_pairs.is_empty() {
+                    builder = builder.query(&query_pairs);
+                }
+
+                // Header params
+                for (field_name, header_name) in &pl.header_params {
+                    if let Some(v) = obj.get(field_name).and_then(|v| v.as_str()) {
+                        if let Ok(hv) = reqwest::header::HeaderValue::from_str(v) {
+                            if let Ok(hn) = reqwest::header::HeaderName::from_bytes(
+                                header_name.as_bytes(),
+                            ) {
+                                builder = builder.header(hn, hv);
+                            }
+                        }
+                    }
+                }
+
+                // Body
+                if pl.has_body {
+                    if let Some(body) = obj.get("body") {
+                        builder = builder.json(body);
+                    }
+                }
+            }
+        }
+        None => {
+            // Legacy: non-GET sends entire args as JSON body
+            if !is_get {
+                builder = builder.json(args);
+            }
+        }
+    }
+
+    builder
 }
 
 /// 判断状态码是否在可重试白名单中。
@@ -1064,6 +1128,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "Search web".to_string(),
                 }],
+                discovery: None,
                 security: SecurityConfig::default(),
             }],
             mcp_servers: Vec::new(),
@@ -1096,6 +1161,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "Neural search".to_string(),
                 }],
+                discovery: None,
                 security: SecurityConfig::default(),
             }],
             mcp_servers: Vec::new(),
@@ -1290,6 +1356,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "mock search".to_string(),
                 }],
+                discovery: None,
                 security: SecurityConfig::default(),
             }],
             mcp_servers: Vec::new(),
