@@ -12,9 +12,9 @@ use crate::discovery::{self, DiscoveryMode};
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::state::AppState;
 use crate::limits::{ApiId, LimiterKey, PrincipalId};
-use crate::mcp::model::ToolCallResult;
+use crate::mcp::model::{ToolCallResult, ToolContent};
 use crate::proxy::ProxyExecutor;
-use crate::shaping::{self, ShapingConfig, ShapingOutcome};
+use crate::shaping::ShapingConfig;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -23,6 +23,10 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Arc;
+
+const CONTENT_DEFENSE_FLAG_HEADER: &str = "x-asterlane-content-defense-flag";
+const RESULT_SHAPED_HEADER: &str = "x-asterlane-result-shaped";
 
 // ── health / version ──
 
@@ -157,6 +161,12 @@ pub struct LazyToolEntry {
     pub input_schema: serde_json::Value,
 }
 
+struct MetaToolInvokeResult {
+    result: ToolCallResult,
+    content_defense_flag: bool,
+    shaped: bool,
+}
+
 /// `GET /v1/tools` — 工具列表。
 ///
 /// 先校验 proxy key（`config.proxy_key(&key)`）：
@@ -204,7 +214,11 @@ pub async fn list_tools(
         limit: query.limit,
         cursor: query.cursor,
     };
-    let page = state.catalog.list_for_key(proxy_key, &tool_query)?;
+    let page = state
+        .catalog
+        .read()
+        .await
+        .list_for_key(proxy_key, &tool_query)?;
     let body = serde_json::to_vec(&page).unwrap_or_default();
     Ok(json_response(body))
 }
@@ -244,14 +258,20 @@ pub async fn invoke_tool(
 
     // Intercept meta-tool calls
     if discovery::is_meta_tool(&name) {
-        let result = handle_meta_tool_with_proxy(&name, args, &state, &proxy_key).await?;
-        let body = serde_json::to_vec(&result).unwrap_or_default();
-        return Ok(json_response(body));
+        let meta_result = handle_meta_tool_with_proxy(&name, args, &state, &proxy_key).await?;
+        let body = serde_json::to_vec(&meta_result.result).unwrap_or_default();
+        let mut response = json_response(body);
+        add_invoke_metadata_headers(
+            &mut response,
+            meta_result.content_defense_flag,
+            meta_result.shaped,
+        );
+        return Ok(response);
     }
 
     let mut executor = ProxyExecutor::new(
         state.config.clone(),
-        state.catalog.clone(),
+        Arc::new(state.catalog.read().await.clone()),
         state.secrets.clone(),
         state.http_client.clone(),
     );
@@ -261,6 +281,9 @@ pub async fn invoke_tool(
     if let Some(limits) = &state.limits {
         executor = executor.with_limits(limits.clone());
     }
+    executor = executor
+        .with_quarantined(state.quarantined_tools.clone())
+        .with_result_cache(state.result_cache.clone());
 
     let result = if let Some(repo) = &state.event_repo {
         executor
@@ -282,7 +305,22 @@ pub async fn invoke_tool(
     {
         response.headers_mut().insert(CONTENT_TYPE, value);
     }
+    add_invoke_metadata_headers(&mut response, result.content_defense_flag, result.shaped);
     Ok(response)
+}
+
+fn add_invoke_metadata_headers(response: &mut Response, content_defense_flag: bool, shaped: bool) {
+    if content_defense_flag {
+        response.headers_mut().insert(
+            CONTENT_DEFENSE_FLAG_HEADER,
+            HeaderValue::from_static("true"),
+        );
+    }
+    if shaped {
+        response
+            .headers_mut()
+            .insert(RESULT_SHAPED_HEADER, HeaderValue::from_static("true"));
+    }
 }
 
 /// 处理 meta-tool 调用，接入 proxy executor 和 result shaping。
@@ -291,7 +329,7 @@ async fn handle_meta_tool_with_proxy(
     args: serde_json::Value,
     state: &AppState,
     proxy_key: &ProxyKey,
-) -> Result<ToolCallResult, AsterlaneError> {
+) -> Result<MetaToolInvokeResult, AsterlaneError> {
     match name {
         "asterlane__call_tool" => {
             let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
@@ -301,11 +339,15 @@ async fn handle_meta_tool_with_proxy(
                 )
             })?;
             let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
+            let inner_is_remote_mcp = state
+                .mcp_registry
+                .as_ref()
+                .is_some_and(|registry| registry.contains_tool(tool_name));
 
             // Proxy to real upstream
             let mut executor = ProxyExecutor::new(
                 state.config.clone(),
-                state.catalog.clone(),
+                Arc::new(state.catalog.read().await.clone()),
                 state.secrets.clone(),
                 state.http_client.clone(),
             );
@@ -315,6 +357,9 @@ async fn handle_meta_tool_with_proxy(
             if let Some(limits) = &state.limits {
                 executor = executor.with_limits(limits.clone());
             }
+            executor = executor
+                .with_quarantined(state.quarantined_tools.clone())
+                .with_result_cache(state.result_cache.clone());
             let invoke_result = if let Some(repo) = &state.event_repo {
                 executor
                     .with_event_repository(repo.clone())
@@ -325,28 +370,27 @@ async fn handle_meta_tool_with_proxy(
             }
             .map_err(AsterlaneError::from)?;
 
-            // Apply result shaping
-            let body_str = String::from_utf8_lossy(&invoke_result.body).to_string();
-            let shaping_config = ShapingConfig::default();
-            match shaping::shape_result(
-                &body_str,
-                &shaping_config,
-                &state.result_cache,
-                &proxy_key.id,
-            ) {
-                ShapingOutcome::Unchanged => Ok(ToolCallResult::text_ok(body_str)),
-                ShapingOutcome::Shaped {
-                    head,
-                    cursor,
-                    total_len,
-                } => {
-                    let shaped_msg = format!(
-                        "{head}\n\n[Result truncated. Total {total_len} bytes. \
-                         Use asterlane__fetch_result with cursor \"{cursor}\" to get more.]"
-                    );
-                    Ok(ToolCallResult::text_ok(shaped_msg))
-                }
+            if inner_is_remote_mcp
+                && let Ok(mut parsed) =
+                    serde_json::from_slice::<ToolCallResult>(&invoke_result.body)
+            {
+                prefix_content_defense(&mut parsed, invoke_result.content_defense_flag);
+                return Ok(MetaToolInvokeResult {
+                    result: parsed,
+                    content_defense_flag: invoke_result.content_defense_flag,
+                    shaped: invoke_result.shaped,
+                });
             }
+
+            let mut body = String::from_utf8_lossy(&invoke_result.body).to_string();
+            if invoke_result.content_defense_flag {
+                body = format!("[Asterlane content_defense_flag=true]\n{body}");
+            }
+            Ok(MetaToolInvokeResult {
+                result: ToolCallResult::text_ok(body),
+                content_defense_flag: invoke_result.content_defense_flag,
+                shaped: invoke_result.shaped,
+            })
         }
         "asterlane__fetch_result" => {
             let cursor = args.get("cursor").and_then(|v| v.as_str()).ok_or_else(|| {
@@ -370,12 +414,44 @@ async fn handle_meta_tool_with_proxy(
                             "\n\n[More data available. Use cursor \"{cursor}\" with offset {next_offset} to continue.]"
                         ));
                     }
-                    Ok(ToolCallResult::text_ok(text))
+                    Ok(MetaToolInvokeResult {
+                        result: ToolCallResult::text_ok(text),
+                        content_defense_flag: false,
+                        shaped: false,
+                    })
                 }
-                None => Ok(ToolCallResult::text_error("cursor not found or expired")),
+                None => Ok(MetaToolInvokeResult {
+                    result: ToolCallResult::text_error("cursor not found or expired"),
+                    content_defense_flag: false,
+                    shaped: false,
+                }),
             }
         }
         // status / search_tools — delegate to existing handler
-        _ => discovery::handle_meta_tool_call(name, args, &state.catalog, &state.config, proxy_key),
+        _ => {
+            let catalog = state.catalog.read().await.clone();
+            discovery::handle_meta_tool_call(name, args, &catalog, &state.config, proxy_key).map(
+                |result| MetaToolInvokeResult {
+                    result,
+                    content_defense_flag: false,
+                    shaped: false,
+                },
+            )
+        }
+    }
+}
+
+fn prefix_content_defense(result: &mut ToolCallResult, content_defense_flag: bool) {
+    if !content_defense_flag {
+        return;
+    }
+
+    if let Some(ToolContent::Text(text)) = result.content.first_mut() {
+        *text = format!("[Asterlane content_defense_flag=true]\n{text}");
+    } else {
+        result.content.insert(
+            0,
+            ToolContent::Text("[Asterlane content_defense_flag=true]".to_string()),
+        );
     }
 }

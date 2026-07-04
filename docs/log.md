@@ -1,5 +1,34 @@
 # Documentation Update Log
 
+## 2026-07-04（Phase 4 content defense / result shaping 执行接入）
+
+- **Security config**: `ApiResource` 与 `McpServerConfig` 共用 `security` 配置，包含 `integrity_policy`、`defense.enabled` 与 `result_budget_bytes`；缺省保持兼容默认值（warn / disabled / 48KB fallback）。
+- **Content defense**: 新增 `src/defense/`，按命令式指令、角色扮演、系统提示覆盖等规则扫描 tool 结果。命中时不阻断调用，写 `SecurityEventKind::ContentDefenseFlag` 到 `security_events`，HTTP 响应带 `x-asterlane-content-defense-flag: true`，MCP 文本结果加 `[Asterlane content_defense_flag=true]` 前缀。
+- **Result shaping 执行路径**: `ProxyExecutor` 对 HTTP API 与 remote MCP 结果统一按 per-resource `result_budget_bytes` 裁剪。普通 HTTP body 被裁剪后 content-type 改为 `text/plain; charset=utf-8`；remote MCP 在 `ToolCallResult` 模型层裁剪文本 content 后再序列化为 JSON，保留 `is_error` 语义并避免多 content 绕过预算。
+- **Lazy discovery 调用语义**: `asterlane__call_tool` 复用 `ProxyExecutor`，透传 content defense / shaped headers；仅当 inner tool 确认为 remote MCP tool 时才解析 `ToolCallResult`，普通 HTTP API 的同形 JSON 不会被误提升为 MCP error。
+- **MCP server lazy meta-tool 收尾**: MCP 协议入口的 `asterlane__call_tool` / `asterlane__fetch_result` 不再走占位实现，分别接入真实 `ProxyExecutor` 与 `ResultCache`；remote MCP `is_error` 结果在 MCP 边界保持为 `CallToolResult::error`。
+- **Refresh 失败降级**: `McpServerRegistry::refresh()` 在上游 `list_tools` 或包装失败时保留该 server 上一次成功的 tools/descriptors 快照，并通过 `failed_server_ids` 记录失败，避免短暂上游故障被 integrity baseline 误判为工具删除。
+- **下游 notify peer 去重**: `AsterlaneToolServer` 注册活跃 `Peer<RoleServer>` 时按 peer debug identity 去重；`list_tools` 与直接 `call_tool` 都会注册，后台 notify 失败时清理已关闭 session。
+- **测试与验证**: 新增 HTTP header、lazy call-tool、remote MCP shaped/error 语义、多 content 裁剪、同形 JSON 防误判等回归测试。验证全绿：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py`。
+
+## 2026-07-04（Phase 4 integrity 执行接入）
+
+- **Baseline 持有**: `AppState` 新增 `integrity_baseline: Arc<RwLock<IntegrityBaseline>>` 与 `quarantined_tools: QuarantinedTools`（`Arc<RwLock<HashMap<String, IntegrityPolicy>>>`，wire name → policy）。`main.rs` serve 启动时从 `registry.all_descriptors()` 首次 pin baseline。
+- **ToolDescriptor 数据来源**: `McpServerEntry` 新增 `descriptors: Vec<ToolDescriptor>` 字段，refresh 时从 rmcp `Tool.input_schema` 构造（含 wire name + description + input_schema）。新增 `all_descriptors()` 返回 `(resource_id, ToolDescriptor)` 对，供 drift 检测。不改 `WrappedTool` 结构（避免影响 catalog）。
+- **Refresh 后 drift 检测**: `spawn_mcp_refresh_task` 在 `registry.refresh()` + `catalog.replace_mcp_tools()` 之后、`notify_peers_tool_list_changed` 之前调用 `check_integrity_drift`：取新 ToolDescriptor → `baseline.check` → 每个 event 构造 `SecurityEvent` 写入 store（通过 `SecurityEventRepository::insert_security_event`）→ 按 per-resource `integrity_policy`（`config.mcp_server(id).security.integrity_policy`）更新隔离集合（Quarantine/Block 加入，Warn 不隔离）→ `baseline.rebase` 更新为最新。tracing 结构化记录 drift 事件数与新增隔离 tool 数。
+- **Policy 执行（隔离拦截）**: `src/mcp/server.rs::call_tool` 在 meta-tool 之后、上游分流之前检查 `quarantined_tools`，隔离 tool 返回 `CallToolResult::error`。`src/proxy/executor.rs::invoke` 加 `quarantined: Option<QuarantinedTools>` 字段 + `with_quarantined` builder，在 catalog 查找后、上游分流前检查隔离集合。MCP 与 HTTP API 共用同一集合（按 wire name）。
+- **IntegrityBaseline.rebase**: 新增 `rebase(&[ToolDescriptor])` 方法，清空旧 pins 后重新 pin。与 `pin_tools` 不同，`rebase` 更新已存在工具的 fingerprint（`pin_tools` 跳过已存在），供 drift 检测在 check 后更新基线。`IntegrityEvent::tool_name()` helper 返回事件涉及的 wire name。
+- **QuarantinedTools 类型**: 定义在 `integrity` 模块（中立），避免 `proxy → http` 循环依赖：`proxy` 与 `http` 均依赖 `integrity`，而非彼此。
+- **测试**: `tests/integrity_drift.rs`（3 个端到端测试：Quarantine drift 写 security event + 隔离、Warn policy 不隔离、rebase 后不重复检测）；`integrity.rs` 新增 rebase + tool_name() 单元测试；`registry.rs` 新增 all_descriptors() 测试；`executor.rs` 新增 quarantine/block 拦截 + 放行测试。验证全绿：346 lib + 1 bin + 3 integration + 8 integration + 1 doctest，2 ignored。
+
+## 2026-07-04（MCP registry 自动刷新与 notify_tool_list_changed）
+
+- **Registry 可变状态**: `McpServerRegistry` 内部从 `Arc<Vec>` 改为 `Arc<RwLock<Vec>>`，支持运行时更新。新增 `refresh()` 异步方法（读锁 clone 快照 → 异步拉取上游 list_tools → 写锁替换），保持 wire name 去重与上游失败降级。`mcp_resource_ids()` / `all_wrapped_tools()` / `contains_tool()` / `find_tool()` 改为同步读锁。
+- **Catalog 同步**: 新增 `ToolCatalog::replace_mcp_tools(new, mcp_resource_ids)`，refresh 后替换 catalog 中 MCP 工具快照，保留 HTTP API 工具不变。`AppState.catalog` 改为 `Arc<tokio::sync::RwLock<ToolCatalog>>` 支持后台原子替换。
+- **后台刷新 task**: `serve` 启动周期性 task（`MCP_REFRESH_INTERVAL_SECS = 60`），调用 `registry.refresh()` + `catalog.replace_mcp_tools()` + `notify_peers_tool_list_changed()`，graceful shutdown 时通过 `CancellationToken` 取消。tracing 结构化记录工具数变化与失败上游 id。
+- **notify_tool_list_changed 实现**: 调研 rmcp 2.1 确认可从外部后台任务触发。`AsterlaneToolServer::list_tools` 从 `RequestContext<RoleServer>.peer` 捕获 `Peer` 存入 `AppState.tool_list_changed_peers`（`Arc<RwLock<Vec<Peer<RoleServer>>>>`）。refresh 后 `notify_peers_tool_list_changed()` 遍历 peer 调 `Peer::notify_tool_list_changed()`，失败的 peer（TransportClosed）自动清理。
+- **文档**: `docs/api-discovery.md` 缓存与失效节更新实现状态。
+
 ## 2026-07-04（Remote MCP proxy 接线）
 
 - **Config**: remote MCP server 改为顶层 `mcp_servers`，字段固定为 `id/domain/provider/url/description/auth`，`auth` 复用 `UpstreamAuth` 并使用 secret ref 示例。

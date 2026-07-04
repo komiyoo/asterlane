@@ -213,6 +213,13 @@ pub enum ShapingOutcome {
 
 // ── Public API ──
 
+/// 返回 per-resource budget 或默认值。
+///
+/// 当 `per_resource` 为 `Some(bytes)` 时使用该值，否则回退到 `DEFAULT_BUDGET_BYTES`。
+pub fn budget_for(per_resource: Option<usize>) -> usize {
+    per_resource.unwrap_or(DEFAULT_BUDGET_BYTES)
+}
+
 /// 对结果执行截断裁剪。
 ///
 /// 小于等于 budget 时原样返回；超出时截断到 UTF-8 安全边界，

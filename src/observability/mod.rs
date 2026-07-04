@@ -11,6 +11,7 @@ pub mod aggregation;
 pub mod metrics;
 pub mod model;
 pub mod redaction;
+pub mod security;
 
 pub use aggregation::{AggregateDimension, BucketGranularity, UsageBucket, bucket_start};
 pub use metrics::{decrement_active_requests, increment_active_requests, record_request_event};
@@ -19,3 +20,4 @@ pub use redaction::{
     BodySummary, redact_auth_header, redact_body, redact_header_value, redact_secret_key,
     redact_secret_ref, redact_secret_string,
 };
+pub use security::{SecurityEvent, SecurityEventKind, Severity};

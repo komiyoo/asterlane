@@ -197,7 +197,7 @@ fn handle_search(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ApiResource, HttpMethod, ToolEndpoint, UpstreamAuth};
+    use crate::config::{ApiResource, HttpMethod, SecurityConfig, ToolEndpoint, UpstreamAuth};
 
     fn test_config() -> GatewayConfig {
         GatewayConfig {
@@ -217,6 +217,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search the web with Tavily".to_string(),
                     }],
+                    security: SecurityConfig::default(),
                 },
                 ApiResource {
                     id: "exa".to_string(),
@@ -234,6 +235,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Neural search with Exa".to_string(),
                     }],
+                    security: SecurityConfig::default(),
                 },
             ],
             mcp_servers: Vec::new(),

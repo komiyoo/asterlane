@@ -34,6 +34,23 @@ impl ToolCatalog {
             .sort_by(|a, b| a.name.to_wire_name().cmp(&b.name.to_wire_name()));
     }
 
+    /// 用新的 MCP 工具快照替换 catalog 中由 `mcp_resource_ids` 标记的远程 MCP 工具。
+    ///
+    /// refresh 后调用：先移除所有 `resource_id` 在给定集合中的旧工具，
+    /// 再 extend 新工具并重排序。HTTP API 工具（非 MCP）不受影响。
+    /// 保持 `list_for_key` 的过滤/scope 逻辑不变——仅替换数据源。
+    pub fn replace_mcp_tools(
+        &mut self,
+        new_tools: Vec<WrappedTool>,
+        mcp_resource_ids: &std::collections::HashSet<String>,
+    ) {
+        self.tools
+            .retain(|t| !mcp_resource_ids.contains(&t.resource_id));
+        self.tools.extend(new_tools);
+        self.tools
+            .sort_by(|a, b| a.name.to_wire_name().cmp(&b.name.to_wire_name()));
+    }
+
     pub fn list_for_key(
         &self,
         key: &ProxyKey,
@@ -233,7 +250,7 @@ pub enum CatalogError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{HttpMethod, ToolEndpoint, UpstreamAuth};
+    use crate::config::{HttpMethod, SecurityConfig, ToolEndpoint, UpstreamAuth};
 
     fn config() -> GatewayConfig {
         GatewayConfig {
@@ -253,6 +270,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Tavily".to_string(),
                     }],
+                    security: SecurityConfig::default(),
                 },
                 ApiResource {
                     id: "exa".to_string(),
@@ -270,6 +288,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Exa".to_string(),
                     }],
+                    security: SecurityConfig::default(),
                 },
             ],
             mcp_servers: Vec::new(),
@@ -397,5 +416,73 @@ mod tests {
             ..Default::default()
         };
         assert!(catalog.list_for_key(key, &query).is_err());
+    }
+
+    // ── replace_mcp_tools ──
+
+    fn mcp_tool(wire: &str, resource_id: &str) -> WrappedTool {
+        let name: ToolName = wire.parse().unwrap();
+        WrappedTool {
+            name,
+            resource_id: resource_id.to_string(),
+            description: "mcp tool".to_string(),
+            upstream_path: "upstream".to_string(),
+        }
+    }
+
+    #[test]
+    fn replace_mcp_tools_swaps_only_mcp_entries() {
+        let config = config();
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        // 初始有 2 个 HTTP API 工具
+        assert_eq!(catalog.tools.len(), 2);
+
+        // 添加 mcp tools
+        catalog.extend_with_mcp_tools(vec![
+            mcp_tool("travel__rollinggo__search__call", "rollinggo"),
+            mcp_tool("travel__exa__fetch__call", "exa-mcp"),
+        ]);
+        assert_eq!(catalog.tools.len(), 4);
+
+        // replace：rollinggo 工具变化，exa-mcp 下线
+        let mut mcp_ids = std::collections::HashSet::new();
+        mcp_ids.insert("rollinggo".to_string());
+        mcp_ids.insert("exa-mcp".to_string());
+        catalog.replace_mcp_tools(
+            vec![mcp_tool("travel__rollinggo__searchv2__call", "rollinggo")],
+            &mcp_ids,
+        );
+
+        // HTTP API 工具保留（2），旧 mcp 清除，新 mcp 加入（1）
+        assert_eq!(catalog.tools.len(), 3);
+        let wire_names: Vec<String> = catalog
+            .tools
+            .iter()
+            .map(|t| t.name.to_wire_name())
+            .collect();
+        assert!(wire_names.contains(&"search__tavily__web_search__post".to_string()));
+        assert!(wire_names.contains(&"search__exa__neural_search__post".to_string()));
+        assert!(wire_names.contains(&"travel__rollinggo__searchv2__call".to_string()));
+        // 旧 mcp 工具已移除
+        assert!(!wire_names.contains(&"travel__rollinggo__search__call".to_string()));
+        assert!(!wire_names.contains(&"travel__exa__fetch__call".to_string()));
+    }
+
+    #[test]
+    fn replace_mcp_tools_empty_new_clears_all_mcp() {
+        let config = config();
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        catalog.extend_with_mcp_tools(vec![mcp_tool(
+            "travel__rollinggo__search__call",
+            "rollinggo",
+        )]);
+        assert_eq!(catalog.tools.len(), 3);
+
+        let mut mcp_ids = std::collections::HashSet::new();
+        mcp_ids.insert("rollinggo".to_string());
+        catalog.replace_mcp_tools(Vec::new(), &mcp_ids);
+
+        // 只剩 HTTP API 工具
+        assert_eq!(catalog.tools.len(), 2);
     }
 }

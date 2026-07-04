@@ -1,13 +1,16 @@
 use asterlane::catalog::{ToolCatalog, ToolListQuery, WrappedTool};
-use asterlane::config::{GatewayConfig, McpServerConfig, ProxyKey, UpstreamAuth};
+use asterlane::config::{GatewayConfig, McpServerConfig, ProxyKey, SecurityConfig, UpstreamAuth};
 use asterlane::http::{AppState, build_app};
 use asterlane::limits::RateLimits;
 use asterlane::mcp::{McpServerRegistry, RemoteMcpPeer};
 use asterlane::naming::ToolName;
-use asterlane::observability::{RequestEvent, RequestStatus};
+use asterlane::observability::{RequestEvent, RequestStatus, SecurityEvent};
 use asterlane::proxy::ProxyExecutor;
 use asterlane::secrets::DefaultSecretStore;
-use asterlane::store::{RequestEventFilter, RequestEventRepository, StoreError};
+use asterlane::store::{
+    RequestEventFilter, RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
+    StoreError,
+};
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use rmcp::model::{CallToolResult, ContentBlock, Tool};
@@ -62,6 +65,7 @@ fn catalog_extends_with_remote_mcp_tools() {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
+            security: SecurityConfig::default(),
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -141,6 +145,7 @@ impl RemoteMcpPeer for FakeMcpPeer {
 #[derive(Debug, Default)]
 struct CapturingEventRepository {
     events: Mutex<Vec<RequestEvent>>,
+    security_events: Mutex<Vec<SecurityEvent>>,
 }
 
 impl RequestEventRepository for CapturingEventRepository {
@@ -168,6 +173,31 @@ impl RequestEventRepository for CapturingEventRepository {
     }
 }
 
+impl SecurityEventRepository for CapturingEventRepository {
+    async fn insert_security_event(&self, event: &SecurityEvent) -> Result<(), StoreError> {
+        let Ok(mut events) = self.security_events.lock() else {
+            return Err(StoreError::NotFound(
+                "capturing event repository lock poisoned".to_string(),
+            ));
+        };
+        events.push(event.clone());
+        Ok(())
+    }
+
+    async fn list_security_events(
+        &self,
+        _filter: &SecurityEventFilter,
+        _limit: u32,
+    ) -> Result<Vec<SecurityEvent>, StoreError> {
+        let Ok(events) = self.security_events.lock() else {
+            return Err(StoreError::NotFound(
+                "capturing event repository lock poisoned".to_string(),
+            ));
+        };
+        Ok(events.clone())
+    }
+}
+
 #[tokio::test]
 async fn registry_wraps_tools_and_calls_original_tool_name() {
     let peer = Arc::new(FakeMcpPeer::new());
@@ -178,6 +208,7 @@ async fn registry_wraps_tools_and_calls_original_tool_name() {
         url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
         description: "RollingGo flight MCP".to_string(),
         auth: UpstreamAuth::None,
+        security: SecurityConfig::default(),
     };
     let registry = McpServerRegistry::from_peers(&[config], vec![peer.clone()])
         .await
@@ -222,6 +253,7 @@ async fn registry_rejects_duplicate_wire_names() {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP A".to_string(),
             auth: UpstreamAuth::None,
+            security: SecurityConfig::default(),
         },
         McpServerConfig {
             id: "rollinggo-flight-b".to_string(),
@@ -230,6 +262,7 @@ async fn registry_rejects_duplicate_wire_names() {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP B".to_string(),
             auth: UpstreamAuth::None,
+            security: SecurityConfig::default(),
         },
     ];
 
@@ -255,6 +288,7 @@ async fn http_invoke_dispatches_remote_mcp_tool() {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
+            security: SecurityConfig::default(),
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -313,6 +347,7 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
+            security: SecurityConfig::default(),
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -382,6 +417,7 @@ async fn proxy_executor_limits_remote_mcp_tools() {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
+            security: SecurityConfig::default(),
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -447,6 +483,7 @@ async fn proxy_executor_records_remote_mcp_request_events() {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
+            security: SecurityConfig::default(),
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),

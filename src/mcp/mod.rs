@@ -38,5 +38,5 @@ pub use model::{
     GatewayToolSource, ToolCallResult, ToolContent, ToolDescriptor, ToolListFilter, UpstreamName,
     UpstreamToolMapping,
 };
-pub use registry::{McpServerRegistry, RemoteMcpPeer, RmcpRemoteMcpPeer};
-pub use server::AsterlaneToolServer;
+pub use registry::{McpServerRegistry, RefreshResult, RemoteMcpPeer, RmcpRemoteMcpPeer};
+pub use server::{AsterlaneToolServer, notify_peers_tool_list_changed};

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use asterlane::config::{McpServerConfig, UpstreamAuth};
+use asterlane::config::{McpServerConfig, SecurityConfig, UpstreamAuth};
 use asterlane::mcp::McpServerRegistry;
 use asterlane::secrets::DefaultSecretStore;
 use serde_json::json;
@@ -16,6 +16,7 @@ async fn exa_live_lists_default_tools_and_calls_web_search() -> Result<()> {
         url: "https://mcp.exa.ai/mcp".to_string(),
         description: "Exa hosted MCP".to_string(),
         auth: UpstreamAuth::None,
+        security: SecurityConfig::default(),
     }];
     let registry =
         McpServerRegistry::connect_all(&configs, Arc::new(DefaultSecretStore::with_backends()))
@@ -113,6 +114,7 @@ fn rollinggo_configs() -> Vec<McpServerConfig> {
             url: "https://mcp.rollinggo.cn/mcp".to_string(),
             description: "RollingGo hotel MCP".to_string(),
             auth: rollinggo_auth(),
+            security: SecurityConfig::default(),
         },
         McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -121,6 +123,7 @@ fn rollinggo_configs() -> Vec<McpServerConfig> {
             url: "https://mcp.rollinggo.cn/mcp/flight".to_string(),
             description: "RollingGo flight MCP".to_string(),
             auth: rollinggo_auth(),
+            security: SecurityConfig::default(),
         },
     ]
 }

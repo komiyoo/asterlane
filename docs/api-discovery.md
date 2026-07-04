@@ -92,10 +92,10 @@ api_resources:
 
 ### 缓存与失效
 
-- 上游 `tools/list` 结果缓存在 `moka`（TTL 可配，默认 5 分钟）。
-- 监听上游 `notifications/tools/list_changed`，收到即失效缓存并重拉。
-- 网关自身向下游声明 `listChanged = true`，上游工具变化时 `notify_tool_list_changed`。
-- 上游不可达时降级使用缓存（标记 stale），不阻塞下游 `tools/list`。
+- 上游 `tools/list` 结果缓存在 `moka`（TTL 可配，默认 5 分钟）。当前阶段以 `McpServerRegistry` 内部 `RwLock<Vec<McpServerEntry>>` 持有最新快照，后台周期性 `refresh()`（默认 60s）重拉上游 `tools/list`；moka TTL 缓存为后续优化。
+- 监听上游 `notifications/tools/list_changed`，收到即失效缓存并重拉。当前阶段未接入上游 notify 监听，以周期性 refresh 兜底；未来补充上游 notify 监听以实现即时失效。
+- 网关自身向下游声明 `listChanged = true`，上游工具变化时 `notify_tool_list_changed`。实现路径：`AsterlaneToolServer::list_tools` / `call_tool` 从 `RequestContext<RoleServer>` 捕获 `Peer`，后台 refresh 后遍历活跃 peer 调 `Peer::notify_tool_list_changed()`（rmcp 2.1 `src/service/server.rs:491`），失败的 peer（session 已关闭）自动清理。
+- 上游不可达时降级使用缓存（标记 stale），不阻塞下游 `tools/list`。当前实现：refresh 时上游 `list_tools` 或工具包装失败的 entry 保留上一次成功的 `tools`/`descriptors` 快照，并在 `RefreshResult.failed_server_ids` 标记失败上游，避免临时网络失败污染 integrity baseline。
 
 ### 上游鉴权
 

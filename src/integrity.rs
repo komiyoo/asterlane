@@ -5,8 +5,11 @@
 //! additions/removals).
 
 use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::mcp::model::ToolDescriptor;
@@ -76,15 +79,65 @@ pub enum IntegrityEvent {
     },
 }
 
+impl IntegrityEvent {
+    /// 返回该事件涉及的 tool wire name。
+    ///
+    /// 供 drift 检测路径查 resource_id、写 security event 与更新隔离集合。
+    pub fn tool_name(&self) -> &str {
+        match self {
+            Self::ToolChanged { tool_name, .. }
+            | Self::ToolAdded { tool_name }
+            | Self::ToolRemoved { tool_name }
+            | Self::HintFlipped { tool_name, .. } => tool_name,
+        }
+    }
+}
+
 /// What to do when drift is detected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IntegrityPolicy {
     /// Log the event, do not block.
+    #[default]
     Warn,
     /// Quarantine the tool (pause usage).
     Quarantine,
     /// Reject all calls to the tool.
     Block,
+}
+
+/// 被隔离的工具集合类型：wire name → 触发隔离的 `IntegrityPolicy`。
+///
+/// `Quarantine` 与 `Block` 策略的 drift 工具会被加入此集合，
+/// `call_tool` / `invoke` 在调用上游前检查此集合并拒绝调用。
+/// `Warn` 策略只记录 security event，不加入此集合。
+///
+/// 类型定义在 `integrity` 模块以避免 `proxy` → `http` 循环依赖：
+/// `proxy` 与 `http` 均依赖 `integrity`（中立），而非彼此。
+pub type QuarantinedTools =
+    std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, IntegrityPolicy>>>;
+
+impl fmt::Display for IntegrityPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Warn => write!(f, "warn"),
+            Self::Quarantine => write!(f, "quarantine"),
+            Self::Block => write!(f, "block"),
+        }
+    }
+}
+
+impl FromStr for IntegrityPolicy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "warn" => Ok(Self::Warn),
+            "quarantine" => Ok(Self::Quarantine),
+            "block" => Ok(Self::Block),
+            other => Err(format!("unknown integrity policy: {other}")),
+        }
+    }
 }
 
 /// Stores pinned tool fingerprints and detects drift.
@@ -176,6 +229,16 @@ impl IntegrityBaseline {
         }
 
         events
+    }
+
+    /// 用最新的工具列表完全替换 baseline（清空旧 pins 后重新 pin）。
+    ///
+    /// 供 drift 检测路径在 `check` 完成后调用，使下次 `check` 以最新状态为基线。
+    /// 与 `pin_tools` 不同，`rebase` 会更新已存在工具的 fingerprint
+    /// （`pin_tools` 跳过已存在的 tool，不更新 fingerprint）。
+    pub fn rebase(&mut self, tools: &[ToolDescriptor]) {
+        self.pins.clear();
+        self.pin_tools(tools);
     }
 }
 
@@ -286,5 +349,80 @@ mod tests {
             "annotations": { "readOnlyHint": true }
         });
         assert_eq!(read_hint(&schema, "readOnlyHint"), Some(true));
+    }
+
+    // ── rebase ──
+
+    #[test]
+    fn rebase_updates_fingerprint_for_changed_tool() {
+        let tools_v1 = vec![make_descriptor("a__b__c__d", "v1")];
+        let tools_v2 = vec![make_descriptor("a__b__c__d", "v2")];
+
+        let mut baseline = IntegrityBaseline::new();
+        baseline.pin_tools(&tools_v1);
+
+        // pin_tools 不更新已存在工具 → 仍检测到 ToolChanged
+        let events_after_pin = baseline.check(&tools_v2);
+        assert_eq!(events_after_pin.len(), 1);
+
+        // rebase 更新 fingerprint → 下次 check 不再报 drift
+        baseline.rebase(&tools_v2);
+        let events_after_rebase = baseline.check(&tools_v2);
+        assert!(events_after_rebase.is_empty());
+    }
+
+    #[test]
+    fn rebase_handles_tool_removal_and_addition() {
+        let tools_v1 = vec![
+            make_descriptor("a__b__c__d", "v1"),
+            make_descriptor("x__y__z__w", "old"),
+        ];
+        let tools_v2 = vec![
+            make_descriptor("a__b__c__d", "v1"),
+            make_descriptor("new__tool__here", "new"),
+        ];
+
+        let mut baseline = IntegrityBaseline::new();
+        baseline.pin_tools(&tools_v1);
+        baseline.rebase(&tools_v2);
+
+        // rebase 后基线 = tools_v2：check tools_v2 无 drift
+        assert!(baseline.check(&tools_v2).is_empty());
+        // 旧工具 x__y__z__w 已不在基线中
+        let events = baseline.check(&[make_descriptor("x__y__z__w", "old")]);
+        assert!(events.iter().any(|e| matches!(
+            e,
+            IntegrityEvent::ToolAdded { tool_name } if tool_name == "x__y__z__w"
+        )));
+    }
+
+    // ── IntegrityEvent::tool_name() ──
+
+    #[test]
+    fn integrity_event_tool_name_returns_wire_name() {
+        let changed = IntegrityEvent::ToolChanged {
+            tool_name: "a__b__c__d".to_string(),
+            old_fp: "v1:aaa".to_string(),
+            new_fp: "v1:bbb".to_string(),
+        };
+        assert_eq!(changed.tool_name(), "a__b__c__d");
+
+        let added = IntegrityEvent::ToolAdded {
+            tool_name: "x__y__z__w".to_string(),
+        };
+        assert_eq!(added.tool_name(), "x__y__z__w");
+
+        let removed = IntegrityEvent::ToolRemoved {
+            tool_name: "gone__tool__name".to_string(),
+        };
+        assert_eq!(removed.tool_name(), "gone__tool__name");
+
+        let flipped = IntegrityEvent::HintFlipped {
+            tool_name: "hint__tool__flip".to_string(),
+            hint: "readOnlyHint".to_string(),
+            old: Some(true),
+            new: Some(false),
+        };
+        assert_eq!(flipped.tool_name(), "hint__tool__flip");
     }
 }

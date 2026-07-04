@@ -9,7 +9,9 @@ pub mod repository;
 pub mod sqlite;
 
 pub use error::StoreError;
-pub use repository::{RequestEventFilter, RequestEventRepository};
+pub use repository::{
+    RequestEventFilter, RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
+};
 pub use sqlite::SqliteRequestEventRepository;
 
 use sqlx::sqlite::SqlitePool;
@@ -36,7 +38,9 @@ pub async fn in_memory_pool() -> Result<SqlitePool, StoreError> {
 mod tests {
     use super::*;
     use crate::observability::redaction::redact_secret_key;
-    use crate::observability::{RequestEvent, RequestStatus};
+    use crate::observability::{
+        RequestEvent, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
+    };
     use chrono::Utc;
 
     fn sample_event(
@@ -292,5 +296,101 @@ mod tests {
         // DESC：e2（7/3）在前，e1（7/1）在后
         assert_eq!(events[0].request_id, "req_002");
         assert_eq!(events[1].request_id, "req_001");
+    }
+
+    // ── SecurityEventRepository 测试 ──
+
+    fn sample_security_event(resource_id: &str, kind: SecurityEventKind) -> SecurityEvent {
+        SecurityEvent {
+            timestamp: chrono::DateTime::parse_from_rfc3339("2026-07-04T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            resource_id: resource_id.to_string(),
+            tool_name: Some("search__tavily__web_search__post".to_string()),
+            kind,
+            severity: Severity::Warn,
+            details: serde_json::json!({"tool_name": "search__tavily__web_search__post"}),
+        }
+    }
+
+    #[tokio::test]
+    async fn security_event_insert_and_list_roundtrip() {
+        let repo = setup_repo().await;
+        let event =
+            sample_security_event("tavily-default", SecurityEventKind::IntegrityToolChanged);
+
+        repo.insert_security_event(&event).await.unwrap();
+
+        let events = repo
+            .list_security_events(&SecurityEventFilter::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].resource_id, "tavily-default");
+        assert_eq!(events[0].kind, SecurityEventKind::IntegrityToolChanged);
+        assert_eq!(events[0].severity, Severity::Warn);
+        assert_eq!(
+            events[0].tool_name,
+            Some("search__tavily__web_search__post".to_string())
+        );
+        assert_eq!(
+            events[0].details["tool_name"],
+            "search__tavily__web_search__post"
+        );
+    }
+
+    #[tokio::test]
+    async fn security_event_filters_by_resource() {
+        let repo = setup_repo().await;
+
+        let e1 = sample_security_event("res-1", SecurityEventKind::IntegrityToolAdded);
+        let e2 = sample_security_event("res-2", SecurityEventKind::IntegrityToolRemoved);
+
+        repo.insert_security_event(&e1).await.unwrap();
+        repo.insert_security_event(&e2).await.unwrap();
+
+        let filter = SecurityEventFilter {
+            resource_id: Some("res-2".to_string()),
+            ..Default::default()
+        };
+        let events = repo.list_security_events(&filter, 10).await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].resource_id, "res-2");
+        assert_eq!(events[0].kind, SecurityEventKind::IntegrityToolRemoved);
+    }
+
+    #[tokio::test]
+    async fn security_event_filters_by_kind() {
+        let repo = setup_repo().await;
+
+        let e1 = sample_security_event("res-1", SecurityEventKind::IntegrityToolChanged);
+        let e2 = sample_security_event("res-1", SecurityEventKind::ContentDefenseFlag);
+
+        repo.insert_security_event(&e1).await.unwrap();
+        repo.insert_security_event(&e2).await.unwrap();
+
+        let filter = SecurityEventFilter {
+            kind: Some(SecurityEventKind::ContentDefenseFlag),
+            ..Default::default()
+        };
+        let events = repo.list_security_events(&filter, 10).await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, SecurityEventKind::ContentDefenseFlag);
+    }
+
+    #[tokio::test]
+    async fn security_event_preserves_null_tool_name() {
+        let repo = setup_repo().await;
+        let mut event = sample_security_event("res-1", SecurityEventKind::IntegrityToolAdded);
+        event.tool_name = None;
+
+        repo.insert_security_event(&event).await.unwrap();
+
+        let events = repo
+            .list_security_events(&SecurityEventFilter::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].tool_name, None);
     }
 }

@@ -42,6 +42,23 @@ struct RequestEvent {
 
 落库表 `request_events`（见 [Development Workflow – Store Strategy](development-workflow.md)），同时作为 tracing 事件输出。
 
+# 安全事件模型
+
+Integrity drift 与 content defense 命中会记录 `SecurityEvent`，与请求事件分表保存：
+
+```rust
+struct SecurityEvent {
+    timestamp: DateTime<Utc>,
+    resource_id: String,
+    tool_name: Option<String>,
+    kind: SecurityEventKind,       // integrity_tool_changed / content_defense_flag / ...
+    severity: Severity,            // info / warn / error
+    details: serde_json::Value,     // fingerprint、hint 或 defense rule 名称；不得含原文密钥
+}
+```
+
+当前事件类型包括 `integrity_tool_changed`、`integrity_tool_added`、`integrity_tool_removed`、`integrity_hint_flipped` 与 `content_defense_flag`。`details` 只保存 SHA256 fingerprint、hint 名称、布尔值变化或命中的 defense rule 名称，不保存上游响应原文或 Authorization header。
+
 # 指标族
 
 借鉴 NyaProxy `services/metrics.py:79-121` 的七个指标，按 Asterlane 命名：
@@ -96,6 +113,7 @@ struct RequestEvent {
 | OTLP（可选） | 生产链路追踪 | `tracing-opentelemetry` + `opentelemetry-otlp`，feature gate |
 | Prometheus `/metrics` | 指标抓取 | `metrics-exporter-prometheus` |
 | SQLite `request_events` | 历史查询与聚合 | `sqlx`，见 store 模块 |
+| SQLite `security_events` | 安全事件审计 | `sqlx`，记录 integrity drift 与 content defense flag |
 
 OTLP 导出作为可选 feature，第一阶段不强制启用（OTel Rust 仍 0.x，升级有 breaking change）。
 

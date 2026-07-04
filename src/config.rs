@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::integrity::IntegrityPolicy;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayConfig {
     #[serde(default)]
@@ -39,6 +41,8 @@ pub struct ApiResource {
     pub auth: UpstreamAuth,
     #[serde(default)]
     pub endpoints: Vec<ToolEndpoint>,
+    #[serde(default)]
+    pub security: SecurityConfig,
 }
 
 impl ApiResource {
@@ -108,6 +112,8 @@ pub struct McpServerConfig {
     pub description: String,
     #[serde(default)]
     pub auth: UpstreamAuth,
+    #[serde(default)]
+    pub security: SecurityConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,4 +156,40 @@ pub struct ProxyKey {
 
 fn default_tool_page_size() -> usize {
     20
+}
+
+/// Per-resource 安全配置：integrity 策略、content defense、result shaping 预算。
+///
+/// 统一挂载到 `ApiResource` 与 `McpServerConfig`，后续 subagent 在执行路径接入时读取。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    /// Integrity drift 策略（见 `src/integrity.rs` `IntegrityPolicy`）。
+    #[serde(default)]
+    pub integrity_policy: IntegrityPolicy,
+    /// Content defense 配置。
+    #[serde(default)]
+    pub defense: DefenseConfig,
+    /// Result shaping 字节预算上限（超过则截断 + cursor 分页）。
+    #[serde(default)]
+    pub result_budget_bytes: Option<usize>,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            integrity_policy: IntegrityPolicy::Warn,
+            defense: DefenseConfig::default(),
+            result_budget_bytes: None,
+        }
+    }
+}
+
+/// Content defense 配置。
+///
+/// 默认 disabled（保守，需显式开启）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DefenseConfig {
+    /// 是否启用 content defense 扫描。
+    #[serde(default)]
+    pub enabled: bool,
 }

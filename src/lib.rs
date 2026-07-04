@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod config;
+pub mod defense;
 pub mod discovery;
 pub mod error;
 pub mod http;
@@ -16,6 +17,9 @@ pub mod shaping;
 pub mod store;
 
 pub use catalog::{ToolCatalog, ToolListQuery, ToolPage, WrappedTool};
-pub use config::{ApiResource, GatewayConfig, McpServerConfig, ProxyKey, ToolEndpoint};
+pub use config::{
+    ApiResource, DefenseConfig, GatewayConfig, McpServerConfig, ProxyKey, SecurityConfig,
+    ToolEndpoint,
+};
 pub use discovery::{DiscoveryMode, handle_meta_tool_call, is_meta_tool, meta_tool_descriptors};
 pub use naming::ToolName;
