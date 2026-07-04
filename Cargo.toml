@@ -29,6 +29,7 @@ chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
 secrecy = { version = "0.10" }
 zeroize = "1.9"
 tokio = { version = "1.52", features = ["full"] }
@@ -44,3 +45,6 @@ tokio-util = "0.7"
 backon = "1.6"
 openapiv3 = "2.0"
 sha2 = "0.10"
+
+[dev-dependencies]
+wiremock = "0.6"

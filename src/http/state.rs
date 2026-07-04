@@ -30,7 +30,7 @@ pub type ToolListChangedPeers = Arc<RwLock<Vec<Peer<RoleServer>>>>;
 /// `integrity_baseline` 与 `quarantined_tools` 在 MCP refresh 后台 task 中更新：
 /// refresh → drift 检测 → 写 security event → 按 per-resource policy 更新隔离集合 →
 /// pin 新 baseline。`call_tool` / `invoke` 在调用上游前读 `quarantined_tools` 拦截。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppState {
     /// 网关配置（资源、proxy key 等）。
     pub config: Arc<GatewayConfig>,
@@ -56,6 +56,23 @@ pub struct AppState {
     pub integrity_baseline: Arc<RwLock<IntegrityBaseline>>,
     /// 被隔离的 tool 集合（wire name → policy），call/invoke 前检查拦截。
     pub quarantined_tools: QuarantinedTools,
+    /// Prometheus metrics handle for rendering /metrics endpoint.
+    pub metrics_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
+}
+
+// ponytail: manual Debug because PrometheusHandle doesn't impl Debug
+impl std::fmt::Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("config", &self.config)
+            .field("limits", &self.limits)
+            .field("event_repo", &self.event_repo)
+            .field(
+                "metrics_handle",
+                &self.metrics_handle.as_ref().map(|_| "<prometheus>"),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl AppState {
@@ -72,6 +89,7 @@ impl AppState {
             tool_list_changed_peers: Arc::new(RwLock::new(Vec::new())),
             integrity_baseline: Arc::new(RwLock::new(IntegrityBaseline::new())),
             quarantined_tools: Arc::new(RwLock::new(HashMap::new())),
+            metrics_handle: None,
         }
     }
 
@@ -93,6 +111,14 @@ impl AppState {
     /// 注入 integrity baseline（main.rs 启动时首次 pin 后注入）。
     pub fn with_integrity_baseline(mut self, baseline: Arc<RwLock<IntegrityBaseline>>) -> Self {
         self.integrity_baseline = baseline;
+        self
+    }
+
+    pub fn with_metrics_handle(
+        mut self,
+        handle: metrics_exporter_prometheus::PrometheusHandle,
+    ) -> Self {
+        self.metrics_handle = Some(handle);
         self
     }
 

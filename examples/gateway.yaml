@@ -47,11 +47,11 @@ api_resources:
 proxy_keys:
   - id: agent-search-basic
     display_name: Basic search agent
-    # 四段 wire name 格式: domain__provider__tool__method（见 docs/naming-convention.md）。
+    # 三段 wire name 格式: domain__provider__tool（见 docs/naming-convention.md）。
     # allowed_tools 正则可使用冒号形式（policy 层翻译为 wire name 匹配）或直接用 wire name 形式。
     allowed_tools:
-      - '^search:tavily:web_search:.*$'   # tavily — 冒号形式，policy 层翻译为 ^search__tavily__web_search__.*$
-      - '^reader:jina:reader:.*$'         # jina
+      - '^search:tavily:web_search$'      # tavily — 冒号形式，policy 层翻译为 ^search__tavily__web_search$
+      - '^reader:jina:reader$'            # jina
     denied_tools: []
     default_tool_page_size: 5
 

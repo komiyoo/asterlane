@@ -325,6 +325,82 @@ pub trait UsageBucketRepository: Send + Sync {
     ) -> impl std::future::Future<Output = Result<Vec<UsageBucket>, StoreError>> + Send;
 }
 
+// ── 聚合查询 ──
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UsageSummary {
+    pub dimension_value: String,
+    pub request_count: i64,
+    pub error_count: i64,
+    pub total_units: i64,
+    pub avg_latency_ms: f64,
+    pub rate_limit_hits: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AggregationDimension {
+    ProxyKey,
+    Resource,
+    Tool,
+    Status,
+    Domain,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AggregationFilter {
+    pub proxy_key_id: Option<String>,
+    pub resource_id: Option<String>,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OverallStats {
+    pub total_requests: i64,
+    pub total_errors: i64,
+    pub unique_tools: i64,
+    pub unique_proxy_keys: i64,
+    pub unique_resources: i64,
+    pub avg_latency_ms: f64,
+    pub total_rate_limit_hits: i64,
+}
+
+pub trait AggregationRepository: Send + Sync {
+    fn summarize_by(
+        &self,
+        dimension: AggregationDimension,
+        filter: &AggregationFilter,
+        limit: u32,
+    ) -> impl std::future::Future<Output = Result<Vec<UsageSummary>, StoreError>> + Send;
+
+    fn overall_stats(
+        &self,
+        filter: &AggregationFilter,
+    ) -> impl std::future::Future<Output = Result<OverallStats, StoreError>> + Send;
+}
+
+impl AggregationRepository for () {
+    async fn summarize_by(
+        &self,
+        _dimension: AggregationDimension,
+        _filter: &AggregationFilter,
+        _limit: u32,
+    ) -> Result<Vec<UsageSummary>, StoreError> {
+        Ok(Vec::new())
+    }
+    async fn overall_stats(&self, _filter: &AggregationFilter) -> Result<OverallStats, StoreError> {
+        Ok(OverallStats {
+            total_requests: 0,
+            total_errors: 0,
+            unique_tools: 0,
+            unique_proxy_keys: 0,
+            unique_resources: 0,
+            avg_latency_ms: 0.0,
+            total_rate_limit_hits: 0,
+        })
+    }
+}
+
 impl UsageBucketRepository for () {
     async fn upsert_bucket(&self, _bucket: &UsageBucket) -> Result<(), StoreError> {
         Ok(())

@@ -111,6 +111,10 @@ fn load_config(path: &PathBuf) -> Result<GatewayConfig> {
 }
 
 async fn serve(args: ServeArgs) -> Result<()> {
+    let prometheus_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+        .install_recorder()
+        .context("failed to install prometheus metrics recorder")?;
+
     let config = load_config(&args.config)?;
     let mut catalog = ToolCatalog::from_config(&config)?;
     let mcp_registry = if config.mcp_servers.is_empty() {
@@ -125,7 +129,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
         catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
         Some(Arc::new(registry))
     };
-    let mut state = asterlane::http::AppState::new(config, catalog);
+    let mut state =
+        asterlane::http::AppState::new(config, catalog).with_metrics_handle(prometheus_handle);
     if let Some(registry) = &mcp_registry {
         state = state.with_mcp_registry(registry.clone());
     }

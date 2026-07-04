@@ -10,9 +10,10 @@ pub mod sqlite;
 
 pub use error::StoreError;
 pub use repository::{
-    ProxyKeyRecord, ProxyKeyRepository, RequestEventFilter, RequestEventRepository, Resource,
-    ResourceRepository, SecurityEventFilter, SecurityEventRepository, UpstreamKeyRecord,
-    UpstreamKeyRepository, UsageBucket, UsageBucketFilter, UsageBucketRepository,
+    AggregationDimension, AggregationFilter, AggregationRepository, OverallStats, ProxyKeyRecord,
+    ProxyKeyRepository, RequestEventFilter, RequestEventRepository, Resource, ResourceRepository,
+    SecurityEventFilter, SecurityEventRepository, UpstreamKeyRecord, UpstreamKeyRepository,
+    UsageBucket, UsageBucketFilter, UsageBucketRepository, UsageSummary,
 };
 pub use sqlite::SqliteRequestEventRepository;
 
@@ -669,5 +670,159 @@ mod tests {
         let results = repo.query_buckets(&filter, 10).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].bucket_start, "2026-07-04T12:00:00Z");
+    }
+
+    // ── AggregationRepository 测试 ──
+
+    use crate::store::repository::{
+        AggregationDimension, AggregationFilter, AggregationRepository,
+    };
+
+    fn sample_event_with_tool(
+        request_id: &str,
+        proxy_key_id: &str,
+        resource_id: &str,
+        tool_name: &str,
+        status: RequestStatus,
+    ) -> RequestEvent {
+        RequestEvent {
+            timestamp: chrono::DateTime::parse_from_rfc3339("2026-07-03T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            request_id: request_id.to_string(),
+            proxy_key_id: proxy_key_id.to_string(),
+            resource_id: resource_id.to_string(),
+            tool_name: tool_name.to_string(),
+            upstream_key_ref: "key:test".to_string(),
+            status,
+            latency_ms: 100,
+            request_units: 1,
+            retry_count: 0,
+            rate_limited: false,
+            queued_ms: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn summarize_by_resource() {
+        let repo = setup_repo().await;
+        repo.insert_event(&sample_event_with_tool(
+            "r1",
+            "k1",
+            "res-a",
+            "search__tavily__web__post",
+            RequestStatus::Success,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(&sample_event_with_tool(
+            "r2",
+            "k1",
+            "res-a",
+            "search__tavily__web__post",
+            RequestStatus::Success,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(&sample_event_with_tool(
+            "r3",
+            "k1",
+            "res-b",
+            "search__exa__web__post",
+            RequestStatus::UpstreamError(500),
+        ))
+        .await
+        .unwrap();
+
+        let results = repo
+            .summarize_by(
+                AggregationDimension::Resource,
+                &AggregationFilter::default(),
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        let a = results
+            .iter()
+            .find(|r| r.dimension_value == "res-a")
+            .unwrap();
+        assert_eq!(a.request_count, 2);
+        assert_eq!(a.error_count, 0);
+        let b = results
+            .iter()
+            .find(|r| r.dimension_value == "res-b")
+            .unwrap();
+        assert_eq!(b.request_count, 1);
+        assert_eq!(b.error_count, 1);
+    }
+
+    #[tokio::test]
+    async fn summarize_by_domain() {
+        let repo = setup_repo().await;
+        repo.insert_event(&sample_event_with_tool(
+            "r1",
+            "k1",
+            "res",
+            "search__tavily__web__post",
+            RequestStatus::Success,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(&sample_event_with_tool(
+            "r2",
+            "k1",
+            "res",
+            "code__github__repo__get",
+            RequestStatus::Success,
+        ))
+        .await
+        .unwrap();
+
+        let results = repo
+            .summarize_by(
+                AggregationDimension::Domain,
+                &AggregationFilter::default(),
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|r| r.dimension_value == "search"));
+        assert!(results.iter().any(|r| r.dimension_value == "code"));
+    }
+
+    #[tokio::test]
+    async fn overall_stats_mixed_events() {
+        let repo = setup_repo().await;
+        repo.insert_event(&sample_event_with_tool(
+            "r1",
+            "k1",
+            "res-a",
+            "tool1",
+            RequestStatus::Success,
+        ))
+        .await
+        .unwrap();
+        repo.insert_event(&sample_event_with_tool(
+            "r2",
+            "k2",
+            "res-b",
+            "tool2",
+            RequestStatus::UpstreamError(503),
+        ))
+        .await
+        .unwrap();
+
+        let stats = repo
+            .overall_stats(&AggregationFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(stats.total_requests, 2);
+        assert_eq!(stats.total_errors, 1);
+        assert_eq!(stats.unique_tools, 2);
+        assert_eq!(stats.unique_proxy_keys, 2);
+        assert_eq!(stats.unique_resources, 2);
+        assert!(stats.avg_latency_ms > 0.0);
     }
 }

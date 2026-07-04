@@ -1,5 +1,15 @@
 # Documentation Update Log
 
+## 2026-07-04（Phase 7 可观测性增强与集成测试）
+
+- **Prometheus metrics**: `metrics-exporter-prometheus` 0.18 接入 `metrics` 0.24 facade。`PrometheusBuilder::install_recorder()` 在 serve 启动时安装，`/metrics` endpoint 返回 Prometheus 文本格式。`AppState` 新增 `metrics_handle: Option<PrometheusHandle>`（手写 Debug impl）。
+- **聚合查询**: `AggregationRepository` trait + SQLite 实现。`UsageSummary`（dimension_value / request_count / error_count / total_units / avg_latency_ms / rate_limit_hits）、`OverallStats`（total_requests / total_errors / unique_tools / unique_proxy_keys / unique_resources / avg_latency_ms / total_rate_limit_hits）。五维度聚合：ProxyKey / Resource / Tool / Status / Domain（Domain 使用 `substr(tool_name, 1, instr(tool_name, '__') - 1)` 提取）。3 个聚合测试通过。
+- **Admin API**: `/admin` 路由组（7 端点：health / resources / proxy-keys / tools / events / security-events / stats），挂载到主 router。
+- **wiremock 集成测试**: `tests/proxy_upstream.rs`（6 个测试：bearer auth 注入、custom header auth、503 重试后成功、持久失败重试耗尽、JSON body POST、路径参数替换）。dev-dependency `wiremock` 0.6。
+- **KeyId 统一**: `limits::key::KeyId(String)` 移除，统一使用 `keys::KeyId(u64)`。
+- **依赖**: `metrics-exporter-prometheus = "0.18"`、`wiremock = "0.6"`（dev）已在 `docs/crate-selection.md` 记录。
+- **验证**: 411 tests passed（405 unit + 6 wiremock integration），`cargo fmt -- --check` 通过。
+
 ## 2026-07-04（Phase 5 API 自动发现）
 
 - **OpenAPI 解析模块**: 新增 `src/openapi/mod.rs`，使用 `openapiv3` 2.0 解析 OpenAPI 3.0/3.1 spec。支持 JSON 和 YAML（serde_norway）格式，`$ref` 递归解析（深度限制 10），operationId 归一化命名与 `{method}_{path_slug}` 回退，重复 segment 自动追加序号。

@@ -18,6 +18,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::mcp::AsterlaneToolServer;
 
+async fn metrics_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> impl axum::response::IntoResponse {
+    match &state.metrics_handle {
+        Some(handle) => handle.render(),
+        None => String::new(),
+    }
+}
+
 /// 构建 Axum 应用 Router，包含 REST API 和 MCP Server 端点。
 pub fn build_app(state: AppState) -> Router {
     build_app_with_ct(state, CancellationToken::new())
@@ -36,6 +45,7 @@ pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
     Router::new()
         .route("/healthz", get(routes::healthz))
         .route("/versionz", get(routes::versionz))
+        .route("/metrics", get(metrics_handler))
         .route("/config", get(routes::get_config))
         .route("/v1/tools", get(routes::list_tools))
         .route("/v1/tools/{name}/invoke", post(routes::invoke_tool))
