@@ -1,83 +1,85 @@
-# Asterlane Agent Guide
+# Asterlane 代理指南
 
-This file is the stable entry point for coding agents working in this repository. Treat it as a README for agents: concise context, navigation, workflow expectations, and safety rules.
+本文件是编码代理在本仓库工作的稳定入口。把它当作代理版 README：用来快速了解项目背景、导航路径、工作方式和安全规则。
 
-# Project Context
+# 项目背景
 
-Asterlane / 星径 is a Rust project for an agent-native gateway over third-party resources, HTTP APIs, MCP servers, and their credentials. It is not primarily an LLM model gateway.
+Asterlane / 星径 是一个 Rust 项目，目标是为代理原生场景提供统一的第三方资源、HTTP API、MCP 服务器和凭据访问网关。它不是以 LLM 模型转发为主的网关。
 
-The gateway should centralize upstream configuration, credential references, scoped agent access, progressive MCP tool discovery, usage logs, and management visibility.
+网关应集中管理上游配置、凭据引用、按代理划分的访问范围、渐进式 MCP 工具发现、使用日志和管理可见性。
 
-# Where To Look First
+# 优先阅读
 
-- `README.md` - short project overview and current commands.
-- `docs/index.md` - documentation entry point.
-- `docs/product-requirements.md` - product intent and non-goals.
-- `docs/architecture.md` - durable architecture and naming direction.
-- `docs/config-schema.md` - configuration and discovery query shape.
-- `docs/development-workflow.md` - implementation planning, module boundaries, crate guidance, and subagent task patterns.
-- `.codex/skills/asterlane/SKILL.md` - project-local Codex skill.
+- `README.md` - 项目概览和当前可用命令。
+- `docs/index.md` - 文档入口。
+- `docs/product-requirements.md` - 产品意图和非目标。
+- `docs/architecture.md` - 稳定架构和命名方向。
+- `docs/config-schema.md` - 配置与发现查询形态。
+- `docs/development-workflow.md` - 实现规划、模块边界、crate 选择和子代理任务模式。
+- `.codex/skills/asterlane/SKILL.md` - 项目本地 Codex skill。
 
-# Working Style
+# 工作方式
 
-- Prefer Chinese for user-facing discussion in this repository unless the user uses another language.
-- Read the nearest relevant docs before changing code.
-- Keep diffs small, reviewable, and aligned with existing patterns.
-- Make durable product, architecture, database, error-model, or UX decisions in `docs/`, not only in code or chat.
-- Prefer mature Rust crates for protocol, server, database, tracing, and infrastructure concerns; do not hand-roll complex behavior unless there is a documented reason.
-- Keep implementation details out of this file when they are likely to change. Put concrete plans, module maps, and crate comparisons in OKF docs.
+- 本仓库面向用户的讨论默认使用中文，除非用户主动使用其他语言。
+- 本项目所有文档优先使用中文；只有在引用外部标准、协议原文、代码标识、命令输出或保持既有术语更清晰时才保留英文。
+- 改代码前先读最近相关文档。
+- diff 保持小而可审阅，并遵循已有模式。
+- 持久性的产品、架构、数据库、错误模型或 UX 决策应写入 `docs/`，不要只留在代码或对话里。
+- 协议、服务端、数据库、tracing 和基础设施能力优先使用成熟 Rust crate；除非有明确文档化理由，不要手写复杂行为。
+- 容易变化的实现细节不要放在本文件里。具体计划、模块地图和 crate 对比应放入 OKF 文档。
 
-# Documentation
+# 文档
 
-The `docs/` directory is organized as a small OKF bundle.
+`docs/` 目录是一个小型 OKF 文档包。
 
-- Non-reserved Markdown concept files must have YAML frontmatter and a non-empty `type`.
-- `index.md` is navigation.
-- `log.md` is chronological history.
-- When adding or changing durable knowledge, update the relevant concept doc, `docs/index.md` if discovery changes, and `docs/log.md`.
-- Cite external references or local source evidence in the relevant doc when they affect a design decision.
+- 非保留 Markdown 概念文件必须有 YAML frontmatter，并且包含非空 `type`。
+- `index.md` 用作导航。
+- `log.md` 用作时间顺序历史。
+- 新增或修改持久知识时，更新相关概念文档；如果影响发现路径，同步更新 `docs/index.md`；并更新 `docs/log.md`。
+- 文档正文优先使用中文；外部引用标题、协议字段、代码路径、命令和错误码可保留英文。
+- 当外部资料或本地源码证据影响设计决策时，在相关文档中引用来源。
 
-# Product And Architecture Guardrails
+# 产品与架构护栏
 
-- Do not turn Asterlane into a model-provider gateway unless the product requirements explicitly change.
-- Preserve agent-native discovery: agents should be able to request a narrowed tool view instead of receiving every tool at once.
-- Treat upstream credentials as gateway-owned secrets. Agents should receive scoped gateway access, not raw upstream keys.
-- Keep gateway keys, admin credentials, upstream credentials, and secret references conceptually separate.
-- Favor modular boundaries: config, naming, policy, catalog, secrets, key pools, routing, limits, transforms, proxy execution, MCP adapters, observability, store, admin, and errors should not collapse into one layer.
-- Use the local NyaProxy clone only as a reference for gateway primitives. Reinterpret its ideas for Asterlane's third-party resource and MCP gateway model.
+- 不要把 Asterlane 变成模型供应商网关，除非产品需求明确改变。
+- 保持代理原生发现能力：代理应能请求收窄后的工具视图，而不是一次性接收所有工具。
+- 将上游凭据视为网关拥有的密钥。代理应只获得有范围限制的网关访问权，而不是原始上游密钥。
+- 概念上保持网关密钥、管理员凭据、上游凭据和密钥引用相互独立。
+- 保持模块边界清晰：config、naming、policy、catalog、secrets、key pools、routing、limits、transforms、proxy execution、MCP adapters、observability、store、admin 和 errors 不应塌缩成同一层。
+- 本地 NyaProxy 克隆只作为网关基础能力参考。应按 Asterlane 的第三方资源与 MCP 网关模型重新解释其中思路。
 
-# Safety
+# 安全
 
-- Do not commit real API keys, tokens, OAuth credentials, private certificates, or sensitive request bodies.
-- Logs, errors, tests, examples, and docs must use secret references, test values, hashes, or redacted identifiers.
-- User-visible errors should be safe to display and should not include Authorization headers or raw upstream responses that may contain secrets.
-- Do not run destructive git commands or overwrite unrelated local changes.
+- 不要提交真实 API key、token、OAuth 凭据、私钥证书或敏感请求体。
+- 日志、错误、测试、示例和文档必须使用密钥引用、测试值、哈希或脱敏标识。
+- 用户可见错误必须可安全展示，不应包含 Authorization header 或可能带密钥的原始上游响应。
+- 不要运行破坏性 git 命令，也不要覆盖无关本地改动。
 
-# Subagents
+# 子代理
 
-Use subagents only when the user asks for subagents or parallel agent work, or when a task has genuinely independent slices. The main agent owns coordination, final integration, and verification.
+只有在用户要求子代理或并行代理工作，或者任务确实能拆成彼此独立的切片时才使用子代理。主代理负责协调、最终整合和验证判断。
 
-Good subagent tasks are bounded and non-overlapping:
+适合子代理的任务应边界清晰且互不重叠：
 
-- read-only exploration with file-path evidence
-- implementation in a clearly owned module
-- independent verification of a specific risk
+- 只读探索，并返回带路径证据的结论。
+- 在明确归属模块内实现。
+- 针对某个具体风险做独立验证。
 
-Subagents must not revert changes made by others.
+子代理不得回滚他人的改动。
 
-# Research
+# 调研
 
-Use `$smart-search-cli` for current web, official documentation, crate/API, or protocol research. Do not paste secrets or provider configuration into docs or final replies. Prefer official docs, crate docs, source repositories, and fetched pages for claims that affect implementation.
+需要最新 Web、官方文档、crate/API 或协议调研时使用 `$smart-search-cli`。不要把密钥或供应商配置粘贴进文档或最终回复。影响实现的结论优先使用官方文档、crate 文档、源码仓库和已抓取页面。
 
-# Validation
+# 验证
 
-Before claiming completion for code changes, run:
+代码改动完成前运行：
 
 ```bash
 cargo fmt -- --check
 cargo test
 ```
 
-For documentation changes, also run the OKF frontmatter/type check described in `docs/development-workflow.md`.
+文档改动还要运行 `docs/development-workflow.md` 中说明的 OKF frontmatter/type 检查。
 
-If verification cannot be completed, report the exact command that was not run or failed, plus the reason.
+如果无法完成验证，最终回复要说明未运行或失败的精确命令，以及原因。

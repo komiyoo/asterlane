@@ -253,8 +253,91 @@ gateway-facing key 是 agent 或应用身份。每个 key 有自己的 tool scop
 - 示例配置。
 - 项目内 Codex skill。
 
+# 后续演进（2026-07-03）
+
+本文件保留原始需求作为历史记录。以下条目已被后续架构决策文档 supersede：
+
+- **MCP tool 命名分隔符**：原始需求采用冒号 `domain:provider:tool:method`。经核查 MCP 2025-11-25 规范（SHOULD `[A-Za-z0-9_.-]`）与 Anthropic/OpenAI API 硬约束（`^[a-zA-Z0-9_-]{1,64}$`），冒号会被客户端拒绝。决策改为双下划线 `domain__provider__tool__method`，内部结构化标识保留四段。详见 [Naming Convention](naming-convention.md)。
+- **crate 选型**：`serde_yaml` 已 archived，改选 `serde_norway`；MCP SDK 确定为 `rmcp` 2.1。详见 [Crate Selection](crate-selection.md)。
+- **错误系统、可观测性、API 发现、兼容性**：分别见 [Error Model](error-model.md)、[Observability](observability.md)、[API Discovery](api-discovery.md)、[Compatibility Policy](compatibility-policy.md)。
+
+# 竞品借鉴：Toolport（2026-07-04）
+
+## 背景
+
+Toolport（原 Conduit）是一个本地桌面 MCP 网关（Tauri + React + Rust gateway binary），定位为个人开发者的 MCP server 聚合器。MIT 协议，v1.3.0 已发布。
+
+**与 Asterlane 的定位差异**：Toolport 面向单机/个人，解决"多 AI client 共享 MCP server 配置"问题；Asterlane 面向平台/团队，解决"集中凭据治理 + 多 agent 权限隔离 + 上游 key pool + 限流 + 可观测"问题。两者产品路线不同，不适合 fork，但有若干机制值得借鉴。
+
+## 借鉴项
+
+### 1. Lazy Discovery Meta-Tool 模式
+
+**来源**：`toolport-gateway.rs`，lazy mode 下只暴露 4 个 meta-tool（`toolport_status`、`toolport_search_tools`、`toolport_call_tool`、`toolport_fetch_result`），agent 按需搜索和调用，benchmark 实测省 90%+ token。
+
+**映射到 Asterlane**：Asterlane 已有 progressive disclosure（regex filter + cursor 分页）。补充 lazy discovery 作为**可选模式**：当 proxy key 配置 `discovery_mode: lazy` 时，`tools/list` 仅返回少量 meta-tool；agent 通过 `asterlane__search_tools` 按意图搜索，再通过 `asterlane__call_tool` 间接调用。
+
+好处：
+- 对接不支持 `_meta` 扩展的客户端时仍能实现渐进式发现。
+- 大 catalog（100+ tools）场景下显著压缩上下文。
+- 与现有结构化过滤不冲突，只是多一层间接。
+
+Meta-tool 设计（Asterlane 版）：
+
+| Meta-tool | 描述 |
+| --- | --- |
+| `asterlane__status` | 报告网关状态：已配置 provider 数、tool 总数、当前 key scope 覆盖范围 |
+| `asterlane__search_tools` | 按自然语言意图或正则搜索可用 tool，返回 name + description + inputSchema 摘要 |
+| `asterlane__call_tool` | 间接调用任意已发现 tool（走正常 proxy 路径：凭据注入 + 限流 + 审计） |
+| `asterlane__fetch_result` | 分页获取超长结果的后续片段（result shaping） |
+
+### 2. Tool Integrity / Rug-Pull 检测
+
+**来源**：`integrity.rs`（1785 行），对每个下游 MCP server 的 tool 做 fingerprint baseline（name + description + schema SHA256），后续刷新时 diff，检测：
+- 定义变更（rug pull）
+- 新增未审批工具
+- `readOnlyHint`/`destructiveHint` 安全标注翻转
+
+**映射到 Asterlane**：Remote MCP Proxy 模块天然需要这个能力。当 Asterlane 代理第三方 MCP server 时，上游随时可能改变 tool 定义。网关应：
+- 首次连接时 pin 每个 tool 的 fingerprint。
+- 后续 `notifications/tools/list_changed` 或定时刷新时比对。
+- 检测到 drift 时记录 security event 到 observability store，并可配置策略：`warn`（默认）、`quarantine`（暂停该 tool 直到管理员确认）、`block`（拒绝调用）。
+
+### 3. Content Defense / Anti-Agentjacking
+
+**来源**：gateway dispatch 路径中，tool 返回结果经过 `integrity::inspect_result` 扫描，检测注入样式指令（间接 prompt injection），标记为 external data。
+
+**映射到 Asterlane**：proxy 执行层返回结果时增加可选 content defense 扫描：
+- 检测 tool 结果中是否包含 prompt injection 样式内容（命令式指令、角色扮演、系统提示覆盖）。
+- 检测到时在 response metadata 中标记 `content_defense_flag: true`，不阻断但让 agent 框架知道该内容不可信。
+- 记录事件到 observability store。
+- 可配置 per-resource 开关。
+
+### 4. Result Shaping（大结果分页）
+
+**来源**：`shaping.rs`，tool 返回超过 48KB 时截断头部 + 缓存全文 + 返回 cursor，agent 通过 `toolport_fetch_result` 按需翻页。
+
+**映射到 Asterlane**：proxy 执行层增加 result shaping 中间件：
+- 可配置 `result_budget_bytes`（默认 48KB，per-resource 可覆盖）。
+- 超限时缓存完整结果（进程内 LRU，TTL 15min），返回截断头 + cursor。
+- agent 通过 `asterlane__fetch_result` meta-tool 或专用 endpoint 获取后续片段。
+- 确保 shaping 不丢数据，只推迟。
+
+## 不借鉴项
+
+| Toolport 功能 | 不借鉴原因 |
+| --- | --- |
+| Tauri 桌面 UI / OS keychain 集成 | Asterlane 是 headless server，不需要桌面壳 |
+| stdio transport（sidecar 模式） | Asterlane 走 HTTP/MCP streamable HTTP |
+| 20 AI client 配置自动检测 | 不在 Asterlane 产品范围 |
+| auto-updater / 签名分发 | 服务端部署，不做客户端自更新 |
+| human-in-the-loop 审批队列 | 架构上可以做但优先级低于 key scope + rate limit；后续按需追加 |
+
 # Citations
 
 [1] [Architecture](architecture.md)
 [2] [Configuration Schema](config-schema.md)
-[3] [NyaProxy README](https://github.com/Nya-Foundation/NyaProxy)
+[3] [Naming Convention](naming-convention.md)
+[4] [Crate Selection](crate-selection.md)
+[5] [NyaProxy README](https://github.com/Nya-Foundation/NyaProxy)
+[6] [Toolport GitHub](https://github.com/tsouth89/toolport) — MIT, v1.3.0, 竞品参考

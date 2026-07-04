@@ -25,7 +25,7 @@ The skill should bias toward core gateway correctness:
 
 - no raw secret values in repository files
 - key scope changes must include allow/deny intent
-- wrapped tool names must follow `domain:tool:method`
+- wrapped tool names must follow `domain__provider__tool__method`（双下划线分隔，见 [Naming Convention](naming-convention.md)）
 - discovery should remain filterable and paginated
 - tests should cover policy and catalog changes
 

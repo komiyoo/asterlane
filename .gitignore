@@ -30,3 +30,6 @@ tmp/
 .vscode/
 *.swp
 *.swo
+
+# task
+task.md

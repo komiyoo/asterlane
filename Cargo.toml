@@ -2,6 +2,20 @@
 name = "asterlane"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Agent-native gateway for third-party API and MCP resource credentials"
+license = "MIT"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
 
 [dependencies]
 anyhow = "1.0"
@@ -9,5 +23,20 @@ clap = { version = "4.5", features = ["derive"] }
 regex = "1.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
+serde_norway = "0.9"
 thiserror = "2.0"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+metrics = "0.24"
+secrecy = { version = "0.10" }
+zeroize = "1.9"
+tokio = { version = "1.52", features = ["full"] }
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace"] }
+sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+governor = "0.10"
+reqwest = { version = "0.13", features = ["json"] }
+backon = "1.6"
+sha2 = "0.10"

@@ -1,0 +1,5 @@
+# clippy 配置: 测试代码允许 unwrap/expect/print
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = true

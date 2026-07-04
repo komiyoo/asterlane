@@ -21,7 +21,7 @@ Before changing behavior, read only the closest documents needed for the task:
 ## Core Rules
 
 - Do not commit raw upstream secrets. Use secret references such as `secret://tavily/default`.
-- Keep exposed MCP tool names in `domain:tool:method` form.
+- Keep exposed MCP tool names in `domain__provider__tool__method` form (double underscore separated). See `docs/naming-convention.md` for the rationale — colons violate MCP 2025-11-25 spec and LLM API constraints.
 - Treat proxy-key request filters as narrowing filters only. They must never expand access beyond `allowed_tools` and `denied_tools`.
 - Deny rules override allow rules.
 - Keep discovery progressive: every list operation should support filtering and pagination when the catalog may grow.

@@ -1,15 +1,21 @@
 # Asterlane Docs
 
-This documentation is organized as a small OKF bundle so agents and humans can load project knowledge progressively.
+本文档包按 OKF 组织，供 agent 与人类渐进式加载项目知识。
 
-## Concepts
+## 概念文档
 
-- [Architecture](architecture.md) - System purpose, boundaries, data flow, and staged roadmap.
-- [Product Requirements](product-requirements.md) - Original product intent and agent-native requirements.
-- [Configuration Schema](config-schema.md) - YAML configuration shape for API resources, proxy keys, and tool scopes.
-- [Development Workflow](development-workflow.md) - Agent/subagent startup workflow, module boundaries, crate policy, and validation rules.
-- [Agent Skill](agent-skill.md) - How the bundled Codex skill should be used with this project.
-- [Log](log.md) - Documentation update history.
+- [Architecture](architecture.md) - 系统目标、模块边界、数据流、命名、分阶段路线图。
+- [Naming Convention](naming-convention.md) - MCP 工具命名格式与映射规则（基于规范约束的决策）。
+- [Crate Selection](crate-selection.md) - 各能力维度的 Rust crate 选型矩阵与版本。
+- [Error Model](error-model.md) - 错误分类、错误码、边界转换、脱敏。
+- [Observability](observability.md) - 请求事件、指标、脱敏、聚合口径。
+- [API Discovery](api-discovery.md) - OpenAPI 自动发现与 MCP 转换、第三方 MCP 代理发现。
+- [Compatibility Policy](compatibility-policy.md) - 配置、工具名、错误码、公共 API 的兼容边界。
+- [Product Requirements](product-requirements.md) - 原始产品意图与 agent-native 要求。
+- [Configuration Schema](config-schema.md) - YAML 配置形态。
+- [Development Workflow](development-workflow.md) - 模块边界、crate 策略、子代理任务模式、验证规则。
+- [Agent Skill](agent-skill.md) - 项目本地 Codex skill 使用说明。
+- [Log](log.md) - 文档更新历史。
 
 ## External Format Reference
 

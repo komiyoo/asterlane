@@ -1,8 +1,21 @@
 pub mod catalog;
 pub mod config;
+pub mod discovery;
+pub mod error;
+pub mod http;
+pub mod integrity;
+pub mod keys;
+pub mod limits;
+pub mod mcp;
 pub mod naming;
+pub mod observability;
 pub mod policy;
+pub mod proxy;
+pub mod secrets;
+pub mod shaping;
+pub mod store;
 
 pub use catalog::{ToolCatalog, ToolListQuery, ToolPage, WrappedTool};
 pub use config::{ApiResource, GatewayConfig, ProxyKey, ToolEndpoint};
+pub use discovery::{DiscoveryMode, handle_meta_tool_call, is_meta_tool, meta_tool_descriptors};
 pub use naming::ToolName;
