@@ -81,8 +81,7 @@ pub fn discover_endpoints(
     let spec: OpenAPI = serde_json::from_str(spec_str)
         .map_err(|e| OpenApiError::ParseError(e.to_string()))
         .or_else(|_| {
-            serde_norway::from_str(spec_str)
-                .map_err(|e| OpenApiError::ParseError(e.to_string()))
+            serde_norway::from_str(spec_str).map_err(|e| OpenApiError::ParseError(e.to_string()))
         })?;
 
     if !spec.openapi.starts_with("3.") {
@@ -254,15 +253,9 @@ fn build_input_schema(
     for param_ref in op.parameters.iter().chain(path_level_params.iter()) {
         let param = resolve_parameter(param_ref, spec)?;
         let (data, kind) = match param {
-            Parameter::Path {
-                parameter_data, ..
-            } => (parameter_data, ParamKind::Path),
-            Parameter::Query {
-                parameter_data, ..
-            } => (parameter_data, ParamKind::Query),
-            Parameter::Header {
-                parameter_data, ..
-            } => (parameter_data, ParamKind::Header),
+            Parameter::Path { parameter_data, .. } => (parameter_data, ParamKind::Path),
+            Parameter::Query { parameter_data, .. } => (parameter_data, ParamKind::Query),
+            Parameter::Header { parameter_data, .. } => (parameter_data, ParamKind::Header),
             Parameter::Cookie { .. } => continue,
         };
 
@@ -409,11 +402,7 @@ fn resolve_schema_to_value(
 
 /// Walk a serialized JSON Schema value and replace `{"$ref": "#/components/schemas/X"}`
 /// with the resolved schema inline.
-fn inline_schema_refs(
-    value: &mut Value,
-    spec: &OpenAPI,
-    depth: usize,
-) -> Result<(), OpenApiError> {
+fn inline_schema_refs(value: &mut Value, spec: &OpenAPI, depth: usize) -> Result<(), OpenApiError> {
     if depth > MAX_REF_DEPTH {
         return Ok(());
     }

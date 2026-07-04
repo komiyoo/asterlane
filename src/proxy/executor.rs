@@ -455,7 +455,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
         param_locations: Option<&crate::catalog::ParamLocations>,
     ) -> Result<(InvokeResult, u8, String), ExecutionError> {
         let method = method_from_segment(&tool_name.method)?;
-        let url = build_url(base_url, upstream_path, args);
+        let url = build_url(base_url, upstream_path, args, param_locations);
         let is_get = tool_name.method == "get";
 
         let backoff_builder = backon::ExponentialBuilder::default()
@@ -874,7 +874,12 @@ fn method_from_segment(segment: &str) -> Result<reqwest::Method, ProxyError> {
 }
 
 /// 拼接 base_url 与 upstream_path，替换路径参数 `{xxx}` 并追加 query params。
-fn build_url(base_url: &str, path: &str, args: &serde_json::Value) -> String {
+fn build_url(
+    base_url: &str,
+    path: &str,
+    args: &serde_json::Value,
+    param_locations: Option<&crate::catalog::ParamLocations>,
+) -> String {
     let mut resolved = path.to_string();
     if let Some(obj) = args.as_object() {
         for (key, value) in obj {
@@ -888,7 +893,26 @@ fn build_url(base_url: &str, path: &str, args: &serde_json::Value) -> String {
             }
         }
     }
-    format!("{base_url}{resolved}")
+    let mut url = format!("{base_url}{resolved}");
+
+    if let (Some(pl), Some(obj)) = (param_locations, args.as_object()) {
+        let mut first = true;
+        for name in &pl.query_params {
+            if let Some(v) = obj.get(name) {
+                let s = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                url.push(if first { '?' } else { '&' });
+                url.push_str(name);
+                url.push('=');
+                url.push_str(&s);
+                first = false;
+            }
+        }
+    }
+
+    url
 }
 
 /// Build request with parameter decomposition per ParamLocations.
@@ -910,31 +934,16 @@ fn apply_params(
     match param_locations {
         Some(pl) => {
             if let Some(obj) = obj {
-                // Query params
-                let query_pairs: Vec<(&str, String)> = pl
-                    .query_params
-                    .iter()
-                    .filter_map(|name| {
-                        obj.get(name).map(|v| {
-                            let s = match v {
-                                serde_json::Value::String(s) => s.clone(),
-                                other => other.to_string(),
-                            };
-                            (name.as_str(), s)
-                        })
-                    })
-                    .collect();
-                if !query_pairs.is_empty() {
-                    builder = builder.query(&query_pairs);
-                }
+                // Query params — append to URL
+                // (handled in build_url via param_locations)
 
                 // Header params
                 for (field_name, header_name) in &pl.header_params {
                     if let Some(v) = obj.get(field_name).and_then(|v| v.as_str()) {
                         if let Ok(hv) = reqwest::header::HeaderValue::from_str(v) {
-                            if let Ok(hn) = reqwest::header::HeaderName::from_bytes(
-                                header_name.as_bytes(),
-                            ) {
+                            if let Ok(hn) =
+                                reqwest::header::HeaderName::from_bytes(header_name.as_bytes())
+                            {
                                 builder = builder.header(hn, hv);
                             }
                         }
@@ -1616,13 +1625,19 @@ mod tests {
             "https://api.example.com",
             "/{url}",
             &serde_json::json!({"url": "https://docs.rs"}),
+            None,
         );
         assert_eq!(url, "https://api.example.com/https://docs.rs");
     }
 
     #[test]
     fn build_url_no_params_keeps_placeholder() {
-        let url = build_url("https://api.example.com", "/{url}", &serde_json::json!({}));
+        let url = build_url(
+            "https://api.example.com",
+            "/{url}",
+            &serde_json::json!({}),
+            None,
+        );
         assert_eq!(url, "https://api.example.com/{url}");
     }
 

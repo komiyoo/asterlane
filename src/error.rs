@@ -177,6 +177,7 @@ impl AsterlaneError {
                 CatalogError::ToolName(_) => ErrorCode::ConfigInvalidToolName,
                 CatalogError::Regex(_) => ErrorCode::ConfigInvalidRegex,
                 CatalogError::Policy(_) => ErrorCode::ConfigInvalidRegex,
+                CatalogError::OpenApi(_) => ErrorCode::ConfigInvalidYaml,
             },
             Self::Policy(_) => ErrorCode::ConfigInvalidRegex,
             Self::Internal { code, .. } => *code,

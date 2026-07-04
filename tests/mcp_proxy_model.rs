@@ -83,6 +83,8 @@ fn catalog_extends_with_remote_mcp_tools() {
         resource_id: "rollinggo-flight".to_string(),
         description: "Search airports".to_string(),
         upstream_path: "searchAirports".to_string(),
+        input_schema: serde_json::json!({"type": "object"}),
+        param_locations: None,
     }]);
 
     let page = catalog
