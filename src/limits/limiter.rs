@@ -84,7 +84,8 @@ pub trait QueueAdmission: Send + Sync {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::limits::{ApiId, KeyId, PrincipalId};
+    use crate::keys::KeyId;
+    use crate::limits::{ApiId, PrincipalId};
 
     // ── check 通过/拒绝 ──
 
@@ -123,7 +124,7 @@ mod tests {
     async fn different_dimensions_count_independently() {
         let limits = RateLimits::per_second(NonZeroU32::new(1).unwrap());
         let endpoint_key = LimiterKey::Endpoint(ApiId::new("tavily"));
-        let upstream_key = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new("k1"));
+        let upstream_key = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new(1));
         let ip_key = LimiterKey::Ip(ApiId::new("tavily"), "127.0.0.1".parse().unwrap());
         let principal_key =
             LimiterKey::GatewayPrincipal(ApiId::new("tavily"), PrincipalId::new("agent-1"));
@@ -156,8 +157,8 @@ mod tests {
     #[tokio::test]
     async fn different_upstream_keys_count_independently() {
         let limits = RateLimits::per_second(NonZeroU32::new(1).unwrap());
-        let key_a = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new("k1"));
-        let key_b = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new("k2"));
+        let key_a = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new(1));
+        let key_b = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new(2));
 
         assert!(limits.check(&key_a).await.is_ok());
         assert!(limits.check(&key_b).await.is_ok());
@@ -187,7 +188,7 @@ mod tests {
     #[tokio::test]
     async fn quota_exceeded_error_contains_dimension() {
         let limits = RateLimits::per_second(NonZeroU32::new(1).unwrap());
-        let key = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new("k1"));
+        let key = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new(1));
         limits.check(&key).await.unwrap();
 
         let err = limits.check(&key).await.unwrap_err();

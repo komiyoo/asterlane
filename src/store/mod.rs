@@ -10,7 +10,9 @@ pub mod sqlite;
 
 pub use error::StoreError;
 pub use repository::{
-    RequestEventFilter, RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
+    ProxyKeyRecord, ProxyKeyRepository, RequestEventFilter, RequestEventRepository, Resource,
+    ResourceRepository, SecurityEventFilter, SecurityEventRepository, UpstreamKeyRecord,
+    UpstreamKeyRepository, UsageBucket, UsageBucketFilter, UsageBucketRepository,
 };
 pub use sqlite::SqliteRequestEventRepository;
 
@@ -392,5 +394,280 @@ mod tests {
             .unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].tool_name, None);
+    }
+
+    // ── ResourceRepository 测试 ──
+
+    use crate::store::repository::{
+        ProxyKeyRecord, ProxyKeyRepository, Resource, ResourceRepository, UpstreamKeyRecord,
+        UpstreamKeyRepository, UsageBucket, UsageBucketFilter, UsageBucketRepository,
+    };
+
+    fn sample_resource(id: &str) -> Resource {
+        Resource {
+            id: id.to_string(),
+            domain: "search".to_string(),
+            provider: "tavily".to_string(),
+            base_url: "https://api.tavily.com".to_string(),
+            description: Some("Tavily search".to_string()),
+            config_json: "{}".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn resource_insert_get_roundtrip() {
+        let repo = setup_repo().await;
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+
+        let r = repo.get_resource("r1").await.unwrap();
+        assert_eq!(r.id, "r1");
+        assert_eq!(r.domain, "search");
+        assert_eq!(r.provider, "tavily");
+        assert_eq!(r.description, Some("Tavily search".to_string()));
+        assert!(!r.created_at.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resource_list_and_delete() {
+        let repo = setup_repo().await;
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+        repo.insert_resource(&sample_resource("r2")).await.unwrap();
+
+        let all = repo.list_resources().await.unwrap();
+        assert_eq!(all.len(), 2);
+
+        assert!(repo.delete_resource("r1").await.unwrap());
+        assert!(!repo.delete_resource("r1").await.unwrap()); // already gone
+
+        let remaining = repo.list_resources().await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "r2");
+    }
+
+    #[tokio::test]
+    async fn resource_get_not_found() {
+        let repo = setup_repo().await;
+        let err = repo.get_resource("nope").await.unwrap_err();
+        assert!(matches!(err, StoreError::NotFound(_)));
+    }
+
+    // ── ProxyKeyRepository 测试 ──
+
+    fn sample_proxy_key(id: &str) -> ProxyKeyRecord {
+        ProxyKeyRecord {
+            id: id.to_string(),
+            display_name: format!("key-{id}"),
+            default_tool_page_size: 50,
+            scope_json: r#"{"resources":["*"]}"#.to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn proxy_key_insert_get_roundtrip() {
+        let repo = setup_repo().await;
+        repo.insert_proxy_key(&sample_proxy_key("pk1"))
+            .await
+            .unwrap();
+
+        let k = repo.get_proxy_key("pk1").await.unwrap();
+        assert_eq!(k.id, "pk1");
+        assert_eq!(k.display_name, "key-pk1");
+        assert_eq!(k.default_tool_page_size, 50);
+    }
+
+    #[tokio::test]
+    async fn proxy_key_list_and_delete() {
+        let repo = setup_repo().await;
+        repo.insert_proxy_key(&sample_proxy_key("pk1"))
+            .await
+            .unwrap();
+        repo.insert_proxy_key(&sample_proxy_key("pk2"))
+            .await
+            .unwrap();
+
+        assert_eq!(repo.list_proxy_keys().await.unwrap().len(), 2);
+        assert!(repo.delete_proxy_key("pk1").await.unwrap());
+        assert_eq!(repo.list_proxy_keys().await.unwrap().len(), 1);
+    }
+
+    // ── UpstreamKeyRepository 测试 ──
+
+    fn sample_upstream_key(id: &str, resource_id: &str) -> UpstreamKeyRecord {
+        UpstreamKeyRecord {
+            id: id.to_string(),
+            resource_id: resource_id.to_string(),
+            secret_ref: format!("secret://tavily/{id}"),
+            weight: 1,
+            health_state: "healthy".to_string(),
+            cooldown_until: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn upstream_key_insert_get_roundtrip() {
+        let repo = setup_repo().await;
+        // FK：先插入 resource
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+        repo.insert_upstream_key(&sample_upstream_key("u1", "r1"))
+            .await
+            .unwrap();
+
+        let k = repo.get_upstream_key("u1").await.unwrap();
+        assert_eq!(k.id, "u1");
+        assert_eq!(k.resource_id, "r1");
+        assert_eq!(k.health_state, "healthy");
+        assert_eq!(k.cooldown_until, None);
+    }
+
+    #[tokio::test]
+    async fn upstream_key_list_for_resource() {
+        let repo = setup_repo().await;
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+        repo.insert_resource(&sample_resource("r2")).await.unwrap();
+        repo.insert_upstream_key(&sample_upstream_key("u1", "r1"))
+            .await
+            .unwrap();
+        repo.insert_upstream_key(&sample_upstream_key("u2", "r1"))
+            .await
+            .unwrap();
+        repo.insert_upstream_key(&sample_upstream_key("u3", "r2"))
+            .await
+            .unwrap();
+
+        let keys = repo.list_upstream_keys_for_resource("r1").await.unwrap();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.iter().all(|k| k.resource_id == "r1"));
+    }
+
+    #[tokio::test]
+    async fn upstream_key_update_health() {
+        let repo = setup_repo().await;
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+        repo.insert_upstream_key(&sample_upstream_key("u1", "r1"))
+            .await
+            .unwrap();
+
+        let updated = repo
+            .update_upstream_key_health("u1", "degraded", Some("2026-07-05T00:00:00Z"))
+            .await
+            .unwrap();
+        assert!(updated);
+
+        let k = repo.get_upstream_key("u1").await.unwrap();
+        assert_eq!(k.health_state, "degraded");
+        assert_eq!(k.cooldown_until, Some("2026-07-05T00:00:00Z".to_string()));
+
+        // 不存在的 key 返回 false
+        assert!(
+            !repo
+                .update_upstream_key_health("nope", "healthy", None)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn upstream_key_delete() {
+        let repo = setup_repo().await;
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+        repo.insert_upstream_key(&sample_upstream_key("u1", "r1"))
+            .await
+            .unwrap();
+
+        assert!(repo.delete_upstream_key("u1").await.unwrap());
+        assert!(!repo.delete_upstream_key("u1").await.unwrap());
+    }
+
+    // ── UsageBucketRepository 测试 ──
+
+    fn sample_bucket() -> UsageBucket {
+        UsageBucket {
+            bucket_start: "2026-07-03T12:00:00Z".to_string(),
+            granularity: "hour".to_string(),
+            proxy_key_id: "pk1".to_string(),
+            resource_id: "r1".to_string(),
+            tool_name: "web_search".to_string(),
+            upstream_key_ref: "key:1234…wxyz".to_string(),
+            status: "success".to_string(),
+            request_count: 5,
+            total_units: 10,
+            error_count: 0,
+            rate_limit_hits: 0,
+            total_latency_ms: 500,
+            total_queued_ms: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn usage_bucket_upsert_insert_then_increment() {
+        let repo = setup_repo().await;
+        let bucket = sample_bucket();
+
+        // 首次插入
+        repo.upsert_bucket(&bucket).await.unwrap();
+        let results = repo
+            .query_buckets(&UsageBucketFilter::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].request_count, 5);
+        assert_eq!(results[0].total_units, 10);
+
+        // 二次 upsert 累加
+        repo.upsert_bucket(&bucket).await.unwrap();
+        let results = repo
+            .query_buckets(&UsageBucketFilter::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].request_count, 10);
+        assert_eq!(results[0].total_units, 20);
+        assert_eq!(results[0].total_latency_ms, 1000);
+    }
+
+    #[tokio::test]
+    async fn usage_bucket_query_filters() {
+        let repo = setup_repo().await;
+        repo.upsert_bucket(&sample_bucket()).await.unwrap();
+
+        let mut b2 = sample_bucket();
+        b2.resource_id = "r2".to_string();
+        repo.upsert_bucket(&b2).await.unwrap();
+
+        let filter = UsageBucketFilter {
+            resource_id: Some("r1".to_string()),
+            ..Default::default()
+        };
+        let results = repo.query_buckets(&filter, 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].resource_id, "r1");
+    }
+
+    #[tokio::test]
+    async fn usage_bucket_query_time_range() {
+        let repo = setup_repo().await;
+        repo.upsert_bucket(&sample_bucket()).await.unwrap();
+
+        let mut b2 = sample_bucket();
+        b2.bucket_start = "2026-07-04T12:00:00Z".to_string();
+        repo.upsert_bucket(&b2).await.unwrap();
+
+        let filter = UsageBucketFilter {
+            from: Some(
+                chrono::DateTime::parse_from_rfc3339("2026-07-04T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            ..Default::default()
+        };
+        let results = repo.query_buckets(&filter, 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].bucket_start, "2026-07-04T12:00:00Z");
     }
 }

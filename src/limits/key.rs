@@ -7,6 +7,8 @@
 use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
 
+use crate::keys::KeyId;
+
 /// 上游 API 资源标识。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ApiId(String);
@@ -46,31 +48,6 @@ impl Display for PrincipalId {
 }
 
 impl AsRef<str> for PrincipalId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-/// upstream key 标识（哈希/序号，非明文密钥）。
-///
-/// TODO: 待 `crate::keys` 模块稳定后统一为 `crate::keys::KeyId`。
-/// 当前 `src/keys/` 为占位，本模块定义本地 newtype。
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct KeyId(String);
-
-impl KeyId {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-}
-
-impl Display for KeyId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl AsRef<str> for KeyId {
     fn as_ref(&self) -> &str {
         &self.0
     }
@@ -124,12 +101,12 @@ mod tests {
 
     #[test]
     fn display_is_redacted_no_plaintext_key() {
-        let key = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new("k_abc123"));
+        let key = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new(123));
         let display = key.to_string();
         assert!(display.contains("upstream_key"));
         assert!(display.contains("tavily"));
-        // KeyId 是脱敏标识（哈希/序号），不是明文密钥
-        assert!(display.contains("k_abc123"));
+        // KeyId 是脱敏标识（序号），不是明文密钥
+        assert!(display.contains("key#0123"));
         // 不含明文 key 前缀
         assert!(!display.contains("sk-"));
         assert!(!display.contains("Bearer"));
@@ -141,8 +118,11 @@ mod tests {
         let endpoint = LimiterKey::Endpoint(ApiId::new("tavily"));
         assert_eq!(endpoint.to_string(), "endpoint[api=tavily]");
 
-        let upstream = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new("k1"));
-        assert_eq!(upstream.to_string(), "upstream_key[api=tavily, key=k1]");
+        let upstream = LimiterKey::UpstreamKey(ApiId::new("tavily"), KeyId::new(1));
+        assert_eq!(
+            upstream.to_string(),
+            "upstream_key[api=tavily, key=key#0001]"
+        );
 
         let ip = LimiterKey::Ip(ApiId::new("tavily"), "127.0.0.1".parse().unwrap());
         assert_eq!(ip.to_string(), "ip[api=tavily, ip=127.0.0.1]");
@@ -162,7 +142,7 @@ mod tests {
             "endpoint"
         );
         assert_eq!(
-            LimiterKey::UpstreamKey(ApiId::new("a"), KeyId::new("k")).dimension(),
+            LimiterKey::UpstreamKey(ApiId::new("a"), KeyId::new(0)).dimension(),
             "upstream_key"
         );
         assert_eq!(

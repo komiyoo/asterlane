@@ -174,6 +174,11 @@ impl ToolCatalog {
         self.tools.len()
     }
 
+    /// 返回所有工具的只读切片（不经 key scope，供 admin API 使用）。
+    pub fn all_tools(&self) -> &[WrappedTool] {
+        &self.tools
+    }
+
     /// 统计某 key 可见的工具数。
     pub fn count_visible_for_key(&self, key: &ProxyKey) -> Result<usize, CatalogError> {
         let mut count = 0;

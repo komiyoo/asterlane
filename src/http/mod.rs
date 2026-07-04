@@ -40,6 +40,7 @@ pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
         .route("/v1/tools", get(routes::list_tools))
         .route("/v1/tools/{name}/invoke", post(routes::invoke_tool))
         .nest_service("/mcp", mcp_service)
+        .nest("/admin", crate::admin::router())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }

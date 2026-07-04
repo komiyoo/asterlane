@@ -9,5 +9,5 @@ mod key;
 mod limiter;
 
 pub use error::LimitError;
-pub use key::{ApiId, KeyId, LimiterKey, PrincipalId};
+pub use key::{ApiId, LimiterKey, PrincipalId};
 pub use limiter::{QueueAdmission, RateLimits};
