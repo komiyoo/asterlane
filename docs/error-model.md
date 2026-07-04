@@ -75,10 +75,10 @@ timestamp: 2026-07-03T00:00:00Z
 | `auth.forbidden_tool` | 403 |
 | `auth.missing_upstream_secret` | 503 |
 | `catalog.*` / `mcp.invalid_tool_call` | 400 |
-| `catalog.unknown_tool` / `mcp.upstream_mcp_failure` | 404 |
+| `catalog.unknown_tool` | 404 |
 | `store.*` | 503 |
 | `proxy.upstream_timeout` / `proxy.connection_failed` | 504 |
-| `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
+| `mcp.upstream_mcp_failure` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
 | `limit.quota_exceeded` | 429 |
 | `limit.queue_full` / `limit.queue_timeout` | 503 |
 

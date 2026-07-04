@@ -28,6 +28,12 @@ impl ToolCatalog {
         Ok(Self { tools })
     }
 
+    pub fn extend_with_mcp_tools(&mut self, tools: impl IntoIterator<Item = WrappedTool>) {
+        self.tools.extend(tools);
+        self.tools
+            .sort_by(|a, b| a.name.to_wire_name().cmp(&b.name.to_wire_name()));
+    }
+
     pub fn list_for_key(
         &self,
         key: &ProxyKey,
@@ -266,6 +272,7 @@ mod tests {
                     }],
                 },
             ],
+            mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
                 id: "agent-search".to_string(),
                 display_name: "Search Agent".to_string(),

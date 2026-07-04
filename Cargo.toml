@@ -38,5 +38,6 @@ tower-http = { version = "0.7", features = ["trace"] }
 sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 governor = "0.10"
 reqwest = { version = "0.13", features = ["json"] }
+rmcp = { version = "2.1", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 backon = "1.6"
 sha2 = "0.10"

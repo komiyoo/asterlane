@@ -5,6 +5,8 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+    #[serde(default)]
     pub proxy_keys: Vec<ProxyKey>,
 }
 
@@ -16,6 +18,11 @@ impl GatewayConfig {
     /// 按 id 查找上游资源（用于 proxy 执行层定位 base_url 与 auth）。
     pub fn resource(&self, id: &str) -> Option<&ApiResource> {
         self.api_resources.iter().find(|r| r.id == id)
+    }
+
+    /// 按 id 查找 remote MCP server 配置。
+    pub fn mcp_server(&self, id: &str) -> Option<&McpServerConfig> {
+        self.mcp_servers.iter().find(|server| server.id == id)
     }
 }
 
@@ -89,6 +96,18 @@ pub struct ToolEndpoint {
     pub path: String,
     #[serde(default)]
     pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub id: String,
+    pub domain: String,
+    pub provider: String,
+    pub url: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub auth: UpstreamAuth,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

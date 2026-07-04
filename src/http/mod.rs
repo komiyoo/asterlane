@@ -86,6 +86,7 @@ mod tests {
                     }],
                 },
             ],
+            mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
                 id: "agent-search".to_string(),
                 display_name: "Search Agent".to_string(),
@@ -101,6 +102,13 @@ mod tests {
         let config = test_config();
         let catalog = ToolCatalog::from_config(&config).unwrap();
         AppState::new(config, catalog)
+    }
+
+    fn no_proxy_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("test client")
     }
 
     async fn start_mock_upstream(status: u16, body: Vec<u8>) -> SocketAddr {
@@ -142,6 +150,7 @@ mod tests {
                     description: "mock search".to_string(),
                 }],
             }],
+            mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
                 display_name: "Test Agent".to_string(),
@@ -152,7 +161,9 @@ mod tests {
             }],
         };
         let catalog = ToolCatalog::from_config(&config).unwrap();
-        AppState::new(config, catalog)
+        let mut state = AppState::new(config, catalog);
+        state.http_client = no_proxy_client();
+        state
     }
 
     async fn body_to_json(body: Body) -> Value {

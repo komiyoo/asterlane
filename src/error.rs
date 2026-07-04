@@ -299,7 +299,8 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::AuthMissingGatewayKey | ErrorCode::AuthInvalidGatewayKey => 401,
         ErrorCode::AuthForbiddenTool => 403,
         ErrorCode::AuthMissingUpstreamSecret => 503,
-        ErrorCode::CatalogUnknownTool | ErrorCode::McpUpstreamMcpFailure => 404,
+        ErrorCode::CatalogUnknownTool => 404,
+        ErrorCode::McpUpstreamMcpFailure => 502,
         ErrorCode::CatalogInvalidPagination | ErrorCode::McpInvalidToolCall => 400,
         ErrorCode::StoreMigrationFailed | ErrorCode::StoreUnavailable => 503,
         ErrorCode::ProxyUpstreamTimeout | ErrorCode::ProxyConnectionFailed => 504,
@@ -628,10 +629,10 @@ mod tests {
     }
 
     #[test]
-    fn http_mcp_upstream_failure_returns_404() {
+    fn http_mcp_upstream_failure_returns_502() {
         let err = AsterlaneError::internal(ErrorCode::McpUpstreamMcpFailure, "upstream mcp error");
         let view = err.http_response();
-        assert_eq!(view.status, 404);
+        assert_eq!(view.status, 502);
     }
 
     #[test]

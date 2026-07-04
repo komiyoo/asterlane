@@ -22,6 +22,7 @@
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::keys::KeyPoolError;
 use crate::limits::LimitError;
+use crate::mcp::McpError;
 use crate::policy::PolicyError;
 use crate::secrets::SecretError;
 use thiserror::Error;
@@ -79,6 +80,10 @@ pub enum ProxyError {
     /// 策略/scope 正则编译失败（复用 `PolicyError` → `config.invalid_regex`）。
     #[error(transparent)]
     Policy(#[from] PolicyError),
+
+    /// remote MCP 调用失败（复用 `McpError` → `mcp.*` / `catalog.*`）。
+    #[error(transparent)]
+    Mcp(#[from] McpError),
 }
 
 /// 把 `ProxyError` 映射为顶层 `AsterlaneError`。
@@ -127,6 +132,7 @@ impl From<ProxyError> for AsterlaneError {
             ProxyError::KeyPool(e) => e.into(),
             ProxyError::Limit(e) => e.into(),
             ProxyError::Policy(e) => e.into(),
+            ProxyError::Mcp(e) => e.into(),
         }
     }
 }

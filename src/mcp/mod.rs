@@ -29,6 +29,7 @@
 pub mod adapter;
 pub mod error;
 pub mod model;
+pub mod registry;
 
 pub use adapter::PlaceholderAdapter;
 pub use error::McpError;
@@ -36,3 +37,4 @@ pub use model::{
     GatewayToolSource, ToolCallResult, ToolContent, ToolDescriptor, ToolListFilter, UpstreamName,
     UpstreamToolMapping,
 };
+pub use registry::{McpServerRegistry, RemoteMcpPeer, RmcpRemoteMcpPeer};

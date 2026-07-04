@@ -236,6 +236,7 @@ mod tests {
                     }],
                 },
             ],
+            mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
                 id: "agent-1".to_string(),
                 display_name: "Agent 1".to_string(),

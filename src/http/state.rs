@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::catalog::ToolCatalog;
 use crate::config::GatewayConfig;
 use crate::limits::RateLimits;
+use crate::mcp::McpServerRegistry;
 use crate::secrets::DefaultSecretStore;
 use crate::shaping::ResultCache;
 use crate::store::SqliteRequestEventRepository;
@@ -26,6 +27,8 @@ pub struct AppState {
     pub limits: Option<Arc<RateLimits>>,
     /// Optional event repository for persistent request logs.
     pub event_repo: Option<Arc<SqliteRequestEventRepository>>,
+    /// Optional remote MCP registry for proxied MCP servers.
+    pub mcp_registry: Option<Arc<McpServerRegistry>>,
     /// Result shaping cache for lazy discovery large-result pagination.
     pub result_cache: Arc<ResultCache>,
 }
@@ -39,6 +42,7 @@ impl AppState {
             http_client: reqwest::Client::new(),
             limits: None,
             event_repo: None,
+            mcp_registry: None,
             result_cache: Arc::new(ResultCache::new()),
         }
     }
@@ -50,6 +54,11 @@ impl AppState {
 
     pub fn with_event_repository(mut self, event_repo: Arc<SqliteRequestEventRepository>) -> Self {
         self.event_repo = Some(event_repo);
+        self
+    }
+
+    pub fn with_mcp_registry(mut self, mcp_registry: Arc<McpServerRegistry>) -> Self {
+        self.mcp_registry = Some(mcp_registry);
         self
     }
 }

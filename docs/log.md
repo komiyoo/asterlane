@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-07-04（Remote MCP proxy 接线）
+
+- **Config**: remote MCP server 改为顶层 `mcp_servers`，字段固定为 `id/domain/provider/url/description/auth`，`auth` 复用 `UpstreamAuth` 并使用 secret ref 示例。
+- **Discovery**: gateway 启动时连接 remote MCP server、调用上游 `tools/list`，将工具按 `{domain}__{provider}__{normalizedOriginalTool}__call` 合并进 catalog，并保存原始 upstream tool name。
+- **Invoke**: 调用 remote MCP tool 时按 wire name 查 catalog，用保存的原始 upstream tool name 转发。
+- **Observability**: remote MCP invoke 复用 proxy executor 的限流与 request event 记录；上游 MCP failure 在 HTTP 边界映射为 502。
+- **Crate Selection**: `rmcp` 2.1 选型说明补充 client 端 Streamable HTTP transport feature，用于代理第三方 MCP server。
+- **Live Smoke Test**: 增加 `examples/gateway-mcp.yaml` 与 Exa hosted MCP ignored live test，作为无需私有 token 的 remote MCP 联通验证；默认 `examples/gateway.yaml` 不在启动时连接外部 MCP server。
+
 ## 2026-07-04（竞品分析：Toolport 借鉴决策）
 
 完成 Toolport（原 Conduit，MIT，v1.3.0）竞品分析。结论：产品定位不同（本地桌面 vs 平台服务端），不 fork，借鉴以下机制纳入 Asterlane roadmap：

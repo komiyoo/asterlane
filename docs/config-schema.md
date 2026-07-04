@@ -4,7 +4,7 @@ title: Gateway Configuration Schema
 description: Documents the YAML configuration for upstream API resources, OpenAPI discovery, proxy key scopes, and tool discovery queries.
 resource: docs/config-schema.md
 tags: [configuration, schema, credentials, discovery]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-07-04T00:00:00Z
 ---
 
 # Context
@@ -16,6 +16,7 @@ The initial gateway config is YAML. It should be easy to review in git and later
 ```yaml
 schema_version: 1
 api_resources: []
+mcp_servers: []
 proxy_keys: []
 ```
 
@@ -89,27 +90,28 @@ api_resources:
     endpoints: []                  # 手写端点与 discovery 合并
 ```
 
-## Remote MCP Server Resource
+## Remote MCP Servers
 
-第三方 MCP server 作为特殊 resource 接入，工具由代理发现：
+第三方 MCP server 通过顶层 `mcp_servers` 接入，字段为 `id`、`domain`、`provider`、`url`、`description`、`auth`。`auth` 复用上面的 `UpstreamAuth` 形态；公开/免密 MCP server 可省略 `auth`，等价于 `type: none`。
 
 ```yaml
-api_resources:
-  - id: github-mcp
-    domain: mcp
-    provider: github
-    base_url: https://api.github.example.com/mcp
-    description: GitHub MCP server proxied through Asterlane.
-    mcp:
-      transport: streamable_http   # streamable_http | stdio
-      auth:
-        type: bearer
-        token_ref: secret://github-mcp/default
-      tool_filter:
-        include_regex: "^(list_issues|get_repo)$"   # 上游原始工具名过滤
+mcp_servers:
+  - id: exa-mcp
+    domain: search
+    provider: exa
+    url: https://mcp.exa.ai/mcp
+    description: Exa hosted MCP server proxied through Asterlane.
+  - id: rollinggo-flight
+    domain: travel
+    provider: rollinggo
+    url: https://mcp.rollinggo.cn/mcp/flight
+    description: RollingGo flight MCP proxied through Asterlane.
+    auth:
+      type: bearer
+      token_ref: secret://env/ROLLINGGO_API_KEY
 ```
 
-上游工具包装为 `mcp__{provider}__{original_tool}__call`。
+gateway 启动时连接每个 remote MCP server，调用上游 `tools/list`，并把返回工具合并进 catalog。上游工具包装为 `{domain}__{provider}__{normalizedOriginalTool}__call`；例如 RollingGo 的 `searchAirports` 暴露为 `travel__rollinggo__searchairports__call`，同时 catalog 保存原始 upstream tool name。invoke 时 gateway 识别该 wire name，再以保存的原始 upstream tool name 调用 remote MCP server。
 
 # Proxy Keys
 
@@ -162,7 +164,10 @@ CLI `serve` 子命令启动 Axum runtime：
 ```bash
 cargo run -- serve --config examples/gateway.yaml --bind 127.0.0.1:3000
 cargo run -- serve --config examples/gateway.yaml --database-url sqlite://asterlane.db
+cargo run -- serve --config examples/gateway-mcp.yaml --bind 127.0.0.1:3000
 ```
+
+`examples/gateway-mcp.yaml` 是 live remote MCP 示例，会在启动时连接 Exa hosted MCP server；默认 `examples/gateway.yaml` 不在启动时连接外部 MCP server。
 
 # Tool Name Wire Format
 
@@ -172,8 +177,9 @@ cargo run -- serve --config examples/gateway.yaml --database-url sqlite://asterl
 | --- | --- | --- | --- | --- |
 | search | tavily | web_search | post | `search__tavily__web_search__post` |
 | search | exa | neural_search | post | `search__exa__neural_search__post` |
+| search | exa | web_search_exa | call | `search__exa__web_search_exa__call` |
 | reader | jina | reader | get | `reader__jina__reader__get` |
-| mcp | github | list_issues | call | `mcp__github__list_issues__call` |
+| travel | rollinggo | searchAirports | call | `travel__rollinggo__searchairports__call` |
 
 详见 [Naming Convention](naming-convention.md)。
 

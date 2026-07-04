@@ -6,6 +6,7 @@ use asterlane::{GatewayConfig, ToolCatalog, ToolListQuery};
 use clap::{Parser, Subcommand};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Debug, Parser)]
 #[command(name = "asterlane")]
@@ -105,15 +106,30 @@ fn load_config(path: &PathBuf) -> Result<GatewayConfig> {
 
 async fn serve(args: ServeArgs) -> Result<()> {
     let config = load_config(&args.config)?;
-    let catalog = ToolCatalog::from_config(&config)?;
+    let mut catalog = ToolCatalog::from_config(&config)?;
+    let mcp_registry = if config.mcp_servers.is_empty() {
+        None
+    } else {
+        let registry = asterlane::mcp::McpServerRegistry::connect_all(
+            &config.mcp_servers,
+            Arc::new(asterlane::secrets::DefaultSecretStore::with_backends()),
+        )
+        .await
+        .context("failed to connect remote MCP servers")?;
+        catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
+        Some(Arc::new(registry))
+    };
     let mut state = asterlane::http::AppState::new(config, catalog);
+    if let Some(registry) = mcp_registry {
+        state = state.with_mcp_registry(registry);
+    }
 
     if let Some(database_url) = args.database_url {
         let pool = sqlx::sqlite::SqlitePool::connect(&database_url)
             .await
             .with_context(|| format!("failed to connect database {database_url}"))?;
         asterlane::store::run_migrations(&pool).await?;
-        state = state.with_event_repository(std::sync::Arc::new(
+        state = state.with_event_repository(Arc::new(
             asterlane::store::SqliteRequestEventRepository::new(pool),
         ));
     }

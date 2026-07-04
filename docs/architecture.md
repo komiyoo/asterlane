@@ -4,7 +4,7 @@ title: Asterlane Architecture
 description: Defines the gateway scope, core modules, MCP wrapping model, naming, data flow, and staged roadmap.
 resource: docs/architecture.md
 tags: [architecture, mcp, gateway, credentials]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-07-04T00:00:00Z
 ---
 
 # Context
@@ -66,10 +66,13 @@ Agent
   -> Upstream key pool selects key (LB strategy + health + cooldown)
   -> Rate limit / queue admission
   -> Request transformation (header/query/path/body)
-  -> Upstream API or MCP server (strip namespace prefix for MCP)
+  -> Upstream HTTP API or remote MCP server
+     (for MCP, strip {domain}__{provider}__ prefix and __call suffix)
   -> Gateway records RequestEvent (proxy key, upstream key ref, tool, status, latency)
   -> Response normalized, redacted, returned to agent
 ```
+
+Remote MCP servers are configured under top-level `mcp_servers`, not as `api_resources` children. At startup the gateway connects to each configured server, calls upstream `tools/list`, wraps every discovered upstream tool as `{domain}__{provider}__{normalizedOriginalTool}__call`, preserves the original upstream tool name in catalog metadata, and merges those entries into the shared catalog used by `tools/list` and HTTP `/v1/tools`.
 
 # Key Pool And Load Balancing
 
@@ -142,7 +145,7 @@ Agent
 - MCP endpoint（rmcp Streamable HTTP server + axum）暴露 gateway tools。
 - `tools/list` cursor 分页 + `_meta` 扩展过滤。
 - `tools/call` 翻译 wire name → 上游 HTTP 调用。
-- 第三方 MCP server 代理发现与缓存失效（见 [API Discovery](api-discovery.md)）。
+- 顶层 `mcp_servers` remote MCP proxy：启动时连接、`tools/list`、合并 catalog；invoke 时剥前缀调用原始 upstream tool（见 [API Discovery](api-discovery.md)）。
 - `notifications/tools/list_changed`。
 
 ## Phase 4: API 自动发现

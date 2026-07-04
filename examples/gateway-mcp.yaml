@@ -1,0 +1,16 @@
+schema_version: 1
+
+mcp_servers:
+  - id: exa-mcp
+    domain: search
+    provider: exa
+    url: https://mcp.exa.ai/mcp
+    description: Exa hosted MCP server proxied through Asterlane.
+
+proxy_keys:
+  - id: agent-search-mcp
+    display_name: Search agent with Exa MCP tools
+    allowed_tools:
+      - '^search:exa:.*$'
+    denied_tools: []
+    default_tool_page_size: 20

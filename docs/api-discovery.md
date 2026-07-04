@@ -4,7 +4,7 @@ title: API 自动发现与 MCP 转换
 description: 定义从 OpenAPI spec 自动生成 endpoint 目录、HTTP API 转 MCP tool、第三方 MCP server 代理发现与缓存失效的机制。
 resource: docs/api-discovery.md
 tags: [discovery, openapi, mcp, architecture]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-07-04T00:00:00Z
 ---
 
 # 背景
@@ -85,10 +85,10 @@ api_resources:
 
 ### 发现流程
 
-1. 网关作为 MCP 客户端（rmcp `transport-streamable-http-client`-reqwest）连接上游 MCP server。
+1. gateway 启动时读取顶层 `mcp_servers`，作为 MCP 客户端（rmcp `transport-streamable-http-client-reqwest`）连接上游 MCP server。
 2. 调用上游 `tools/list`，获取上游工具列表。
-3. 包装为 Asterlane wire name：`mcp__{provider}__{original_tool}__call`（method 段固定 `call`，因为 MCP tool call 不区分 HTTP method）。
-4. catalog 维护 `(wire name ↔ 上游 server + 原始 tool name)` 映射，转发时剥前缀（见 [Naming Convention – 上游转发剥前缀](naming-convention.md)）。
+3. 包装为 Asterlane wire name：`{domain}__{provider}__{normalizedOriginalTool}__call`，例如 `travel__rollinggo__searchairports__call`（method 段固定 `call`，因为 MCP tool call 不区分 HTTP method）。
+4. 合并进 catalog，并维护 `(wire name ↔ 上游 server + 原始 tool name)` 映射；invoke 时使用保存的原始 upstream tool name 调用 remote MCP server（见 [Naming Convention – 上游转发剥前缀](naming-convention.md)）。
 
 ### 缓存与失效
 
@@ -100,8 +100,12 @@ api_resources:
 ### 上游鉴权
 
 - 网关持有上游 MCP server 的鉴权材料（bearer token / OAuth / 自定义 header），存为 secret ref。
+- `mcp_servers[].auth` 复用 `UpstreamAuth`；示例使用 `secret://env/ROLLINGGO_API_KEY` 这类 secret ref，不写真实 token。
+- 公开/免密 MCP server（例如 Exa hosted MCP 的默认 web search/fetch 工具）可省略 `auth`，适合作为 live smoke test。
 - 转发 `tools/call` 时由网关注入鉴权，agent 不接触上游凭据。
 - MCP 规范禁止 token passthrough（见 [MCP Authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)），与 Asterlane 设计一致。
+
+免密 live 示例见 `examples/gateway-mcp.yaml`；默认 `examples/gateway.yaml` 不在启动时连接外部 MCP server。
 
 # 渐进式发现
 
@@ -150,3 +154,4 @@ api_resources:
 - [4] [SEP-1923 summary/get two-stage discovery](https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/1923)
 - [5] [Naming Convention](naming-convention.md)
 - [6] [Architecture](architecture.md)
+- [7] [Exa MCP Server](https://exa.ai/mcp)

@@ -249,12 +249,18 @@ pub async fn invoke_tool(
         return Ok(json_response(body));
     }
 
-    let executor = ProxyExecutor::new(
+    let mut executor = ProxyExecutor::new(
         state.config.clone(),
         state.catalog.clone(),
         state.secrets.clone(),
         state.http_client.clone(),
     );
+    if let Some(registry) = &state.mcp_registry {
+        executor = executor.with_mcp_registry(registry.clone());
+    }
+    if let Some(limits) = &state.limits {
+        executor = executor.with_limits(limits.clone());
+    }
 
     let result = if let Some(repo) = &state.event_repo {
         executor
@@ -297,12 +303,18 @@ async fn handle_meta_tool_with_proxy(
             let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
 
             // Proxy to real upstream
-            let executor = ProxyExecutor::new(
+            let mut executor = ProxyExecutor::new(
                 state.config.clone(),
                 state.catalog.clone(),
                 state.secrets.clone(),
                 state.http_client.clone(),
             );
+            if let Some(registry) = &state.mcp_registry {
+                executor = executor.with_mcp_registry(registry.clone());
+            }
+            if let Some(limits) = &state.limits {
+                executor = executor.with_limits(limits.clone());
+            }
             let invoke_result = if let Some(repo) = &state.event_repo {
                 executor
                     .with_event_repository(repo.clone())

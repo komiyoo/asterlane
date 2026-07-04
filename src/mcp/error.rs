@@ -7,10 +7,12 @@
 //! 错误码选择（见 error-model.md MCP 边界表）：
 //! - `UnknownTool` → `catalog.unknown_tool` → JSON-RPC `-32601`（Method not found）
 //! - `InvalidToolCall` → `mcp.invalid_tool_call` → JSON-RPC `-32602`（Invalid params）
+//! - `Secret` → `auth.missing_upstream_secret`
 //! - `UpstreamNotImplemented` / `UpstreamFailure` → `mcp.upstream_mcp_failure`
 //!   → tool result `isError: true`
 
 use crate::error::{AsterlaneError, ErrorCode};
+use crate::secrets::SecretError;
 use thiserror::Error;
 
 /// MCP adapter 边界错误。
@@ -44,6 +46,10 @@ pub enum McpError {
     /// `detail` 必须脱敏，不含 Authorization header 或上游原始响应体。
     #[error("upstream MCP server error: {detail}")]
     UpstreamFailure { detail: String },
+
+    /// secret 解析失败（复用 `SecretError` → `auth.missing_upstream_secret`）。
+    #[error(transparent)]
+    Secret(#[from] SecretError),
 }
 
 impl McpError {
@@ -80,12 +86,24 @@ impl McpError {
 /// `McpErrorForm`（`-32601` / `-32602` / `ToolResultIsError`）。
 impl From<McpError> for AsterlaneError {
     fn from(err: McpError) -> Self {
-        let (code, message) = match &err {
-            McpError::UnknownTool { .. } => (ErrorCode::CatalogUnknownTool, err.to_string()),
-            McpError::InvalidToolCall { .. } => (ErrorCode::McpInvalidToolCall, err.to_string()),
-            McpError::UpstreamNotImplemented { .. } | McpError::UpstreamFailure { .. } => {
-                (ErrorCode::McpUpstreamMcpFailure, err.to_string())
-            }
+        let (code, message) = match err {
+            McpError::UnknownTool { wire_name } => (
+                ErrorCode::CatalogUnknownTool,
+                format!("unknown tool: {wire_name}"),
+            ),
+            McpError::InvalidToolCall { detail } => (
+                ErrorCode::McpInvalidToolCall,
+                format!("invalid tool call: {detail}"),
+            ),
+            McpError::UpstreamNotImplemented { wire_name } => (
+                ErrorCode::McpUpstreamMcpFailure,
+                format!("upstream call not implemented for tool: {wire_name}"),
+            ),
+            McpError::UpstreamFailure { detail } => (
+                ErrorCode::McpUpstreamMcpFailure,
+                format!("upstream MCP server error: {detail}"),
+            ),
+            McpError::Secret(err) => return err.into(),
         };
         AsterlaneError::internal(code, message)
     }
@@ -122,6 +140,15 @@ mod tests {
     fn upstream_failure_maps_to_mcp_upstream_failure() {
         let err = AsterlaneError::from(McpError::upstream_failure("connection refused"));
         assert_eq!(err.error_code(), ErrorCode::McpUpstreamMcpFailure);
+    }
+
+    #[test]
+    fn secret_error_maps_to_auth_missing_upstream_secret() {
+        let err = AsterlaneError::from(McpError::from(SecretError::not_found(
+            "secret://env/ROLLINGGO_API_KEY",
+        )));
+        assert_eq!(err.error_code(), ErrorCode::AuthMissingUpstreamSecret);
+        assert_eq!(err.http_response().status, 503);
     }
 
     // ── MCP 边界转换: McpError → AsterlaneError → McpErrorForm ──
@@ -187,9 +214,9 @@ mod tests {
     }
 
     #[test]
-    fn boundary_upstream_failure_http_returns_404() {
+    fn boundary_upstream_failure_http_returns_502() {
         let err = AsterlaneError::from(McpError::upstream_failure("down"));
-        assert_eq!(err.http_response().status, 404);
+        assert_eq!(err.http_response().status, 502);
     }
 
     // ── 脱敏 ──

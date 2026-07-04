@@ -15,6 +15,7 @@ use crate::catalog::ToolCatalog;
 use crate::config::{GatewayConfig, ProxyKey, UpstreamAuth};
 use crate::keys::{KeyPool, LoadBalanceStrategy};
 use crate::limits::{ApiId, LimiterKey, RateLimits};
+use crate::mcp::McpServerRegistry;
 use crate::naming::ToolName;
 use crate::observability::{RequestEvent, RequestStatus, record_request_event, redact_body};
 use crate::policy;
@@ -77,6 +78,7 @@ pub struct ProxyExecutor<S: SecretStore, R: RequestEventRepository = ()> {
     secrets: Arc<S>,
     event_repo: Option<Arc<R>>,
     http: reqwest::Client,
+    mcp_registry: Option<Arc<McpServerRegistry>>,
     keys: Option<Arc<KeyPool>>,
     limits: Option<Arc<RateLimits>>,
     max_attempts: u32,
@@ -94,6 +96,10 @@ impl<S: SecretStore, R: RequestEventRepository> std::fmt::Debug for ProxyExecuto
                 &self.event_repo.as_ref().map(|_| "<RequestEventRepository>"),
             )
             .field("http", &self.http)
+            .field(
+                "mcp_registry",
+                &self.mcp_registry.as_ref().map(|_| "<McpServerRegistry>"),
+            )
             .field("keys", &self.keys)
             .field("limits", &self.limits)
             .field("max_attempts", &self.max_attempts)
@@ -116,6 +122,7 @@ impl<S: SecretStore> ProxyExecutor<S> {
             secrets,
             event_repo: None,
             http,
+            mcp_registry: None,
             keys: None,
             limits: None,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
@@ -128,6 +135,13 @@ impl<S: SecretStore, R: RequestEventRepository> ProxyExecutor<S, R> {
     /// 注入上游 key 池（可选）。注入后启用 key 选取、冷却与 failover。
     pub fn with_keys(mut self, keys: Arc<KeyPool>) -> Self {
         self.keys = Some(keys);
+        self
+    }
+
+    /// 注入 remote MCP registry（可选）。注入后 `method == call` 的 remote MCP
+    /// wrapped tool 由 registry 调上游 MCP server。
+    pub fn with_mcp_registry(mut self, mcp_registry: Arc<McpServerRegistry>) -> Self {
+        self.mcp_registry = Some(mcp_registry);
         self
     }
 
@@ -160,6 +174,7 @@ impl<S: SecretStore, R: RequestEventRepository> ProxyExecutor<S, R> {
             secrets: self.secrets,
             event_repo: Some(event_repo),
             http: self.http,
+            mcp_registry: self.mcp_registry,
             keys: self.keys,
             limits: self.limits,
             max_attempts: self.max_attempts,
@@ -198,21 +213,81 @@ impl<S: SecretStore, R: RequestEventRepository> ProxyExecutor<S, R> {
             .find_by_wire_name(wire_name)
             .ok_or_else(|| ProxyError::UnknownTool(wire_name.to_string()))?;
 
-        // 3. config 查找 resource
+        // 3. remote MCP tool 分流：catalog/policy/limits/observability 仍统一生效。
+        if let Some(registry) = &self.mcp_registry
+            && registry.contains_tool(wire_name)
+        {
+            if !policy::key_can_use_tool(proxy_key, &tool_name)? {
+                return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
+            }
+
+            if let Some(limits) = &self.limits {
+                let limiter_key = LimiterKey::Endpoint(ApiId::new(&tool.resource_id));
+                limits.check(&limiter_key).await?;
+            }
+
+            let request_id = next_request_id();
+            let start = Instant::now();
+            let result = registry
+                .call_tool(wire_name, args)
+                .await
+                .map(|result| InvokeResult {
+                    status: 200,
+                    body: serde_json::to_vec(&result).unwrap_or_default(),
+                    content_type: Some("application/json".to_string()),
+                })
+                .map_err(ProxyError::from);
+            let elapsed = start.elapsed();
+            let latency_ms = elapsed.as_millis().min(u32::MAX as u128) as u32;
+
+            match result {
+                Ok(result) => {
+                    self.record_event(
+                        &request_id,
+                        &proxy_key.id,
+                        &tool.resource_id,
+                        wire_name,
+                        "<mcp>",
+                        RequestStatus::Success,
+                        latency_ms,
+                        0,
+                    )
+                    .await;
+                    return Ok(result);
+                }
+                Err(err) => {
+                    let request_status = request_status_from_proxy_error(&err);
+                    self.record_event(
+                        &request_id,
+                        &proxy_key.id,
+                        &tool.resource_id,
+                        wire_name,
+                        "<mcp>",
+                        request_status,
+                        latency_ms,
+                        0,
+                    )
+                    .await;
+                    return Err(err);
+                }
+            }
+        }
+
+        // 4. config 查找 resource
         let resource = self
             .config
             .resource(&tool.resource_id)
             .ok_or_else(|| ProxyError::UnknownResource(tool.resource_id.clone()))?;
 
-        // 4. policy 校验 scope
+        // 5. policy 校验 scope
         if !policy::key_can_use_tool(proxy_key, &tool_name)? {
             return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
         }
 
-        // 5. resolve secret
+        // 6. resolve secret
         let secret = resolve_auth_secret(&resource.auth, &*self.secrets).await?;
 
-        // 6. (可选) limits check
+        // 7. (可选) limits check
         if let Some(limits) = &self.limits {
             let limiter_key = LimiterKey::Endpoint(ApiId::new(&resource.id));
             limits.check(&limiter_key).await?;
@@ -520,6 +595,7 @@ fn request_status_from_proxy_error(err: &ProxyError) -> RequestStatus {
         ProxyError::ConnectionFailed => RequestStatus::ConnectionFailed,
         ProxyError::UpstreamError(status) => RequestStatus::UpstreamError(*status),
         ProxyError::RetryExhausted { .. } => RequestStatus::UpstreamError(0),
+        ProxyError::Mcp(_) => RequestStatus::UpstreamError(0),
         ProxyError::Limit(_) => RequestStatus::Limited,
         _ => RequestStatus::ConnectionFailed,
     }
@@ -665,6 +741,7 @@ mod tests {
                     description: "Search web".to_string(),
                 }],
             }],
+            mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
                 id: "agent-search".to_string(),
                 display_name: "Search Agent".to_string(),
@@ -695,6 +772,7 @@ mod tests {
                     description: "Neural search".to_string(),
                 }],
             }],
+            mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
                 id: "agent-search".to_string(),
                 display_name: "Search Agent".to_string(),
@@ -712,8 +790,15 @@ mod tests {
             Arc::new(config),
             Arc::new(catalog),
             secrets,
-            reqwest::Client::new(),
+            no_proxy_client(),
         )
+    }
+
+    fn no_proxy_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("test client")
     }
 
     fn proxy_key<'a>(config: &'a GatewayConfig, id: &str) -> &'a ProxyKey {
@@ -775,10 +860,11 @@ mod tests {
         let catalog = Arc::new(ToolCatalog::from_config(&config_with_tavily).unwrap());
         let empty_config = Arc::new(GatewayConfig {
             api_resources: vec![],
+            mcp_servers: Vec::new(),
             proxy_keys: config_with_tavily.proxy_keys.clone(),
         });
         let secrets = Arc::new(MockSecretStore::default());
-        let exec = ProxyExecutor::new(empty_config, catalog, secrets, reqwest::Client::new());
+        let exec = ProxyExecutor::new(empty_config, catalog, secrets, no_proxy_client());
         let key = exec.config.proxy_key("agent-search").unwrap().clone();
 
         let err = exec
@@ -879,6 +965,7 @@ mod tests {
                     description: "mock search".to_string(),
                 }],
             }],
+            mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
                 display_name: "Test Agent".to_string(),
