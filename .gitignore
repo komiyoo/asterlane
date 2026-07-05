@@ -14,7 +14,7 @@ target
 !.env.example
 *.local
 *.secret
-secrets/
+/secrets/
 
 # Logs and runtime state
 *.log
