@@ -163,18 +163,33 @@ pub enum AsterlaneError {
     ///
     /// `message` 必须是可安全展示的脱敏消息。
     #[error("{code}: {message}")]
-    Internal { code: ErrorCode, message: String },
+    Internal {
+        code: ErrorCode,
+        message: String,
+        retry_after: Option<std::time::Duration>,
+    },
 }
 
 impl AsterlaneError {
     /// 构造 `Internal` 兜底变体。
-    ///
-    /// 供批2模块（store/proxy/limit/mcp/secrets）将自己的错误映射为顶层错误。
-    /// `message` 必须可安全展示（脱敏），不含密钥或上游原始响应体。
     pub fn internal(code: ErrorCode, message: impl Into<String>) -> Self {
         Self::Internal {
             code,
             message: message.into(),
+            retry_after: None,
+        }
+    }
+
+    /// 构造带 `Retry-After` 的 `Internal` 变体（限流场景）。
+    pub fn internal_with_retry_after(
+        code: ErrorCode,
+        message: impl Into<String>,
+        retry_after: Option<std::time::Duration>,
+    ) -> Self {
+        Self::Internal {
+            code,
+            message: message.into(),
+            retry_after,
         }
     }
 
@@ -222,11 +237,16 @@ impl AsterlaneError {
     /// `request_id` 始终为 `None`，由 HTTP handler 在响应时填入。
     pub fn http_response(&self) -> HttpErrorView {
         let code = self.error_code();
+        let retry_after = match self {
+            Self::Internal { retry_after, .. } => *retry_after,
+            _ => None,
+        };
         HttpErrorView {
             status: http_status_for(code),
             code,
             message: self.safe_message(),
             request_id: None,
+            retry_after,
         }
     }
 
@@ -285,6 +305,8 @@ pub struct HttpErrorView {
     pub message: String,
     /// 请求 ID（由 HTTP handler 填入）。
     pub request_id: Option<String>,
+    /// 限流时的 Retry-After 值。
+    pub retry_after: Option<std::time::Duration>,
 }
 
 /// MCP 边界返回的错误形态。

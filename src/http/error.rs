@@ -15,7 +15,6 @@ impl IntoResponse for AsterlaneError {
     fn into_response(self) -> Response {
         let view = self.http_response();
         let status = StatusCode::from_u16(view.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        // request_id 第一阶段为 None；后续由请求中间件生成并注入。
         let body = json!({
             "error": {
                 "code": view.code.as_str(),
@@ -23,6 +22,13 @@ impl IntoResponse for AsterlaneError {
                 "request_id": view.request_id,
             }
         });
-        (status, Json(body)).into_response()
+        let mut response = (status, Json(body)).into_response();
+        if let Some(dur) = view.retry_after {
+            let secs = dur.as_secs().max(1).to_string();
+            if let Ok(val) = axum::http::HeaderValue::from_str(&secs) {
+                response.headers_mut().insert("retry-after", val);
+            }
+        }
+        response
     }
 }

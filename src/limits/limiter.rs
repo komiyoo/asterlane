@@ -6,7 +6,6 @@ use super::key::LimiterKey;
 use governor::clock::Clock;
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use std::num::NonZeroU32;
-use std::time::Duration;
 
 /// 限流器集合，按 `LimiterKey` 维度独立计数。
 ///
@@ -51,15 +50,7 @@ impl RateLimits {
         })
     }
 
-    /// 返回 key 距离下次可用的剩余时间。
-    ///
-    /// governor GCRA 不支持非消费式 peek，精确 `time_until_reset` 与
-    /// 退还语义为待决问题（见 `docs/architecture.md` Rate Limit And
-    /// Queue — 待决问题）。当前返回 `None`；需精确语义的场景保留滑动
-    /// 窗口自实现。
-    pub fn time_until_reset(&self, _key: &LimiterKey) -> Option<Duration> {
-        None
-    }
+    // ponytail: governor GCRA 不支持非消费 peek；Retry-After 从 check 失败时的 reset_after 传递，不需要独立 peek 方法
 }
 
 impl std::fmt::Debug for RateLimits {
@@ -187,15 +178,6 @@ mod tests {
             }
             other => panic!("expected QuotaExceeded, got {other:?}"),
         }
-    }
-
-    // ── time_until_reset ──
-
-    #[test]
-    fn time_until_reset_returns_none_pending_design() {
-        let limits = RateLimits::per_second(NonZeroU32::new(1).unwrap());
-        let key = LimiterKey::Endpoint(ApiId::new("tavily"));
-        assert_eq!(limits.time_until_reset(&key), None);
     }
 
     // ── Debug ──

@@ -441,6 +441,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry_after = second
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok());
+        assert!(
+            retry_after.is_some(),
+            "429 should include Retry-After header"
+        );
+        assert!(retry_after.unwrap() >= 1);
         let json = body_to_json(second.into_body()).await;
         assert_eq!(json["error"]["code"], "limit.quota_exceeded");
     }

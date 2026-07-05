@@ -195,27 +195,42 @@ impl ToolCatalog {
         key: &ProxyKey,
         limit: usize,
     ) -> Result<Vec<&WrappedTool>, CatalogError> {
-        let query_lower = query.to_lowercase();
-        let mut results = Vec::new();
-        for tool in &self.tools {
-            if !key_can_use_tool(key, &tool.name)? {
-                continue;
-            }
-            if query.is_empty()
-                || tool
-                    .name
-                    .to_wire_name()
-                    .to_lowercase()
-                    .contains(&query_lower)
-                || tool.description.to_lowercase().contains(&query_lower)
-            {
+        if query.is_empty() {
+            let mut results = Vec::new();
+            for tool in &self.tools {
+                if !key_can_use_tool(key, &tool.name)? {
+                    continue;
+                }
                 results.push(tool);
                 if results.len() >= limit {
                     break;
                 }
             }
+            return Ok(results);
         }
-        Ok(results)
+        let query_lower = query.to_lowercase();
+        let mut scored: Vec<(&WrappedTool, u8)> = Vec::new();
+        for tool in &self.tools {
+            if !key_can_use_tool(key, &tool.name)? {
+                continue;
+            }
+            let wire = tool.name.to_wire_name().to_lowercase();
+            let score = if wire == query_lower {
+                4 // exact match
+            } else if wire.starts_with(&query_lower) {
+                3 // prefix
+            } else if wire.contains(&query_lower) {
+                2 // name contains
+            } else if tool.description.to_lowercase().contains(&query_lower) {
+                1 // description contains
+            } else {
+                continue;
+            };
+            scored.push((tool, score));
+        }
+        scored.sort_by_key(|s| std::cmp::Reverse(s.1));
+        scored.truncate(limit);
+        Ok(scored.into_iter().map(|(t, _)| t).collect())
     }
 }
 
@@ -547,6 +562,18 @@ mod tests {
         // 旧 mcp 工具已移除
         assert!(!wire_names.contains(&"travel__rollinggo__search".to_string()));
         assert!(!wire_names.contains(&"travel__exa__fetch".to_string()));
+    }
+
+    #[test]
+    fn search_ranks_exact_name_above_description_match() {
+        let config = config();
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let key = &config.proxy_keys[0];
+        // "web_search" matches tavily wire name exactly; exa description also contains "search"
+        let results = catalog.search_for_key("web_search", key, 10).unwrap();
+        assert!(!results.is_empty());
+        // tavily (name contains "web_search") should rank above exa (description contains "search")
+        assert_eq!(results[0].name.to_wire_name(), "search__tavily__web_search");
     }
 
     #[test]

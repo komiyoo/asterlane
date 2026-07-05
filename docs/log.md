@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-07-05（评估类收尾）
+
+- **reqwest TLS**：从 native-tls 切换到 rustls（`default-features = false, features = ["json", "rustls"]`），去除 OpenSSL 系统依赖。native-tls 相关依赖（core-foundation, system-configuration, encoding_rs, windows-registry）已从 lockfile 移除。
+- **Retry-After header**：429 响应现附带 `Retry-After` header（秒数）。`AsterlaneError::Internal` 新增 `retry_after: Option<Duration>` 字段，`LimitError::QuotaExceeded` 转换时保留 governor 的 `reset_after`，`IntoResponse` 输出 header。`time_until_reset` 占位方法移除（governor GCRA 不支持非消费 peek，Retry-After 从 check 失败时传递）。
+- **搜索评分排序**：`search_for_key` 从线性扫描改为评分排序（exact=4 > prefix=3 > name_contains=2 > description=1），返回按相关性排列的结果。
+- **tower-http**：已在 0.7，确认稳定无需变更。
+
 ## 2026-07-05（结构性债务清理）
 
 - **executor 拆分**：`src/proxy/executor.rs`（生产代码约 1030 行）按管线阶段拆为三文件：`executor.rs`（489 行，struct + builders + invoke 入口）、`retry.rs`（328 行，重试循环 + URL 构造 + 参数分解）、`post.rs`（251 行，观测记录 + defense + render + shaping）。所有生产代码文件低于 500 行预算。

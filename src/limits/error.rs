@@ -37,12 +37,21 @@ pub enum LimitError {
 /// 边界处转换为 HTTP status / MCP error form。
 impl From<LimitError> for AsterlaneError {
     fn from(err: LimitError) -> Self {
-        let code = match &err {
-            LimitError::QuotaExceeded { .. } => ErrorCode::LimitQuotaExceeded,
-            LimitError::QueueFull => ErrorCode::LimitQueueFull,
-            LimitError::QueueTimeout => ErrorCode::LimitQueueTimeout,
-        };
-        AsterlaneError::internal(code, err.to_string())
+        match &err {
+            LimitError::QuotaExceeded { reset_after, .. } => {
+                AsterlaneError::internal_with_retry_after(
+                    ErrorCode::LimitQuotaExceeded,
+                    err.to_string(),
+                    *reset_after,
+                )
+            }
+            LimitError::QueueFull => {
+                AsterlaneError::internal(ErrorCode::LimitQueueFull, err.to_string())
+            }
+            LimitError::QueueTimeout => {
+                AsterlaneError::internal(ErrorCode::LimitQueueTimeout, err.to_string())
+            }
+        }
     }
 }
 
