@@ -669,6 +669,35 @@ mod tests {
         assert_eq!(results[0].bucket_start, "2026-07-04T12:00:00Z");
     }
 
+    #[tokio::test]
+    async fn series_by_bucket_sums_across_dimensions_ascending() {
+        let repo = setup_repo().await;
+        // 同一小时两个维度行（不同 tool）+ 另一小时一行 + 一行其他粒度
+        repo.upsert_bucket(&sample_bucket()).await.unwrap();
+        let mut b2 = sample_bucket();
+        b2.tool_name = "news_search".to_string();
+        b2.error_count = 2;
+        repo.upsert_bucket(&b2).await.unwrap();
+        let mut b3 = sample_bucket();
+        b3.bucket_start = "2026-07-03T13:00:00Z".to_string();
+        repo.upsert_bucket(&b3).await.unwrap();
+        let mut b4 = sample_bucket();
+        b4.granularity = "day".to_string();
+        repo.upsert_bucket(&b4).await.unwrap();
+
+        let rows = repo
+            .series_by_bucket("hour", &AggregationFilter::default(), 100)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2, "day 粒度行不掺入");
+        assert_eq!(rows[0].dimension_value, "2026-07-03T12:00:00Z");
+        assert_eq!(rows[0].request_count, 10);
+        assert_eq!(rows[0].error_count, 2);
+        assert!((rows[0].avg_latency_ms - 100.0).abs() < f64::EPSILON); // 1000ms/10req
+        assert_eq!(rows[1].dimension_value, "2026-07-03T13:00:00Z");
+        assert_eq!(rows[1].request_count, 5);
+    }
+
     // ── AggregationRepository 测试 ──
 
     use crate::store::repository::{

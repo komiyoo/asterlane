@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-07-05（usage_buckets 写入路径接通 + 时间桶趋势）
+
+- **写入路径**：`ProxyExecutor::record_event` 落 `request_events` 的同时 upsert hour 粒度 `usage_buckets`（`UsageBucket::from_event` → `From` 转换 → `upsert_bucket` 冲突累加；失败 `warn!` 不阻断请求）。只写 hour 粒度，minute/day 待控制台缩放需求（ponytail 注释标注）。
+- **读取路径**：`AggregationRepository::series_by_bucket(granularity, filter, limit)` 读预聚合表按 `bucket_start` 汇总升序返回（加权平均延迟 = ΣLatency/ΣReq）；`/admin/usage?group_by=bucket` 暴露（默认 168 桶/一周，上限 744），非法 group_by 错误信息补 `bucket` 枚举。
+- **控制台**：用量页新增「按小时（趋势）」维度，复用既有条形图（升序时间即趋势）；bucket 标签裁剪为 `MM-DD HH:mm`。
+- **配套**：`ProxyExecutor` 泛型约束扩为 `+ UsageBucketRepository`（`()` no-op 与 SQLite 实现已有）；`BucketGranularity::label()` 提供 DB 规范字符串；`append_aggregation_filter` 泛化时间列参数。
+- **文档**：observability.md 聚合口径补写入/读取路径；admin-console.md C2 未完项清除、页面地图 Usage 行更新。
+
 ## 2026-07-05（文档审计补漏）
 
 - **compatibility-policy.md**：「当前已知演进」表登记 `admin` 节与 `api_resources[].key_pool` 两个新增配置字段及兼容措施。

@@ -156,6 +156,26 @@ pub struct UsageBucket {
     pub total_queued_ms: i64,
 }
 
+impl From<&crate::observability::UsageBucket> for UsageBucket {
+    fn from(bucket: &crate::observability::UsageBucket) -> Self {
+        Self {
+            bucket_start: bucket.bucket_start.to_rfc3339(),
+            granularity: bucket.granularity.label().to_string(),
+            proxy_key_id: bucket.proxy_key_id.clone(),
+            resource_id: bucket.resource_id.clone(),
+            tool_name: bucket.tool_name.clone(),
+            upstream_key_ref: bucket.upstream_key_ref.clone(),
+            status: bucket.status.clone(),
+            request_count: bucket.request_count as i64,
+            total_units: bucket.total_units as i64,
+            error_count: bucket.error_count as i64,
+            rate_limit_hits: bucket.rate_limit_hits as i64,
+            total_latency_ms: bucket.total_latency_ms as i64,
+            total_queued_ms: bucket.total_queued_ms as i64,
+        }
+    }
+}
+
 /// 使用量桶查询过滤条件。
 #[derive(Debug, Clone, Default)]
 pub struct UsageBucketFilter {
@@ -377,6 +397,15 @@ pub trait AggregationRepository: Send + Sync {
         &self,
         filter: &AggregationFilter,
     ) -> impl std::future::Future<Output = Result<OverallStats, StoreError>> + Send;
+
+    /// 时间桶序列：读预聚合 `usage_buckets` 表，按 `bucket_start` 汇总，
+    /// 升序返回（供趋势图直接渲染）。`dimension_value` 为桶起始 RFC3339。
+    fn series_by_bucket(
+        &self,
+        granularity: &str,
+        filter: &AggregationFilter,
+        limit: u32,
+    ) -> impl std::future::Future<Output = Result<Vec<UsageSummary>, StoreError>> + Send;
 }
 
 impl AggregationRepository for () {
@@ -398,6 +427,14 @@ impl AggregationRepository for () {
             avg_latency_ms: 0.0,
             total_rate_limit_hits: 0,
         })
+    }
+    async fn series_by_bucket(
+        &self,
+        _granularity: &str,
+        _filter: &AggregationFilter,
+        _limit: u32,
+    ) -> Result<Vec<UsageSummary>, StoreError> {
+        Ok(Vec::new())
     }
 }
 

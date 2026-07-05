@@ -7,7 +7,7 @@ use crate::catalog::ParamLocations;
 use crate::config::{HttpMethod, UpstreamAuth};
 use crate::keys::{KeyGuard, ResourceKeyPool};
 use crate::secrets::{SecretRef, SecretStore, SecretString};
-use crate::store::{RequestEventRepository, SecurityEventRepository};
+use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
 use backon::BackoffBuilder;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
@@ -34,7 +34,9 @@ impl From<ProxyError> for ExecutionError {
     }
 }
 
-impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyExecutor<S, R> {
+impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + UsageBucketRepository>
+    ProxyExecutor<S, R>
+{
     /// 选取 pool key 并解析其凭据：acquire（按配置策略）→ `KeyId` → secret ref → resolve。
     ///
     /// 解析失败视为配置错误直接失败（不冷却、不重试——重试打不到不同结果）。

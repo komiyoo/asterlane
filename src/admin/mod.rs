@@ -189,16 +189,18 @@ async fn usage(
 ) -> Result<Json<Value>, AsterlaneError> {
     let group_by = q.group_by.as_deref().unwrap_or("tool");
     let dimension = match group_by {
-        "proxy_key" => AggregationDimension::ProxyKey,
-        "resource" => AggregationDimension::Resource,
-        "tool" => AggregationDimension::Tool,
-        "status" => AggregationDimension::Status,
-        "domain" => AggregationDimension::Domain,
+        // 时间桶序列走 series_by_bucket（预聚合 usage_buckets 表）
+        "bucket" => None,
+        "proxy_key" => Some(AggregationDimension::ProxyKey),
+        "resource" => Some(AggregationDimension::Resource),
+        "tool" => Some(AggregationDimension::Tool),
+        "status" => Some(AggregationDimension::Status),
+        "domain" => Some(AggregationDimension::Domain),
         other => {
             return Err(AsterlaneError::internal(
                 ErrorCode::AdminInvalidQuery,
                 format!(
-                    "invalid group_by: {other} (expected proxy_key|resource|tool|status|domain)"
+                    "invalid group_by: {other} (expected proxy_key|resource|tool|status|domain|bucket)"
                 ),
             ));
         }
@@ -212,8 +214,17 @@ async fn usage(
     let Some(repo) = &state.event_repo else {
         return Ok(Json(json!({ "group_by": group_by, "rows": [] })));
     };
-    let limit = q.limit.unwrap_or(20).min(100);
-    let rows = repo.summarize_by(dimension, &filter, limit).await?;
+    let rows = match dimension {
+        Some(dim) => {
+            let limit = q.limit.unwrap_or(20).min(100);
+            repo.summarize_by(dim, &filter, limit).await?
+        }
+        // hour 粒度升序；默认一周（168 桶），上限一月（744 桶）
+        None => {
+            let limit = q.limit.unwrap_or(168).min(744);
+            repo.series_by_bucket("hour", &filter, limit).await?
+        }
+    };
     Ok(Json(json!({ "group_by": group_by, "rows": rows })))
 }
 

@@ -728,7 +728,7 @@ fn dimension_column(dim: AggregationDimension) -> &'static str {
     }
 }
 
-fn append_aggregation_filter(sql: &mut String, filter: &AggregationFilter) {
+fn append_aggregation_filter(sql: &mut String, filter: &AggregationFilter, time_col: &str) {
     if filter.proxy_key_id.is_some() {
         sql.push_str(" AND proxy_key_id = ?");
     }
@@ -736,11 +736,22 @@ fn append_aggregation_filter(sql: &mut String, filter: &AggregationFilter) {
         sql.push_str(" AND resource_id = ?");
     }
     if filter.from.is_some() {
-        sql.push_str(" AND timestamp >= ?");
+        sql.push_str(&format!(" AND {time_col} >= ?"));
     }
     if filter.to.is_some() {
-        sql.push_str(" AND timestamp < ?");
+        sql.push_str(&format!(" AND {time_col} < ?"));
     }
+}
+
+fn row_to_usage_summary(row: SqliteRow) -> Result<UsageSummary, StoreError> {
+    Ok(UsageSummary {
+        dimension_value: row.try_get("dim_value").map_err(StoreError::from)?,
+        request_count: row.try_get("request_count").map_err(StoreError::from)?,
+        error_count: row.try_get("error_count").map_err(StoreError::from)?,
+        total_units: row.try_get("total_units").map_err(StoreError::from)?,
+        avg_latency_ms: row.try_get("avg_latency_ms").map_err(StoreError::from)?,
+        rate_limit_hits: row.try_get("rate_limit_hits").map_err(StoreError::from)?,
+    })
 }
 
 fn bind_aggregation_filter<'q>(
@@ -784,7 +795,7 @@ impl AggregationRepository for SqliteRequestEventRepository {
             WHERE 1=1
             "#
         );
-        append_aggregation_filter(&mut sql, filter);
+        append_aggregation_filter(&mut sql, filter, "timestamp");
         sql.push_str(&format!(
             " GROUP BY {col} ORDER BY request_count DESC LIMIT ?"
         ));
@@ -800,18 +811,44 @@ impl AggregationRepository for SqliteRequestEventRepository {
             .await
             .map_err(StoreError::from)?;
 
-        rows.into_iter()
-            .map(|row| {
-                Ok(UsageSummary {
-                    dimension_value: row.try_get("dim_value").map_err(StoreError::from)?,
-                    request_count: row.try_get("request_count").map_err(StoreError::from)?,
-                    error_count: row.try_get("error_count").map_err(StoreError::from)?,
-                    total_units: row.try_get("total_units").map_err(StoreError::from)?,
-                    avg_latency_ms: row.try_get("avg_latency_ms").map_err(StoreError::from)?,
-                    rate_limit_hits: row.try_get("rate_limit_hits").map_err(StoreError::from)?,
-                })
-            })
-            .collect()
+        rows.into_iter().map(row_to_usage_summary).collect()
+    }
+
+    async fn series_by_bucket(
+        &self,
+        granularity: &str,
+        filter: &AggregationFilter,
+        limit: u32,
+    ) -> Result<Vec<UsageSummary>, StoreError> {
+        // 读预聚合表；avg_latency 用总延迟/总请求（跨维度行的加权平均）。
+        // request_count 每行 ≥ 1（absorb 至少一次），无除零。
+        let mut sql = String::from(
+            r#"
+            SELECT bucket_start AS dim_value,
+                   SUM(request_count) AS request_count,
+                   SUM(error_count) AS error_count,
+                   SUM(total_units) AS total_units,
+                   CAST(SUM(total_latency_ms) AS REAL) / SUM(request_count) AS avg_latency_ms,
+                   SUM(rate_limit_hits) AS rate_limit_hits
+            FROM usage_buckets
+            WHERE granularity = ?
+            "#,
+        );
+        append_aggregation_filter(&mut sql, filter, "bucket_start");
+        sql.push_str(" GROUP BY bucket_start ORDER BY bucket_start ASC LIMIT ?");
+
+        let rfc_from = filter.from.map(|d| d.to_rfc3339());
+        let rfc_to = filter.to.map(|d| d.to_rfc3339());
+        let query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(granularity);
+        let query = bind_aggregation_filter(query, filter, &rfc_from, &rfc_to);
+        let query = query.bind(i64::from(limit));
+
+        let rows = query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StoreError::from)?;
+
+        rows.into_iter().map(row_to_usage_summary).collect()
     }
 
     async fn overall_stats(&self, filter: &AggregationFilter) -> Result<OverallStats, StoreError> {
@@ -828,7 +865,7 @@ impl AggregationRepository for SqliteRequestEventRepository {
             WHERE 1=1
             "#,
         );
-        append_aggregation_filter(&mut sql, filter);
+        append_aggregation_filter(&mut sql, filter, "timestamp");
 
         let rfc_from = filter.from.map(|d| d.to_rfc3339());
         let rfc_to = filter.to.map(|d| d.to_rfc3339());

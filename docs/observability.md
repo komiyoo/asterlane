@@ -89,7 +89,7 @@ struct SecurityEvent {
 - status
 - 时间桶（分钟/小时/天）
 
-`usage_buckets` 表存储预聚合计数器，避免每次查询扫全量 `request_events`。
+`usage_buckets` 表存储预聚合计数器，避免每次查询扫全量 `request_events`。写入路径：`ProxyExecutor::record_event` 在落 `request_events` 的同时 upsert 对应 hour 粒度桶（冲突累加；minute/day 粒度待控制台缩放需求出现再扩）。读取路径：`AggregationRepository::series_by_bucket` 按 `bucket_start` 汇总升序返回，暴露为 `/admin/usage?group_by=bucket`。
 
 # 脱敏规则
 

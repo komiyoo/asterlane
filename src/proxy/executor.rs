@@ -23,7 +23,7 @@ use crate::policy;
 use crate::render::ResponseFormat;
 use crate::secrets::{SecretRef, SecretStore, SecretString};
 use crate::shaping::ResultCache;
-use crate::store::{RequestEventRepository, SecurityEventRepository};
+use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -81,7 +81,10 @@ pub struct InvokeResult {
 ///
 /// 泛型 `S` 为 `SecretStore` 实现，允许测试注入 mock。
 #[derive(Clone)]
-pub struct ProxyExecutor<S: SecretStore, R: RequestEventRepository + SecurityEventRepository = ()> {
+pub struct ProxyExecutor<
+    S: SecretStore,
+    R: RequestEventRepository + SecurityEventRepository + UsageBucketRepository = (),
+> {
     pub(super) config: Arc<GatewayConfig>,
     pub(super) catalog: Arc<ToolCatalog>,
     pub(super) secrets: Arc<S>,
@@ -97,8 +100,8 @@ pub struct ProxyExecutor<S: SecretStore, R: RequestEventRepository + SecurityEve
     pub(super) request_timeout: Duration,
 }
 
-impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> std::fmt::Debug
-    for ProxyExecutor<S, R>
+impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + UsageBucketRepository>
+    std::fmt::Debug for ProxyExecutor<S, R>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProxyExecutor")
@@ -157,7 +160,9 @@ impl<S: SecretStore> ProxyExecutor<S> {
     }
 }
 
-impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyExecutor<S, R> {
+impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + UsageBucketRepository>
+    ProxyExecutor<S, R>
+{
     /// 注入 key 池注册表（可选）。注入后配置了 `key_pool` 的资源启用
     /// per-key 凭据解析、按策略选 key、冷却与 failover。
     pub fn with_key_pools(mut self, key_pools: Arc<KeyPoolRegistry>) -> Self {
@@ -214,7 +219,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
     /// 注入请求事件 repository。未注入时只记录 metrics facade。
     /// `R` 同时实现 `RequestEventRepository` 与 `SecurityEventRepository`，
     /// 后者用于 content defense 安全事件持久化。
-    pub fn with_event_repository<NR: RequestEventRepository + SecurityEventRepository>(
+    pub fn with_event_repository<
+        NR: RequestEventRepository + SecurityEventRepository + UsageBucketRepository,
+    >(
         self,
         event_repo: Arc<NR>,
     ) -> ProxyExecutor<S, NR> {
@@ -552,6 +559,7 @@ mod tests {
     struct CapturingEventRepository {
         events: Mutex<Vec<RequestEvent>>,
         security_events: Mutex<Vec<SecurityEvent>>,
+        buckets: Mutex<Vec<crate::store::UsageBucket>>,
     }
 
     #[derive(Debug)]
@@ -667,6 +675,24 @@ mod tests {
             _limit: u32,
         ) -> Result<Vec<SecurityEvent>, StoreError> {
             Ok(self.security_events.lock().unwrap().clone())
+        }
+    }
+
+    impl UsageBucketRepository for CapturingEventRepository {
+        async fn upsert_bucket(
+            &self,
+            bucket: &crate::store::UsageBucket,
+        ) -> Result<(), StoreError> {
+            self.buckets.lock().unwrap().push(bucket.clone());
+            Ok(())
+        }
+
+        async fn query_buckets(
+            &self,
+            _filter: &crate::store::UsageBucketFilter,
+            _limit: u32,
+        ) -> Result<Vec<crate::store::UsageBucket>, StoreError> {
+            Ok(self.buckets.lock().unwrap().clone())
         }
     }
 
@@ -1176,6 +1202,14 @@ mod tests {
         assert_eq!(events[0].resource_id, "mock");
         assert_eq!(events[0].tool_name, "search__mock__search");
         assert_eq!(events[0].status, RequestStatus::Success);
+
+        // 同一次落库应带出 hour 粒度预聚合桶
+        let buckets = repo.buckets.lock().unwrap();
+        assert_eq!(buckets.len(), 1);
+        assert_eq!(buckets[0].granularity, "hour");
+        assert_eq!(buckets[0].tool_name, "search__mock__search");
+        assert_eq!(buckets[0].request_count, 1);
+        assert!(buckets[0].bucket_start.contains(":00:00"), "hour-aligned");
     }
 
     // ── 纯函数测试 ──

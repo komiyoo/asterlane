@@ -9,7 +9,7 @@ use asterlane::proxy::ProxyExecutor;
 use asterlane::secrets::DefaultSecretStore;
 use asterlane::store::{
     RequestEventFilter, RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
-    StoreError,
+    StoreError, UsageBucket, UsageBucketFilter, UsageBucketRepository,
 };
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
@@ -201,6 +201,20 @@ impl SecurityEventRepository for CapturingEventRepository {
             ));
         };
         Ok(events.clone())
+    }
+}
+
+impl UsageBucketRepository for CapturingEventRepository {
+    async fn upsert_bucket(&self, _bucket: &UsageBucket) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    async fn query_buckets(
+        &self,
+        _filter: &UsageBucketFilter,
+        _limit: u32,
+    ) -> Result<Vec<UsageBucket>, StoreError> {
+        Ok(Vec::new())
     }
 }
 

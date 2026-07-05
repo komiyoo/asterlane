@@ -1122,7 +1122,52 @@ mod tests {
         repo.insert_event(&event("req-2", RequestStatus::UpstreamError(502)))
             .await
             .unwrap();
+
+        use crate::store::repository::UsageBucketRepository;
+        let bucket = |start: &str, count: i64| crate::store::UsageBucket {
+            bucket_start: start.to_string(),
+            granularity: "hour".to_string(),
+            proxy_key_id: "agent-search".to_string(),
+            resource_id: "tavily".to_string(),
+            tool_name: "search__tavily__web_search".to_string(),
+            upstream_key_ref: "key:redacted".to_string(),
+            status: "success".to_string(),
+            request_count: count,
+            total_units: count,
+            error_count: 0,
+            rate_limit_hits: 0,
+            total_latency_ms: 100 * count,
+            total_queued_ms: 0,
+        };
+        repo.upsert_bucket(&bucket("2026-07-03T12:00:00+00:00", 2))
+            .await
+            .unwrap();
+        repo.upsert_bucket(&bucket("2026-07-03T13:00:00+00:00", 3))
+            .await
+            .unwrap();
         admin_state().with_event_repository(repo)
+    }
+
+    #[tokio::test]
+    async fn admin_usage_bucket_series_ascending() {
+        let app = build_app(admin_state_with_events().await);
+        let response = app
+            .oneshot(admin_get("/admin/usage?group_by=bucket"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["group_by"], "bucket");
+        assert_eq!(
+            json["rows"][0]["dimension_value"],
+            "2026-07-03T12:00:00+00:00"
+        );
+        assert_eq!(json["rows"][0]["request_count"], 2);
+        assert_eq!(
+            json["rows"][1]["dimension_value"],
+            "2026-07-03T13:00:00+00:00"
+        );
+        assert_eq!(json["rows"][1]["request_count"], 3);
     }
 
     #[tokio::test]

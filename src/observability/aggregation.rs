@@ -39,6 +39,17 @@ pub enum BucketGranularity {
     Day,
 }
 
+impl BucketGranularity {
+    /// DB `usage_buckets.granularity` 列的规范字符串。
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Minute => "minute",
+            Self::Hour => "hour",
+            Self::Day => "day",
+        }
+    }
+}
+
 /// 按时间桶预聚合的使用量计数器。
 ///
 /// 对应 `usage_buckets` 表（见 development-workflow.md Store Strategy）。
