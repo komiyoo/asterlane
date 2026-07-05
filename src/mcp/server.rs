@@ -128,6 +128,8 @@ impl ServerHandler for AsterlaneToolServer {
             register_peer(&self.state.tool_list_changed_peers, context.peer.clone()).await;
         }
 
+        let config = self.state.config_snapshot().await;
+
         // 响应格式：`_meta["asterlane.dev/format"]` 请求级 override（见
         // docs/response-rendering.md），未知值按 INVALID_PARAMS fail fast。
         let format_override = meta_str(request.meta.as_ref(), "asterlane.dev/format");
@@ -135,7 +137,7 @@ impl ServerHandler for AsterlaneToolServer {
         let format = render::resolve_format(
             format_override.as_deref(),
             key_for_format.response_format,
-            self.state.config.defaults.response_format,
+            config.defaults.response_format,
         )
         .map_err(|e| ErrorData::new(rmcp::model::ErrorCode::INVALID_PARAMS, e.to_string(), None))?;
 
@@ -182,11 +184,7 @@ impl ServerHandler for AsterlaneToolServer {
             }
             let catalog = self.state.catalog.read().await;
             return match crate::discovery::handle_meta_tool_call(
-                wire_name,
-                arguments,
-                &catalog,
-                &self.state.config,
-                &key,
+                wire_name, arguments, &catalog, &config, &key,
             ) {
                 Ok(result) => Ok(tool_call_result_to_mcp(result)),
                 Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
@@ -206,7 +204,7 @@ impl ServerHandler for AsterlaneToolServer {
                 .as_ref()
                 .is_some_and(|reg| reg.contains_tool(wire_name));
             let mut executor = ProxyExecutor::new(
-                self.state.config.clone(),
+                config.clone(),
                 Arc::new(catalog_snapshot),
                 self.state.secrets.clone(),
                 self.state.http_client.clone(),
@@ -324,9 +322,10 @@ async fn invoke_meta_call_tool(
         .as_ref()
         .is_some_and(|registry| registry.contains_tool(tool_name));
 
+    let config = state.config_snapshot().await;
     let catalog_snapshot = state.catalog.read().await.clone();
     let mut executor = ProxyExecutor::new(
-        state.config.clone(),
+        config,
         Arc::new(catalog_snapshot),
         state.secrets.clone(),
         state.http_client.clone(),

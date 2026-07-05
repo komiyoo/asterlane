@@ -97,6 +97,15 @@ async function api(path) {
   return res.json();
 }
 
+async function apiWrite(method, path, body) {
+  const token = sessionStorage.getItem(TOKEN_KEY) || "";
+  const opts = { method, headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error?.message || "HTTP " + res.status); }
+  return res.json();
+}
+
 function fmtCell(key, v) {
   if (v === null || v === undefined || v === "") return "";
   if (key === "status" && typeof v === "object" && v.kind)
@@ -137,6 +146,7 @@ const TABS = {
   keypools: { label: "Key Pools", load: loadKeyPools },
   events: { label: "事件", load: loadEvents },
   security: { label: "安全事件", load: loadSecurity },
+  config: { label: "配置管理", load: loadConfig },
 };
 let current = "overview";
 
@@ -282,6 +292,91 @@ async function loadSecurity(view) {
   const rows = await api("/admin/security-events");
   view.innerHTML = objTable(rows,
     ["timestamp", "resource_id", "tool_name", "kind", "severity", "details"]);
+}
+
+async function loadConfig(view) {
+  const render = async () => {
+    const [resources, keys] = await Promise.all([api("/admin/resources"), api("/admin/proxy-keys")]);
+    let h = '<h3>配置校验</h3><button id="cfg-validate">校验当前配置</button><div id="cfg-vresult"></div>';
+    // resources
+    h += '<h3>资源管理</h3><button id="cfg-new-res">+ 新建资源</button>'
+      + '<div id="cfg-res-form" style="display:none;margin:8px 0"><div class="card">'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
+      + '<label>ID<br><input id="nr-id" size="12"></label>'
+      + '<label>Domain<br><input id="nr-domain" size="12"></label>'
+      + '<label>Provider<br><input id="nr-provider" size="12"></label>'
+      + '<label>Base URL<br><input id="nr-url" size="24"></label>'
+      + '<label>描述<br><input id="nr-desc" size="20"></label>'
+      + '<button id="nr-save">创建</button><button id="nr-cancel">取消</button>'
+      + '</div></div></div>';
+    h += '<div class="tablewrap"><table><thead><tr><th>id</th><th>domain</th><th>provider</th><th>base_url</th><th>endpoint_count</th><th></th></tr></thead><tbody>';
+    resources.forEach(r => {
+      h += '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.domain) + '</td><td>' + esc(r.provider)
+        + '</td><td>' + esc(r.base_url) + '</td><td>' + esc(r.endpoint_count)
+        + '</td><td><button class="cfg-del-res" data-id="' + esc(r.id) + '">删除</button></td></tr>';
+    });
+    if (!resources.length) h += '<tr><td colspan="6" class="empty">无资源</td></tr>';
+    h += '</tbody></table></div>';
+    // proxy keys
+    h += '<h3>Proxy Key 管理</h3><button id="cfg-new-key">+ 新建 Proxy Key</button>'
+      + '<div id="cfg-key-form" style="display:none;margin:8px 0"><div class="card">'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
+      + '<label>ID<br><input id="nk-id" size="12"></label>'
+      + '<label>显示名<br><input id="nk-name" size="12"></label>'
+      + '<label>Allowed（逗号分隔）<br><input id="nk-allow" size="20"></label>'
+      + '<label>Denied（逗号分隔）<br><input id="nk-deny" size="20"></label>'
+      + '<label>Page Size<br><input id="nk-ps" size="4" value="20"></label>'
+      + '<button id="nk-save">创建</button><button id="nk-cancel">取消</button>'
+      + '</div></div></div>';
+    h += '<div class="tablewrap"><table><thead><tr><th>id</th><th>display_name</th><th>allowed_tools</th><th>denied_tools</th><th>page_size</th><th></th></tr></thead><tbody>';
+    keys.forEach(k => {
+      h += '<tr><td>' + esc(k.id) + '</td><td>' + esc(k.display_name) + '</td><td>' + esc(Array.isArray(k.allowed_tools) ? k.allowed_tools.join(", ") : k.allowed_tools)
+        + '</td><td>' + esc(Array.isArray(k.denied_tools) ? k.denied_tools.join(", ") : k.denied_tools)
+        + '</td><td>' + esc(k.default_tool_page_size)
+        + '</td><td><button class="cfg-del-key" data-id="' + esc(k.id) + '">删除</button></td></tr>';
+    });
+    if (!keys.length) h += '<tr><td colspan="6" class="empty">无 Proxy Key</td></tr>';
+    h += '</tbody></table></div>';
+    view.innerHTML = h;
+    // events
+    $("#cfg-validate").addEventListener("click", async () => {
+      try {
+        const v = await api("/admin/config/validate");
+        let t = v.valid ? '<span style="color:var(--ok)">✓ 配置有效</span>' : '<span style="color:var(--err)">✗ 配置存在问题</span>';
+        t += ' · 资源 ' + v.resource_count + ' · Proxy Key ' + v.proxy_key_count + ' · MCP ' + v.mcp_server_count;
+        if (v.issues.length) t += '<br>' + v.issues.map(i => '<span style="color:var(--' + (i.level === 'error' ? 'err' : 'muted') + ')">[' + esc(i.level) + '] ' + esc(i.target) + ': ' + esc(i.message) + '</span>').join('<br>');
+        $("#cfg-vresult").innerHTML = '<div class="card" style="margin-top:8px">' + t + '</div>';
+      } catch (e) { $("#cfg-vresult").innerHTML = '<p class="empty">' + esc(e.message) + '</p>'; }
+    });
+    $("#cfg-new-res").addEventListener("click", () => { $("#cfg-res-form").style.display = "block"; });
+    $("#nr-cancel").addEventListener("click", () => { $("#cfg-res-form").style.display = "none"; });
+    $("#nr-save").addEventListener("click", async () => {
+      try {
+        await apiWrite("POST", "/admin/resources", { id: $("#nr-id").value, domain: $("#nr-domain").value, provider: $("#nr-provider").value, base_url: $("#nr-url").value, description: $("#nr-desc").value });
+        await render();
+      } catch (e) { alert(e.message); }
+    });
+    view.querySelectorAll(".cfg-del-res").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("删除资源 " + b.dataset.id + "？")) return;
+      try { await apiWrite("DELETE", "/admin/resources/" + encodeURIComponent(b.dataset.id)); await render(); }
+      catch (e) { alert(e.message); }
+    }));
+    $("#cfg-new-key").addEventListener("click", () => { $("#cfg-key-form").style.display = "block"; });
+    $("#nk-cancel").addEventListener("click", () => { $("#cfg-key-form").style.display = "none"; });
+    $("#nk-save").addEventListener("click", async () => {
+      const split = s => s ? s.split(",").map(x => x.trim()).filter(Boolean) : [];
+      try {
+        await apiWrite("POST", "/admin/proxy-keys", { id: $("#nk-id").value, display_name: $("#nk-name").value, allowed_tools: split($("#nk-allow").value), denied_tools: split($("#nk-deny").value), default_tool_page_size: parseInt($("#nk-ps").value, 10) || 20 });
+        await render();
+      } catch (e) { alert(e.message); }
+    });
+    view.querySelectorAll(".cfg-del-key").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("删除 Proxy Key " + b.dataset.id + "？")) return;
+      try { await apiWrite("DELETE", "/admin/proxy-keys/" + encodeURIComponent(b.dataset.id)); await render(); }
+      catch (e) { alert(e.message); }
+    }));
+  };
+  await render();
 }
 
 function buildNav() {

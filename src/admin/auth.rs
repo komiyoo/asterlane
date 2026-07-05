@@ -20,6 +20,10 @@ use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
 use crate::secrets::{SecretError, SecretRef, SecretStore};
 
+/// 已认证 admin 的 key ID，由 `require_admin` middleware 注入 request extensions。
+#[derive(Debug, Clone)]
+pub struct AdminKeyId(pub String);
+
 /// 已解析的 admin 认证状态：token SHA-256 摘要 → admin key id。
 ///
 /// 明文 token 不落内存长期存储；`Debug` 只输出 key id 列表。
@@ -103,6 +107,10 @@ pub async fn require_admin(
     match token.and_then(|t| auth.verify(t)) {
         Some(admin_key_id) => {
             debug!(admin_key_id, "admin request authorized");
+            let mut request = request;
+            request
+                .extensions_mut()
+                .insert(AdminKeyId(admin_key_id.to_string()));
             Ok(next.run(request).await)
         }
         None => {

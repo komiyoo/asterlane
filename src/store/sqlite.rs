@@ -196,6 +196,7 @@ fn encode_security_kind(kind: &SecurityEventKind) -> &'static str {
         SecurityEventKind::IntegrityToolRemoved => "integrity_tool_removed",
         SecurityEventKind::IntegrityHintFlipped => "integrity_hint_flipped",
         SecurityEventKind::ContentDefenseFlag => "content_defense_flag",
+        SecurityEventKind::AdminAudit => "admin_audit",
     }
 }
 
@@ -206,6 +207,7 @@ fn decode_security_kind(s: &str) -> Result<SecurityEventKind, StoreError> {
         "integrity_tool_removed" => Ok(SecurityEventKind::IntegrityToolRemoved),
         "integrity_hint_flipped" => Ok(SecurityEventKind::IntegrityHintFlipped),
         "content_defense_flag" => Ok(SecurityEventKind::ContentDefenseFlag),
+        "admin_audit" => Ok(SecurityEventKind::AdminAudit),
         other => Err(StoreError::Query(decode_error(format!(
             "unknown security event kind: {other}"
         )))),
@@ -404,6 +406,27 @@ impl ResourceRepository for SqliteRequestEventRepository {
         rows.into_iter().map(row_to_resource).collect()
     }
 
+    async fn update_resource(&self, resource: &Resource) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE resources
+            SET domain = ?, provider = ?, base_url = ?, description = ?, config_json = ?,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE id = ?
+            "#,
+        )
+        .bind(&resource.domain)
+        .bind(&resource.provider)
+        .bind(&resource.base_url)
+        .bind(&resource.description)
+        .bind(&resource.config_json)
+        .bind(&resource.id)
+        .execute(&self.pool)
+        .await
+        .map_err(StoreError::from)?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn delete_resource(&self, id: &str) -> Result<bool, StoreError> {
         let result = sqlx::query("DELETE FROM resources WHERE id = ?")
             .bind(id)
@@ -473,6 +496,25 @@ impl ProxyKeyRepository for SqliteRequestEventRepository {
         .await
         .map_err(StoreError::from)?;
         rows.into_iter().map(row_to_proxy_key).collect()
+    }
+
+    async fn update_proxy_key(&self, key: &ProxyKeyRecord) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            r#"
+            UPDATE proxy_keys
+            SET display_name = ?, default_tool_page_size = ?, scope_json = ?,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE id = ?
+            "#,
+        )
+        .bind(&key.display_name)
+        .bind(key.default_tool_page_size)
+        .bind(&key.scope_json)
+        .bind(&key.id)
+        .execute(&self.pool)
+        .await
+        .map_err(StoreError::from)?;
+        Ok(result.rows_affected() > 0)
     }
 
     async fn delete_proxy_key(&self, id: &str) -> Result<bool, StoreError> {

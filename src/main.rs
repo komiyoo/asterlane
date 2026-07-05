@@ -191,7 +191,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
     }
 
     // admin 认证：启动期解析 token secret ref，失败 fail fast；未配置则不挂载 admin API
-    match asterlane::admin::AdminAuth::from_config(&state.config.admin, state.secrets.as_ref())
+    let config = state.config_snapshot().await;
+    match asterlane::admin::AdminAuth::from_config(&config.admin, state.secrets.as_ref())
         .await
         .context("failed to resolve admin key secret refs")?
     {
@@ -203,8 +204,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
     }
 
     // key 池：启动期从配置构建（校验 keys 非空、auth 形状、ref 格式），失败 fail fast
-    if let Some(registry) = asterlane::keys::KeyPoolRegistry::from_config(&state.config)
-        .context("invalid key_pool config")?
+    if let Some(registry) =
+        asterlane::keys::KeyPoolRegistry::from_config(&config).context("invalid key_pool config")?
     {
         let resources: Vec<&str> = registry.iter().map(|(id, _)| id).collect();
         info!(?resources, "upstream key pools enabled");
@@ -213,7 +214,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
 
     // 语义搜索：启动期解析 embedding 端点 api key ref，失败 fail fast；未配置则关键词搜索
     if let Some(semantic) = asterlane::semantic::SemanticIndex::from_config(
-        state.config.semantic_search.as_ref(),
+        config.semantic_search.as_ref(),
         state.secrets.as_ref(),
         state.http_client.clone(),
     )
@@ -286,7 +287,7 @@ fn spawn_mcp_refresh_task(
     registry: Arc<asterlane::mcp::McpServerRegistry>,
     catalog: Arc<tokio::sync::RwLock<ToolCatalog>>,
     peers: asterlane::http::ToolListChangedPeers,
-    config: Arc<asterlane::GatewayConfig>,
+    config: Arc<tokio::sync::RwLock<Arc<asterlane::GatewayConfig>>>,
     baseline: Arc<tokio::sync::RwLock<asterlane::integrity::IntegrityBaseline>>,
     quarantined: asterlane::http::QuarantinedTools,
     event_repo: Option<Arc<asterlane::store::SqliteRequestEventRepository>>,
@@ -319,9 +320,10 @@ fn spawn_mcp_refresh_task(
                     catalog.write().await.replace_mcp_tools(new_tools, &mcp_ids);
 
                     // integrity drift 检测：写 security event + 更新隔离集合 + rebase baseline
+                    let config_snap = config.read().await.clone();
                     asterlane::integrity::check_drift(
                         &registry,
-                        &config,
+                        &config_snap,
                         &baseline,
                         &quarantined,
                         &event_repo,

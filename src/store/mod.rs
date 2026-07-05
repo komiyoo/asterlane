@@ -445,6 +445,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resource_update() {
+        let repo = setup_repo().await;
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+
+        let mut updated = sample_resource("r1");
+        updated.domain = "ai".to_string();
+        updated.base_url = "https://api.new.com".to_string();
+        assert!(repo.update_resource(&updated).await.unwrap());
+
+        let r = repo.get_resource("r1").await.unwrap();
+        assert_eq!(r.domain, "ai");
+        assert_eq!(r.base_url, "https://api.new.com");
+
+        assert!(
+            !repo
+                .update_resource(&sample_resource("nope"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
     async fn resource_get_not_found() {
         let repo = setup_repo().await;
         let err = repo.get_resource("nope").await.unwrap_err();
@@ -490,6 +512,30 @@ mod tests {
         assert_eq!(repo.list_proxy_keys().await.unwrap().len(), 2);
         assert!(repo.delete_proxy_key("pk1").await.unwrap());
         assert_eq!(repo.list_proxy_keys().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn proxy_key_update() {
+        let repo = setup_repo().await;
+        repo.insert_proxy_key(&sample_proxy_key("pk1"))
+            .await
+            .unwrap();
+
+        let mut updated = sample_proxy_key("pk1");
+        updated.display_name = "renamed".to_string();
+        updated.default_tool_page_size = 100;
+        assert!(repo.update_proxy_key(&updated).await.unwrap());
+
+        let k = repo.get_proxy_key("pk1").await.unwrap();
+        assert_eq!(k.display_name, "renamed");
+        assert_eq!(k.default_tool_page_size, 100);
+
+        assert!(
+            !repo
+                .update_proxy_key(&sample_proxy_key("nope"))
+                .await
+                .unwrap()
+        );
     }
 
     // ── UpstreamKeyRepository 测试 ──

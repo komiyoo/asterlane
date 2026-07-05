@@ -1,5 +1,15 @@
 # Documentation Update Log
 
+## 2026-07-05（C3 配置管理写路径）
+
+- **Admin CRUD API**：`POST/PUT/DELETE /admin/resources` 与 `POST/PUT/DELETE /admin/proxy-keys`——请求体为简化 `ResourceInput`/`ProxyKeyInput` DTO；写操作先校验（ID 重复 409、不存在 404）、持久化到 store、原子替换内存配置 + 重建 catalog、记录审计事件。新错误码 `admin.not_found`(404)、`admin.conflict`(409)。
+- **热更新**：`AppState.config` 从 `Arc<GatewayConfig>` 升级为 `Arc<RwLock<Arc<GatewayConfig>>>`，读路径 `config_snapshot()` 瞬间释放锁返回 `Arc` 快照（ProxyExecutor 不变），写路径 clone-modify-swap。`swap_config_and_catalog` 重建 HTTP API 工具并保留 MCP 工具。
+- **审计事件**：`SecurityEventKind::AdminAudit` 新变体，复用 `security_events` 表，`details_json` 含 `admin_key_id/action/target_type/target_id`。`require_admin` middleware 注入 `AdminKeyId` 到 request extensions。
+- **配置校验**：`GET /admin/config/validate` 检测重复 ID、scope 正则语法、空 base_url/url，返回 `{valid, issues[]}` 报告。
+- **Repository 补全**：`ResourceRepository::update_resource`、`ProxyKeyRepository::update_proxy_key`（trait + `()` impl + SQLite impl + 测试）。
+- **控制台**：「配置管理」页——资源/proxy key 表格 + Create/Delete + 配置校验按钮。`apiWrite()` 辅助函数。
+- **文档**：admin-console.md Config 行状态更新为已上线（C3）；C3 路线条目补充实现细节。
+
 ## 2026-07-05（Semantic tool search）
 
 - **新增 `src/semantic.rs`**：`SemanticIndex`——OpenAI-compatible `/embeddings` 端点客户端（provider 形态借鉴 smart-search CLI：可配置 `base_url`/`model`/`api_key_ref`，兼容 OpenAI/Zhipu/Ollama/vLLM）+ 进程内向量缓存（按需批量嵌入 ≤128 条/请求，text hash 失效，描述变更自动重嵌）+ 余弦排序。零新依赖（reqwest/serde/secrecy 复用）；不选本地 embedding 模型（fastembed/ort 需捆绑 ONNX runtime）。

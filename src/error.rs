@@ -83,6 +83,10 @@ pub enum ErrorCode {
     AdminUnauthorized,
     /// admin 查询参数不合法。
     AdminInvalidQuery,
+    /// admin 管理的实体未找到。
+    AdminNotFound,
+    /// admin 写操作冲突（如 ID 重复）。
+    AdminConflict,
 }
 
 impl ErrorCode {
@@ -114,6 +118,8 @@ impl ErrorCode {
             Self::TransformInvalidPointer => "transform.invalid_pointer",
             Self::AdminUnauthorized => "admin.unauthorized",
             Self::AdminInvalidQuery => "admin.invalid_query",
+            Self::AdminNotFound => "admin.not_found",
+            Self::AdminConflict => "admin.conflict",
         }
     }
 
@@ -137,7 +143,10 @@ impl ErrorCode {
             Self::LimitQuotaExceeded | Self::LimitQueueFull | Self::LimitQueueTimeout => "limit",
             Self::McpInvalidToolCall | Self::McpUpstreamMcpFailure => "mcp",
             Self::TransformDangerousHeader | Self::TransformInvalidPointer => "transform",
-            Self::AdminUnauthorized | Self::AdminInvalidQuery => "admin",
+            Self::AdminUnauthorized
+            | Self::AdminInvalidQuery
+            | Self::AdminNotFound
+            | Self::AdminConflict => "admin",
         }
     }
 }
@@ -352,6 +361,8 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::TransformDangerousHeader | ErrorCode::TransformInvalidPointer => 500,
         ErrorCode::AdminUnauthorized => 401,
         ErrorCode::AdminInvalidQuery => 400,
+        ErrorCode::AdminNotFound => 404,
+        ErrorCode::AdminConflict => 409,
     }
 }
 
@@ -437,6 +448,8 @@ mod tests {
         );
         assert_eq!(ErrorCode::AdminUnauthorized.as_str(), "admin.unauthorized");
         assert_eq!(ErrorCode::AdminInvalidQuery.as_str(), "admin.invalid_query");
+        assert_eq!(ErrorCode::AdminNotFound.as_str(), "admin.not_found");
+        assert_eq!(ErrorCode::AdminConflict.as_str(), "admin.conflict");
     }
 
     #[test]
@@ -476,6 +489,8 @@ mod tests {
         assert_eq!(ErrorCode::McpUpstreamMcpFailure.category(), "mcp");
         assert_eq!(ErrorCode::AdminUnauthorized.category(), "admin");
         assert_eq!(ErrorCode::AdminInvalidQuery.category(), "admin");
+        assert_eq!(ErrorCode::AdminNotFound.category(), "admin");
+        assert_eq!(ErrorCode::AdminConflict.category(), "admin");
     }
 
     #[test]

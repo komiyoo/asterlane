@@ -752,10 +752,12 @@ mod tests {
     async fn invoke_tool_proxy_key_response_format_applies_without_override() {
         // proxy key 配置 response_format: yaml，请求不带 override
         let addr = start_mock_upstream(200, br#"{"ok":true}"#.to_vec()).await;
-        let mut state_config = invoke_state_with_body(addr, SecurityConfig::default()).await;
+        let state_config = invoke_state_with_body(addr, SecurityConfig::default()).await;
         {
-            let config = Arc::make_mut(&mut state_config.config);
-            config.proxy_keys[0].response_format = Some(crate::render::ResponseFormat::Yaml);
+            let mut guard = state_config.config.write().await;
+            let mut cfg = (**guard).clone();
+            cfg.proxy_keys[0].response_format = Some(crate::render::ResponseFormat::Yaml);
+            *guard = Arc::new(cfg);
         }
         let app = build_app(state_config);
 

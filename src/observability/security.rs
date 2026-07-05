@@ -26,6 +26,8 @@ pub enum SecurityEventKind {
     IntegrityHintFlipped,
     /// content defense 检测到可疑注入内容。
     ContentDefenseFlag,
+    /// admin 配置写操作审计事件。
+    AdminAudit,
 }
 
 /// 安全事件严重级别。

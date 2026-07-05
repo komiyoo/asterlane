@@ -8,12 +8,13 @@
 //! `/ui` 页面本身无数据，公开返回（登录引导页）。
 
 pub mod auth;
+mod crud;
 
-pub use auth::AdminAuth;
+pub use auth::{AdminAuth, AdminKeyId};
 
 use axum::extract::{Query, State};
 use axum::response::Html;
-use axum::routing::get;
+use axum::routing::{get, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -33,8 +34,17 @@ use crate::store::repository::{
 pub fn router(state: &AppState) -> Router<AppState> {
     let api = Router::new()
         .route("/health", get(health))
-        .route("/resources", get(resources))
-        .route("/proxy-keys", get(proxy_keys))
+        .route("/resources", get(resources).post(crud::create_resource))
+        .route(
+            "/resources/{id}",
+            put(crud::update_resource).delete(crud::delete_resource),
+        )
+        .route("/proxy-keys", get(proxy_keys).post(crud::create_proxy_key))
+        .route(
+            "/proxy-keys/{id}",
+            put(crud::update_proxy_key).delete(crud::delete_proxy_key),
+        )
+        .route("/config/validate", get(crud::validate_config))
         .route("/tools", get(tools))
         .route("/events", get(events))
         .route("/security-events", get(security_events))
@@ -63,8 +73,8 @@ async fn health() -> Json<Value> {
 }
 
 async fn resources(State(state): State<AppState>) -> Json<Value> {
-    let list: Vec<Value> = state
-        .config
+    let config = state.config_snapshot().await;
+    let list: Vec<Value> = config
         .api_resources
         .iter()
         .map(|r| {
@@ -81,8 +91,8 @@ async fn resources(State(state): State<AppState>) -> Json<Value> {
 }
 
 async fn proxy_keys(State(state): State<AppState>) -> Json<Value> {
-    let list: Vec<Value> = state
-        .config
+    let config = state.config_snapshot().await;
+    let list: Vec<Value> = config
         .proxy_keys
         .iter()
         .map(|k| {

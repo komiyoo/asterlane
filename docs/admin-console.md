@@ -63,7 +63,7 @@ admin:
 | Events | 请求事件查询（key/resource/时间范围过滤，时间游标分页） | `/admin/events` | 已上线（C2）：`from`/`to` 为 RFC3339；`to` 不含边界，兼作游标——下一页传上一页末行 `timestamp`（同一时间戳的并发行可能被跳过，微秒精度下可接受） |
 | Security Events | integrity drift、content defense 事件 | `/admin/security-events` | 已上线（C1） |
 | Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中） | `/admin/usage?group_by=&from=&to=` | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
-| Config | 配置校验报告；（C3）资源与 key 的 CRUD | `/admin/config/validate` 等 | **缺**（C3） |
+| Config | 配置校验报告、资源与 key 的 CRUD | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3） |
 
 除 Key Pools（依赖尚未接线的运行时能力）外，覆盖 [Architecture – Admin Console](architecture.md) 第一阶段最小集。
 
@@ -72,7 +72,7 @@ admin:
 - **C0 admin 认证（已交付 2026-07-05）**：如上节。无认证不上任何 UI。
 - **C1 只读控制台（已交付 2026-07-05）**：单文件 `src/admin/console.html`（`GET /admin/ui`，`include_str!` 嵌入），页面 = Overview / Resources / Tools / Proxy Keys / Events / Security Events。表格 + 过滤输入框，无图表，零新依赖。Key Pools 页推迟至 C2（见上表）。
 - **C2 用量聚合（已交付 2026-07-05）**：`/admin/usage` 暴露 `store::AggregationRepository::summarize_by`（五个维度）；`/admin/events` 补 `from`/`to` 时间过滤与时间游标分页；`/admin/stats` 升级为 SQL 聚合（`overall_stats`，返回字段扩展为含 `unique_resources`/`avg_latency_ms`/`total_rate_limit_hits`）；控制台新增「用量」页（CSS 条形图 + 表格，错误占比着色）；key pool 接入请求路径后补齐 `/admin/key-pools` 与 Key Pools 页。时间桶趋势随 `usage_buckets` 写入路径接通交付：`group_by=bucket` 返回 hour 粒度升序序列（默认 168 桶/一周，上限 744），用量页「按小时（趋势）」维度渲染。
-- **C3 配置管理（写路径）**：resources / proxy keys CRUD（`store::repository` 已有对应 trait）、配置校验报告、热更新。所有写操作落审计事件。UI 复杂度若超出单文件承受力，按「形态决策」表的升级条件引入构建式前端，并更新 [Crate Selection](crate-selection.md)。
+- **C3 配置管理（已交付 2026-07-05）**：resources / proxy keys CRUD（`POST/PUT/DELETE`）、`/admin/config/validate` 配置校验报告、热更新（`Arc<RwLock<Arc<GatewayConfig>>>` 原子替换 + catalog 重建）。所有写操作落审计事件（`SecurityEventKind::AdminAudit`）。admin middleware 注入 `AdminKeyId`，audit 记录含 admin_key_id/action/target。控制台「配置管理」页含 Create/Delete + 校验按钮，单文件仍可承受。
 - **远期（不排期）**：多管理员 RBAC、SSE live tail、SSO。
 
 每阶段独立可交付：C0/C1 合起来就是可用的最小控制台，C2/C3 按需求节奏推进。

@@ -36,7 +36,9 @@ pub type ToolListChangedPeers = Arc<RwLock<Vec<Peer<RoleServer>>>>;
 #[derive(Clone)]
 pub struct AppState {
     /// 网关配置（资源、proxy key 等）。
-    pub config: Arc<GatewayConfig>,
+    /// `RwLock<Arc<>>` 允许 CRUD 写路径原子替换配置快照，
+    /// 读路径 `.read().await.clone()` 得到 `Arc<GatewayConfig>` 后立即释放锁。
+    pub config: Arc<tokio::sync::RwLock<Arc<GatewayConfig>>>,
     /// 工具目录（从配置构建，按 key scope 与 query 过滤）。
     pub catalog: Arc<RwLock<ToolCatalog>>,
     /// Secret resolver used by invoke routes.
@@ -73,7 +75,7 @@ pub struct AppState {
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
-            .field("config", &self.config)
+            .field("config", &"<rwlock>")
             .field("limits", &self.limits)
             .field("event_repo", &self.event_repo)
             .field(
@@ -87,7 +89,7 @@ impl std::fmt::Debug for AppState {
 impl AppState {
     pub fn new(config: GatewayConfig, catalog: ToolCatalog) -> Self {
         Self {
-            config: Arc::new(config),
+            config: Arc::new(tokio::sync::RwLock::new(Arc::new(config))),
             catalog: Arc::new(RwLock::new(catalog)),
             secrets: Arc::new(DefaultSecretStore::with_backends()),
             http_client: reqwest::Client::new(),
@@ -163,5 +165,10 @@ impl AppState {
     /// 供 `call_tool` / `invoke` 在调用上游前检查。读锁短暂持有。
     pub async fn quarantine_policy(&self, wire_name: &str) -> Option<IntegrityPolicy> {
         self.quarantined_tools.read().await.get(wire_name).copied()
+    }
+
+    /// 获取配置快照（读锁瞬间释放），下游代码直接使用 `Arc<GatewayConfig>`。
+    pub async fn config_snapshot(&self) -> Arc<GatewayConfig> {
+        self.config.read().await.clone()
     }
 }

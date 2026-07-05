@@ -212,6 +212,12 @@ pub trait ResourceRepository: Send + Sync {
         &self,
     ) -> impl std::future::Future<Output = Result<Vec<Resource>, StoreError>> + Send;
 
+    /// 更新资源，返回是否有行被更新。
+    fn update_resource(
+        &self,
+        resource: &Resource,
+    ) -> impl std::future::Future<Output = Result<bool, StoreError>> + Send;
+
     /// 删除资源，返回是否有行被删除。
     fn delete_resource(
         &self,
@@ -228,6 +234,9 @@ impl ResourceRepository for () {
     }
     async fn list_resources(&self) -> Result<Vec<Resource>, StoreError> {
         Ok(Vec::new())
+    }
+    async fn update_resource(&self, _resource: &Resource) -> Result<bool, StoreError> {
+        Ok(false)
     }
     async fn delete_resource(&self, _id: &str) -> Result<bool, StoreError> {
         Ok(false)
@@ -250,6 +259,11 @@ pub trait ProxyKeyRepository: Send + Sync {
         &self,
     ) -> impl std::future::Future<Output = Result<Vec<ProxyKeyRecord>, StoreError>> + Send;
 
+    fn update_proxy_key(
+        &self,
+        key: &ProxyKeyRecord,
+    ) -> impl std::future::Future<Output = Result<bool, StoreError>> + Send;
+
     fn delete_proxy_key(
         &self,
         id: &str,
@@ -265,6 +279,9 @@ impl ProxyKeyRepository for () {
     }
     async fn list_proxy_keys(&self) -> Result<Vec<ProxyKeyRecord>, StoreError> {
         Ok(Vec::new())
+    }
+    async fn update_proxy_key(&self, _key: &ProxyKeyRecord) -> Result<bool, StoreError> {
+        Ok(false)
     }
     async fn delete_proxy_key(&self, _id: &str) -> Result<bool, StoreError> {
         Ok(false)

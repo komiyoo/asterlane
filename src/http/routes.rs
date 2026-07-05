@@ -111,10 +111,11 @@ pub async fn get_config(
     State(state): State<AppState>,
     Query(query): Query<ToolsQuery>,
 ) -> Result<Json<ConfigSummary>, AsterlaneError> {
+    let config = state.config_snapshot().await;
     let key = query.key.ok_or_else(|| {
         AsterlaneError::internal(ErrorCode::AuthMissingGatewayKey, "missing gateway key")
     })?;
-    state.config.proxy_key(&key).ok_or_else(|| {
+    config.proxy_key(&key).ok_or_else(|| {
         AsterlaneError::internal(ErrorCode::AuthInvalidGatewayKey, "invalid gateway key")
     })?;
     if let Some(limits) = &state.limits {
@@ -125,7 +126,7 @@ pub async fn get_config(
             ))
             .await?;
     }
-    Ok(Json(ConfigSummary::from(state.config.as_ref())))
+    Ok(Json(ConfigSummary::from(config.as_ref())))
 }
 
 // ── tool listing ──
@@ -183,10 +184,11 @@ pub async fn list_tools(
     State(state): State<AppState>,
     Query(query): Query<ToolsQuery>,
 ) -> Result<Response, AsterlaneError> {
+    let config = state.config_snapshot().await;
     let key = query.key.ok_or_else(|| {
         AsterlaneError::internal(ErrorCode::AuthMissingGatewayKey, "missing gateway key")
     })?;
-    let proxy_key = state.config.proxy_key(&key).ok_or_else(|| {
+    let proxy_key = config.proxy_key(&key).ok_or_else(|| {
         AsterlaneError::internal(ErrorCode::AuthInvalidGatewayKey, "invalid gateway key")
     })?;
 
@@ -249,11 +251,11 @@ pub async fn invoke_tool(
     headers: HeaderMap,
     Json(args): Json<serde_json::Value>,
 ) -> Result<Response, AsterlaneError> {
+    let config = state.config_snapshot().await;
     let key = query.key.ok_or_else(|| {
         AsterlaneError::internal(ErrorCode::AuthMissingGatewayKey, "missing gateway key")
     })?;
-    let proxy_key = state
-        .config
+    let proxy_key = config
         .proxy_key(&key)
         .ok_or_else(|| {
             AsterlaneError::internal(ErrorCode::AuthInvalidGatewayKey, "invalid gateway key")
@@ -268,7 +270,7 @@ pub async fn invoke_tool(
     let format = render::resolve_format(
         query.format.as_deref().or(accept_override),
         proxy_key.response_format,
-        state.config.defaults.response_format,
+        config.defaults.response_format,
     )?;
 
     // Intercept meta-tool calls
@@ -287,7 +289,7 @@ pub async fn invoke_tool(
     }
 
     let mut executor = ProxyExecutor::new(
-        state.config.clone(),
+        config.clone(),
         Arc::new(state.catalog.read().await.clone()),
         state.secrets.clone(),
         state.http_client.clone(),
@@ -367,6 +369,7 @@ async fn handle_meta_tool_with_proxy(
     proxy_key: &ProxyKey,
     format: ResponseFormat,
 ) -> Result<MetaToolInvokeResult, AsterlaneError> {
+    let config = state.config_snapshot().await;
     match name {
         "asterlane__call_tool" => {
             let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
@@ -383,7 +386,7 @@ async fn handle_meta_tool_with_proxy(
 
             // Proxy to real upstream
             let mut executor = ProxyExecutor::new(
-                state.config.clone(),
+                config.clone(),
                 Arc::new(state.catalog.read().await.clone()),
                 state.secrets.clone(),
                 state.http_client.clone(),
@@ -481,9 +484,7 @@ async fn handle_meta_tool_with_proxy(
                 Some(semantic) if name == "asterlane__search_tools" => {
                     discovery::handle_search_semantic(args, &catalog, proxy_key, semantic).await
                 }
-                _ => {
-                    discovery::handle_meta_tool_call(name, args, &catalog, &state.config, proxy_key)
-                }
+                _ => discovery::handle_meta_tool_call(name, args, &catalog, &config, proxy_key),
             };
             result.map(|result| MetaToolInvokeResult {
                 result,
