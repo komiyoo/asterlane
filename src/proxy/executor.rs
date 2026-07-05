@@ -444,6 +444,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
     ///
     /// 第一阶段 failover 基础实现：重试时 mark_cooling 当前 key + acquire 新 key。
     /// 完整 failover 策略（per-key 凭据映射、权重感知轮换）留后续。
+    #[allow(clippy::too_many_arguments)]
     async fn execute_with_retry(
         &self,
         tool_name: &ToolName,
@@ -921,8 +922,8 @@ fn build_url(
 /// - query_params → query string
 /// - header_params → request headers
 /// - body key → JSON body
-/// When None (hand-written endpoint), falls back to legacy behavior:
-/// non-GET sends entire args as JSON body.
+///   When None (hand-written endpoint), falls back to legacy behavior:
+///   non-GET sends entire args as JSON body.
 fn apply_params(
     mut builder: reqwest::RequestBuilder,
     args: &serde_json::Value,

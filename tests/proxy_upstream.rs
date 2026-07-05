@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used)]
 use asterlane::catalog::ToolCatalog;
 use asterlane::config::{
     ApiResource, GatewayConfig, HttpMethod, ProxyKey, SecurityConfig, ToolEndpoint, UpstreamAuth,

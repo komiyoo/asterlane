@@ -314,7 +314,7 @@ fn push_deduped_entry(
     } = entry;
     let mut deduped = Vec::with_capacity(tools.len());
     let mut deduped_desc = Vec::with_capacity(descriptors.len());
-    for (tool, desc) in tools.into_iter().zip(descriptors.into_iter()) {
+    for (tool, desc) in tools.into_iter().zip(descriptors) {
         let wire_name = tool.name.to_wire_name();
         if seen_wire_names.insert(wire_name.clone()) {
             deduped.push(tool);
