@@ -28,6 +28,7 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | OpenAPI discovery 字段 | 新增 | `#[serde(default)]`，不配置即不启用 |
 | `admin` 节（admin key 认证） | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `/admin/*` 整体不挂载 |
 | `api_resources[].key_pool` | 新增（2026-07-05） | `#[serde(default)]`，不配置时走单 ref 凭据路径；配置后 `auth` 单 ref 不再使用（只提供注入形状） |
+| `semantic_search` 节 | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `asterlane__search_tools` 走关键词打分；配置后端点故障运行期回退关键词 |
 
 ## 配置版本字段
 

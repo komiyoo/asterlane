@@ -11,6 +11,7 @@ use crate::keys::KeyPoolRegistry;
 use crate::limits::RateLimits;
 use crate::mcp::McpServerRegistry;
 use crate::secrets::DefaultSecretStore;
+use crate::semantic::SemanticIndex;
 use crate::shaping::ResultCache;
 use crate::store::SqliteRequestEventRepository;
 use rmcp::{Peer, RoleServer};
@@ -64,6 +65,8 @@ pub struct AppState {
     pub admin_auth: Option<Arc<AdminAuth>>,
     /// Key 池注册表；`None` 时资源走单 ref 凭据路径。
     pub key_pools: Option<Arc<KeyPoolRegistry>>,
+    /// 语义索引；`None` 时 `asterlane__search_tools` 走关键词打分。
+    pub semantic: Option<Arc<SemanticIndex>>,
 }
 
 // ponytail: manual Debug because PrometheusHandle doesn't impl Debug
@@ -98,6 +101,7 @@ impl AppState {
             metrics_handle: None,
             admin_auth: None,
             key_pools: None,
+            semantic: None,
         }
     }
 
@@ -110,6 +114,12 @@ impl AppState {
     /// 注入 key 池注册表（main.rs 启动时从配置构建后注入）。
     pub fn with_key_pools(mut self, key_pools: Arc<KeyPoolRegistry>) -> Self {
         self.key_pools = Some(key_pools);
+        self
+    }
+
+    /// 注入语义索引（main.rs 启动时解析 embedding 端点配置后注入）。
+    pub fn with_semantic(mut self, semantic: Arc<SemanticIndex>) -> Self {
+        self.semantic = Some(semantic);
         self
     }
 

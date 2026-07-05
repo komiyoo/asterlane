@@ -7,6 +7,15 @@ admin:
     - id: ops-primary
       token_ref: secret://env/ASTERLANE_ADMIN_TOKEN
 
+# 语义工具搜索（可选）：OpenAI-compatible embeddings 端点。
+# 启用后 asterlane__search_tools 按余弦相似度排序，端点故障自动回退关键词。
+# 注意：工具名称/描述与搜索 query 会发送到该端点（数据出境）。
+# semantic_search:
+#   base_url: https://api.openai.com/v1
+#   model: text-embedding-3-small
+#   api_key_ref: secret://env/OPENAI_API_KEY   # 本地 Ollama 等无鉴权端点可省略
+#   timeout_secs: 15
+
 api_resources:
   - id: tavily
     domain: search

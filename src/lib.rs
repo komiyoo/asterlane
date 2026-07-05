@@ -16,6 +16,7 @@ pub mod policy;
 pub mod proxy;
 pub mod render;
 pub mod secrets;
+pub mod semantic;
 pub mod shaping;
 pub mod store;
 pub mod transform;

@@ -211,6 +211,19 @@ async fn serve(args: ServeArgs) -> Result<()> {
         state = state.with_key_pools(Arc::new(registry));
     }
 
+    // 语义搜索：启动期解析 embedding 端点 api key ref，失败 fail fast；未配置则关键词搜索
+    if let Some(semantic) = asterlane::semantic::SemanticIndex::from_config(
+        state.config.semantic_search.as_ref(),
+        state.secrets.as_ref(),
+        state.http_client.clone(),
+    )
+    .await
+    .context("failed to resolve semantic_search api key ref")?
+    {
+        info!("semantic tool search enabled");
+        state = state.with_semantic(Arc::new(semantic));
+    }
+
     let ct = tokio_util::sync::CancellationToken::new();
 
     // 后台周期性刷新上游 MCP server 工具列表 + drift 检测 + 同步 catalog + notify 客户端。

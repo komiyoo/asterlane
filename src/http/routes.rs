@@ -475,14 +475,22 @@ async fn handle_meta_tool_with_proxy(
         // status / search_tools — delegate to existing handler
         _ => {
             let catalog = state.catalog.read().await.clone();
-            discovery::handle_meta_tool_call(name, args, &catalog, &state.config, proxy_key).map(
-                |result| MetaToolInvokeResult {
-                    result,
-                    content_defense_flag: false,
-                    shaped: false,
-                    rendered_format: None,
-                },
-            )
+            // 语义搜索：配置了 semantic_search 时 search_tools 走余弦排序，
+            // 端点故障在 handler 内回退关键词
+            let result = match &state.semantic {
+                Some(semantic) if name == "asterlane__search_tools" => {
+                    discovery::handle_search_semantic(args, &catalog, proxy_key, semantic).await
+                }
+                _ => {
+                    discovery::handle_meta_tool_call(name, args, &catalog, &state.config, proxy_key)
+                }
+            };
+            result.map(|result| MetaToolInvokeResult {
+                result,
+                content_defense_flag: false,
+                shaped: false,
+                rendered_format: None,
+            })
         }
     }
 }

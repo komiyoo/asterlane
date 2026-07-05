@@ -135,6 +135,15 @@ api_resources:
 }
 ```
 
+## Semantic Search
+
+`asterlane__search_tools` 默认按关键词打分（exact > prefix > contains > description）。配置顶层 `semantic_search` 后升级为语义排序（`src/semantic.rs`）：
+
+- **Provider 形态**：OpenAI-compatible `/embeddings` 端点（`base_url` + `model` + 可选 `api_key_ref`），兼容 OpenAI / Zhipu / Ollama / vLLM 等；形态借鉴 smart-search CLI 的可配置 provider 模式。不引入本地 embedding 模型（fastembed/ort 需捆绑 ONNX runtime，体积与构建复杂度不符合网关定位）。
+- **索引**：进程内向量缓存，按需填充（首次搜索批量嵌入 key 可见工具，单请求 ≤128 条）；embedding 文本为 `{wire_name}: {description}`，以文本哈希做失效——MCP refresh 后描述变更的工具自动重嵌。
+- **排序**：查询向量与工具向量余弦相似度降序取前 10；空查询与端点故障回退关键词路径，发现能力不因 embedding 依赖不可用（回退带 `warn!` 日志）。
+- **数据出境**：工具名称/描述与代理搜索 query 会发送到配置端点；内网部署可指向本地 Ollama/vLLM。API key 走 secret ref，启动期解析、失败 fail fast。
+
 # 自动发现的边界
 
 | 问题 | 处理 |

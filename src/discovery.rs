@@ -9,7 +9,9 @@ use crate::catalog::ToolCatalog;
 use crate::config::{GatewayConfig, ProxyKey};
 use crate::error::AsterlaneError;
 use crate::mcp::model::{ToolCallResult, ToolDescriptor};
+use crate::semantic::SemanticIndex;
 use serde_json::{Value, json};
+use tracing::warn;
 
 // ── Meta-tool names ──
 
@@ -65,7 +67,7 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: SEARCH_TOOLS.to_string(),
-            description: "Search available tools by keyword or regex pattern. \
+            description: "Search available tools by intent, keyword, or regex pattern. \
                           Returns matching tool names, descriptions, and input schema summaries. \
                           Use this to discover tools before calling them."
                 .to_string(),
@@ -194,6 +196,55 @@ fn handle_search(
     ))
 }
 
+/// `asterlane__search_tools` 的语义排序路径（配置 `semantic_search` 时）。
+///
+/// 候选 = key 可见工具全集；按查询余弦相似度取前 10。
+/// 空查询无语义可言、端点故障均回退关键词路径（`handle_search`），
+/// 发现能力不因 embedding 依赖不可用。
+pub async fn handle_search_semantic(
+    args: Value,
+    catalog: &ToolCatalog,
+    proxy_key: &ProxyKey,
+    semantic: &SemanticIndex,
+) -> Result<ToolCallResult, AsterlaneError> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if query.is_empty() {
+        return handle_search(args, catalog, proxy_key);
+    }
+
+    let visible = catalog.search_for_key("", proxy_key, usize::MAX)?;
+    let candidates: Vec<(String, String)> = visible
+        .iter()
+        .map(|t| (t.name.to_wire_name(), t.description.clone()))
+        .collect();
+
+    match semantic.rank(&query, &candidates, 10).await {
+        Ok(ranked) => {
+            let items: Vec<Value> = ranked
+                .iter()
+                .filter_map(|wire| catalog.find_by_wire_name(wire))
+                .map(|t| {
+                    json!({
+                        "name": t.name.to_wire_name(),
+                        "description": t.description,
+                    })
+                })
+                .collect();
+            Ok(ToolCallResult::text_ok(
+                serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string()),
+            ))
+        }
+        Err(e) => {
+            warn!(error = %e, "semantic search failed; falling back to keyword search");
+            handle_search(args, catalog, proxy_key)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +254,7 @@ mod tests {
         GatewayConfig {
             defaults: Default::default(),
             admin: Default::default(),
+            semantic_search: None,
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),

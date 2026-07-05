@@ -75,6 +75,7 @@ fn config_with_quarantine_policy() -> asterlane::config::GatewayConfig {
     asterlane::config::GatewayConfig {
         defaults: Default::default(),
         admin: Default::default(),
+        semantic_search: None,
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "srv-a".to_string(),
@@ -247,6 +248,7 @@ async fn drift_with_warn_policy_does_not_quarantine() {
     let config = asterlane::config::GatewayConfig {
         defaults: Default::default(),
         admin: Default::default(),
+        semantic_search: None,
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "srv-a".to_string(),

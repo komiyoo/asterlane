@@ -24,6 +24,7 @@ fn test_config(base_url: &str, auth: UpstreamAuth, endpoints: Vec<ToolEndpoint>)
     GatewayConfig {
         defaults: Default::default(),
         admin: Default::default(),
+        semantic_search: None,
         api_resources: vec![ApiResource {
             id: "test-api".to_string(),
             domain: "testing".to_string(),

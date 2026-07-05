@@ -159,6 +159,27 @@ impl ServerHandler for AsterlaneToolServer {
                     budget,
                 ));
             }
+            // 语义搜索：配置了 semantic_search 时 search_tools 走余弦排序，
+            // 端点故障在 handler 内回退关键词。用 catalog 快照，
+            // 不持读锁跨 embedding await。
+            if let Some(semantic) = &self.state.semantic
+                && wire_name == "asterlane__search_tools"
+            {
+                let catalog_snapshot = self.state.catalog.read().await.clone();
+                return match crate::discovery::handle_search_semantic(
+                    arguments,
+                    &catalog_snapshot,
+                    &key,
+                    semantic,
+                )
+                .await
+                {
+                    Ok(result) => Ok(tool_call_result_to_mcp(result)),
+                    Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
+                        e.to_string(),
+                    )])),
+                };
+            }
             let catalog = self.state.catalog.read().await;
             return match crate::discovery::handle_meta_tool_call(
                 wire_name,

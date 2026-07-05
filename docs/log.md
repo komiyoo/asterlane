@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-07-05（Semantic tool search）
+
+- **新增 `src/semantic.rs`**：`SemanticIndex`——OpenAI-compatible `/embeddings` 端点客户端（provider 形态借鉴 smart-search CLI：可配置 `base_url`/`model`/`api_key_ref`，兼容 OpenAI/Zhipu/Ollama/vLLM）+ 进程内向量缓存（按需批量嵌入 ≤128 条/请求，text hash 失效，描述变更自动重嵌）+ 余弦排序。零新依赖（reqwest/serde/secrecy 复用）；不选本地 embedding 模型（fastembed/ort 需捆绑 ONNX runtime）。
+- **配置**：顶层 `semantic_search` 节（`base_url`/`model`/可选 `api_key_ref`/`timeout_secs` 默认 15）；api key 启动期解析 fail fast；未配置行为不变。
+- **接线**：`discovery::handle_search_semantic`——候选 = key 可见工具全集，余弦取前 10；空查询与端点故障回退关键词路径（`warn!` 日志）。MCP `call_tool` 与 HTTP invoke 两个 meta-tool 入口都接入；MCP 侧用 catalog 快照，不持读锁跨 embedding await。`asterlane__search_tools` 描述加 "by intent"。
+- **安全**：`SecretString` 包裹 api key、手写 Debug；错误只含状态码不含响应体；文档标注数据出境（工具名/描述/query 发送到配置端点，内网可指向本地 Ollama/vLLM）。
+- **文档**：api-discovery.md 增「Semantic Search」节；config-schema.md 增 Semantic Search 节；compatibility-policy.md 登记 `semantic_search` 字段；examples/gateway.yaml 注释示例。
+
 ## 2026-07-05（usage_buckets 写入路径接通 + 时间桶趋势）
 
 - **写入路径**：`ProxyExecutor::record_event` 落 `request_events` 的同时 upsert hour 粒度 `usage_buckets`（`UsageBucket::from_event` → `From` 转换 → `upsert_bucket` 冲突累加；失败 `warn!` 不阻断请求）。只写 hour 粒度，minute/day 待控制台缩放需求（ponytail 注释标注）。

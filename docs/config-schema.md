@@ -17,6 +17,7 @@ The initial gateway config is YAML. It should be easy to review in git and later
 schema_version: 1
 defaults: {}
 admin: {}
+semantic_search: {}   # 可选
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -45,6 +46,18 @@ admin key 用于 `/admin/*` API 与 Web 控制台的 Bearer 认证（见 [Admin 
 - `token_ref` 是 secret ref，启动时解析一次并 fail fast；内存只保留 token 摘要，不留明文。
 - `keys` 为空或缺省时，`/admin/*`（含 `/admin/ui`）整体不挂载，探活使用公开 `/healthz`。
 - admin key 与 `proxy_keys` 物理分离：认证失败返回 `admin.unauthorized`（401），与 gateway key 的 `auth.*` 错误码互不混用。
+
+## Semantic Search
+
+```yaml
+semantic_search:
+  base_url: https://api.openai.com/v1        # OpenAI-compatible，不含 /embeddings 后缀
+  model: text-embedding-3-small
+  api_key_ref: secret://env/OPENAI_API_KEY   # 可选；本地 Ollama 等无鉴权端点省略
+  timeout_secs: 15                           # 可选，默认 15
+```
+
+配置后 `asterlane__search_tools` 按查询与工具文本的余弦相似度排序；缺省走关键词打分。端点故障运行期自动回退关键词，不影响发现可用性。`api_key_ref` 启动时解析一次并 fail fast。**注意数据出境**：工具名称/描述与搜索 query 会发送到该端点（详见 [API Discovery – Semantic Search](api-discovery.md)）。
 
 # API Resources
 

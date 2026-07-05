@@ -140,6 +140,7 @@ mod tests {
         GatewayConfig {
             defaults: Default::default(),
             admin: AdminConfig::default(),
+            semantic_search: None,
             api_resources: vec![ApiResource {
                 id: "tavily".to_string(),
                 domain: "search".to_string(),
