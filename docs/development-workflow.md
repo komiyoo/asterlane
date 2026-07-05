@@ -29,7 +29,7 @@ The project should borrow NyaProxy's gateway primitives, but reinterpret them fo
 Use this sequence before coding:
 
 1. Read `AGENTS.md`.
-2. Read `docs/index.md`, then the closest concept document for the task.
+2. Read `docs/README.md`, then the closest concept document for the task.
 3. If the work changes architecture, product behavior, module boundaries, database schema, error model, admin UX, or MCP behavior, update the relevant OKF doc first or in the same commit.
 4. Check the local NyaProxy reference only for concepts and test coverage ideas:
 

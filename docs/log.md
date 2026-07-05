@@ -1,5 +1,21 @@
 # Documentation Update Log
 
+## 2026-07-05（Response Rendering 端到端验证沉淀）
+
+- **验证**：对 Exa hosted MCP（`exa-search-server` 3.2.1，`examples/gateway-mcp.yaml`）+ 本地 JSON HTTP 上游实测响应渲染。格式协商链全绿：缺省透传、`?format=yaml/markdown` 渲染并置 `x-asterlane-format` + 切 `Content-Type`、`Accept:` 协商、非法值 400 `mcp.invalid_tool_call`；对象数组正确渲染为 markdown 表格。
+- **关键结论**：Exa 的 `web_search_exa` / `web_fetch_exa` 返回预格式化纯文本（非 JSON），命中"非 JSON 透传"分支——符合转换边界的正确行为，非缺陷。本特性价值面向返回原始 JSON 的上游。
+- **沉淀**：`response-rendering.md` 新增「端到端验证」节（手动冒烟流程 + 判定基线表 + Exa 结论）；自动化测试指向 `src/render.rs` / `proxy/executor.rs` / `http/mod.rs`。
+
+## 2026-07-05（工程与文档约定沉淀）
+
+- **评估**：全库工程评估（代码组织/架构/模块化/类型系统/错误/日志/臃肿控制）。结论：模块分层与错误模型是范本级（生产代码零 unwrap 由 lint+CI 强制、稳定错误码三边界转换、newtype 构造即校验）；主要缺口为热路径缺 tracing span（`proxy::executor::invoke` 零 instrumentation，observability.md 承诺的 tracing+store 双写只落地 metrics+store 一半）、`proxy/executor.rs` 生产代码约 1030 行逼近 god-file、integrity drift 编排滞留 `main.rs`、`architecture.md` 模块表 Status 列整体过时。
+- **新增** `engineering-conventions.md`（type: Convention）：三层依赖方向表（含现存豁免登记）、组合根规则、文件 500 行/函数 80 行硬预算、类型系统约定、错误硬规则、日志级别语义与 span 强制规则、复用阶梯、已知债务台账（executor 拆分方向、drift 编排迁移、tracing 补齐、吞错补 warn、naming.rs 注释数字勘误）。
+- **新增** `documentation-conventions.md`（type: Convention）：L0 AGENTS.md → L1 README → L2 概念文档 → L3 log 四层职责与约束、文档生命周期（新建三件事/超 400 行拆分/supersede 就地更正）、禁行号引用等引用规则、type 值登记、腐烂信号与自进化三问。
+- **AGENTS.md**：研发约束下新增「工程纲领」六条硬规则速览；优先阅读与文档节接入上述两份文档。
+- **改名**：导航文件 `docs/index.md` → `docs/README.md`（git mv，GitHub 目录页自动渲染）；同步更新 `AGENTS.md`、根 `README.md`、`development-workflow.md`、`documentation-conventions.md` 引用与 `scripts/check_okf_docs.py` 保留清单。
+- **根 README 重写**：按现状中文重写（旧版仍是冒号命名与 MVP 期描述）。现覆盖：能力总览（统一接入/命名与 scope/渐进发现/执行管线/MCP 安全/观测）、快速开始命令、端点表、示例配置指引、`just check` 与文档入口。
+- **验证**：`python3 scripts/check_okf_docs.py` 通过。
+
 ## 2026-07-05（Response Rendering 实现落地）
 
 - **新模块** `src/render.rs`：`ResponseFormat` enum（json/yaml/markdown）+ `render()` / `resolve_format()` / `format_from_accept()` 纯函数。yaml 走 `serde_norway`；markdown 为确定性 value walk（同构扁平对象数组→表格[列=键并集按首次出现序]、标量数组→列表、对象→键值列表、多行字符串→fence、深度>4 或异构数组→子树降级 yaml fence）。

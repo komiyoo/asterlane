@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """检查 docs/ 下非保留 Markdown 概念文件的 OKF frontmatter。
 
-保留文件 index.md 和 log.md 不需要 frontmatter。
+保留文件 README.md 和 log.md 不需要 frontmatter。
 其余 .md 必须有可解析的 YAML frontmatter 且包含非空 type。
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-RESERVED = {"index.md", "log.md"}
+RESERVED = {"README.md", "log.md"}
 
 
 def main() -> int:
