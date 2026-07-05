@@ -7,7 +7,9 @@
 //!   env var 名 = `{BACKEND}_{PATH}` 大写并用 `_` 连接
 
 use crate::secrets::error::SecretError;
+use crate::secrets::infisical::InfisicalBackend;
 use crate::secrets::secret_ref::SecretRef;
+use crate::secrets::vault::VaultBackend;
 use crate::secrets::{SecretStore, SecretString};
 
 /// 环境变量查找抽象。
@@ -99,19 +101,21 @@ impl FileBackend {
 
 /// 默认 secret store，按 `SecretRef.backend` 分发到对应 backend。
 ///
-/// - `backend == "env"` → [`EnvBackend`]（env var 名 = `path`）
-/// - `backend == "file"` → [`FileBackend`]（文件路径 = `path`）
+/// - `backend == "env"` → [`EnvBackend`]
+/// - `backend == "file"` → [`FileBackend`]
+/// - `backend == "vault"` → [`VaultBackend`]（需 `with_vault` 配置）
+/// - `backend == "infisical"` → [`InfisicalBackend`]（需 `with_infisical` 配置）
 /// - 其他 backend → [`EnvBackend`]（env var 名 = `{BACKEND}_{PATH}` 大写）
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct DefaultSecretStore {
     env: EnvBackend<StdEnvLookup>,
     file: FileBackend,
+    vault: Option<VaultBackend>,
+    infisical: Option<InfisicalBackend>,
 }
 
 impl DefaultSecretStore {
     /// 创建只支持 env backend 的 store。
-    ///
-    /// provider-style ref（如 `secret://tavily/default`）也通过 env var 映射解析。
     pub fn default_env() -> Self {
         Self::default()
     }
@@ -120,12 +124,38 @@ impl DefaultSecretStore {
     pub fn with_backends() -> Self {
         Self::default()
     }
+
+    /// 启用 Vault KV v2 backend。
+    pub fn with_vault(mut self, config: crate::secrets::vault::VaultConfig) -> Self {
+        self.vault = Some(VaultBackend::new(config));
+        self
+    }
+
+    /// 启用 Infisical backend。
+    pub fn with_infisical(mut self, config: crate::secrets::infisical::InfisicalConfig) -> Self {
+        self.infisical = Some(InfisicalBackend::new(config));
+        self
+    }
 }
 
 impl SecretStore for DefaultSecretStore {
     async fn resolve(&self, secret_ref: &SecretRef) -> Result<SecretString, SecretError> {
         match secret_ref.backend.as_str() {
             "file" => self.file.resolve(secret_ref).await,
+            "vault" => match &self.vault {
+                Some(v) => v.resolve(secret_ref).await,
+                None => Err(SecretError::backend(
+                    &secret_ref.to_string(),
+                    "vault backend not configured",
+                )),
+            },
+            "infisical" => match &self.infisical {
+                Some(i) => i.resolve(secret_ref).await,
+                None => Err(SecretError::backend(
+                    &secret_ref.to_string(),
+                    "infisical backend not configured",
+                )),
+            },
             _ => self.env.resolve(secret_ref),
         }
     }

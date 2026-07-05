@@ -13,11 +13,15 @@
 
 pub mod backend;
 pub mod error;
+pub mod infisical;
 pub mod secret_ref;
+pub mod vault;
 
 pub use backend::{DefaultSecretStore, EnvBackend, EnvLookup, FileBackend, StdEnvLookup};
 pub use error::SecretError;
+pub use infisical::{InfisicalBackend, InfisicalConfig};
 pub use secret_ref::SecretRef;
+pub use vault::{VaultBackend, VaultConfig};
 
 use std::fmt::{Display, Formatter};
 
