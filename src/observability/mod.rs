@@ -10,6 +10,8 @@
 pub mod aggregation;
 pub mod metrics;
 pub mod model;
+#[cfg(feature = "otlp")]
+pub mod otlp;
 pub mod redaction;
 pub mod security;
 

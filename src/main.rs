@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// 后台 MCP registry 刷新间隔（秒）。
 /// 暂不加 config，用常量；未来可从 GatewayConfig 读取。
@@ -110,7 +112,53 @@ fn load_config(path: &PathBuf) -> Result<GatewayConfig> {
         .with_context(|| format!("failed to parse config {}", path.display()))
 }
 
+/// Initialize tracing subscriber (fmt layer, optionally OTLP layer).
+///
+/// Returns an optional provider guard that must be held alive for the
+/// OTLP exporter to flush on shutdown.
+fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let fmt_layer = tracing_subscriber::fmt::layer().with_target(true);
+
+    #[cfg(feature = "otlp")]
+    let guard: Option<Box<dyn std::any::Any>> =
+        match asterlane::observability::otlp::build_provider() {
+            Ok(provider) => {
+                let otlp_layer = asterlane::observability::otlp::layer(&provider);
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(fmt_layer)
+                    .with(otlp_layer)
+                    .init();
+                info!("otlp tracing enabled");
+                Some(Box::new(provider))
+            }
+            Err(e) => {
+                tracing_subscriber::registry()
+                    .with(env_filter)
+                    .with(fmt_layer)
+                    .init();
+                warn!("otlp setup failed, falling back to fmt-only: {e}");
+                None
+            }
+        };
+
+    #[cfg(not(feature = "otlp"))]
+    let guard: Option<Box<dyn std::any::Any>> = {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .init();
+        None
+    };
+
+    Ok(guard)
+}
+
 async fn serve(args: ServeArgs) -> Result<()> {
+    let _otlp_guard = init_tracing()?;
+
     let prometheus_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
         .install_recorder()
         .context("failed to install prometheus metrics recorder")?;

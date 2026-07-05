@@ -17,6 +17,10 @@ dbg_macro = "warn"
 todo = "warn"
 print_stdout = "warn"
 
+[features]
+default = []
+otlp = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
@@ -46,6 +50,10 @@ backon = "1.6"
 openapiv3 = "2.0"
 sha2 = "0.10"
 rand = "0.9"
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-client", "trace"], optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
 
 [dev-dependencies]
 wiremock = "0.6"
