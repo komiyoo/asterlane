@@ -1,5 +1,18 @@
 # Documentation Update Log
 
+## 2026-07-05（Response Rendering 概念设计）
+
+- **新增** `response-rendering.md`：结果再呈现层设计。网关将上游 JSON tool result 渲染为 markdown/yaml 后返回 agent；格式决定规则为请求级 `_meta["asterlane.dev/format"]` / HTTP `?format=`+`Accept` > proxy key `response_format` > 顶层 `defaults.response_format` > 缺省 `json`（现状透传）。
+- **边界**：只转换成功 result 的 content 文本层；错误响应、`structuredContent`、JSON-RPC 协议帧、非 JSON body 一律不动。管线位置 defense → render → shaping，`ResultCache` 存渲染后文本。
+- **动机**：LLM 消费嵌套 JSON token 开销高；MCP 生态无 server 侧格式协商，网关是统一转换的正确位置。
+
+## 2026-07-05（命名格式简化：四段→三段）
+
+- **Naming**: wire name 从四段 `domain__provider__tool__method` 简化为三段 `domain__provider__tool`。`method` 段移除——HTTP method 为路由层细节，MCP 代理固定 `call`，信息量为零。三段格式节省 5–8 字符长度预算，与生态主流（Docker mcp-gateway、MetaMCP）对齐。
+- **影响范围**: `naming-convention.md` 全面重写相关章节；`architecture.md`/`config-schema.md`/`api-discovery.md`/`compatibility-policy.md`/`development-workflow.md`/`error-model.md`/`observability.md`/`product-requirements.md`/`agent-skill.md` 更新引用。
+- **过滤**: `method_regex` 结构化过滤字段移除；`domain_regex`/`provider_regex`/`tool_regex` 保留。
+- **MCP 代理**: 上游工具包装格式从 `{domain}__{provider}__{normalizedOriginalTool}__call` 简化为 `{domain}__{provider}__{normalizedOriginalTool}`，不再需要剥 `__call` 后缀。
+
 ## 2026-07-04（Phase 7 可观测性增强与集成测试）
 
 - **Prometheus metrics**: `metrics-exporter-prometheus` 0.18 接入 `metrics` 0.24 facade。`PrometheusBuilder::install_recorder()` 在 serve 启动时安装，`/metrics` endpoint 返回 Prometheus 文本格式。`AppState` 新增 `metrics_handle: Option<PrometheusHandle>`（手写 Debug impl）。

@@ -498,7 +498,6 @@ mod tests {
         assert_eq!(tools[0]["name"]["domain"], "search");
         assert_eq!(tools[0]["name"]["provider"], "exa");
         assert_eq!(tools[0]["name"]["tool"], "neural_search");
-        assert_eq!(tools[0]["name"]["method"], "post");
         assert_eq!(tools[0]["resource_id"], "exa");
         assert_eq!(tools[1]["resource_id"], "tavily");
     }
@@ -567,7 +566,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/search__mock__search__post/invoke?key=agent-test")
+                    .uri("/v1/tools/search__mock__search/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(r#"{"query":"hello"}"#))
                     .unwrap(),
@@ -600,7 +599,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/search__mock__search__post/invoke?key=agent-test")
+                    .uri("/v1/tools/search__mock__search/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(r#"{"query":"hello"}"#))
                     .unwrap(),
@@ -655,7 +654,7 @@ mod tests {
                     .uri("/v1/tools/asterlane__call_tool/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
-                        r#"{"name":"search__mock__search__post","arguments":{"query":"hello"}}"#,
+                        r#"{"name":"search__mock__search","arguments":{"query":"hello"}}"#,
                     ))
                     .unwrap(),
             )
@@ -694,7 +693,7 @@ mod tests {
                     .uri("/v1/tools/asterlane__call_tool/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
-                        r#"{"name":"search__mock__search__post","arguments":{"query":"hello"}}"#,
+                        r#"{"name":"search__mock__search","arguments":{"query":"hello"}}"#,
                     ))
                     .unwrap(),
             )
@@ -717,7 +716,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/tools__remote__failingtool__call/invoke?key=agent-test")
+                    .uri("/v1/tools/tools__remote__failingtool/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(r#"{}"#))
                     .unwrap(),
@@ -753,7 +752,7 @@ mod tests {
                     .uri("/v1/tools/asterlane__call_tool/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
-                        r#"{"name":"tools__remote__failingtool__call","arguments":{}}"#,
+                        r#"{"name":"tools__remote__failingtool","arguments":{}}"#,
                     ))
                     .unwrap(),
             )

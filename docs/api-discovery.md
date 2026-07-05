@@ -87,7 +87,7 @@ api_resources:
 
 1. gateway 启动时读取顶层 `mcp_servers`，作为 MCP 客户端（rmcp `transport-streamable-http-client-reqwest`）连接上游 MCP server。
 2. 调用上游 `tools/list`，获取上游工具列表。
-3. 包装为 Asterlane wire name：`{domain}__{provider}__{normalizedOriginalTool}__call`，例如 `travel__rollinggo__searchairports__call`（method 段固定 `call`，因为 MCP tool call 不区分 HTTP method）。
+3. 包装为 Asterlane wire name：`{domain}__{provider}__{normalizedOriginalTool}`，例如 `travel__rollinggo__searchairports`。
 4. 合并进 catalog，并维护 `(wire name ↔ 上游 server + 原始 tool name)` 映射；invoke 时使用保存的原始 upstream tool name 调用 remote MCP server（见 [Naming Convention – 上游转发剥前缀](naming-convention.md)）。
 
 ### 缓存与失效

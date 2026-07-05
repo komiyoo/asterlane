@@ -19,7 +19,7 @@ The original product requirements are preserved in [Product Requirements](produc
 
 - **Gateway-owned credentials**: upstream API keys and MCP auth material are referenced by secret URI and never exposed to agents. MCP 规范明确禁止 token passthrough，与本设计一致。
 - **Per-key tool scope**: each proxy key has explicit `allowed_tools` and `denied_tools` regex rules. Request-level filters only narrow, never expand.
-- **Stable wrapped names**: exposed MCP tools use `domain__provider__tool__method`（双下划线分隔），详见 [Naming Convention](naming-convention.md)。
+- **Stable wrapped names**: exposed MCP tools use `domain__provider__tool`（双下划线分隔，三段式），详见 [Naming Convention](naming-convention.md)。
 - **Progressive disclosure**: agents list tools with regex filters, limits, and cursors instead of receiving every available tool at once.
 - **Agent-native operation**: discovery and invocation are designed around how agents ask for only the resources relevant to the current task.
 - **Mature crates over hand-rolled**: 协议、服务端、数据库、tracing 和基础设施能力优先使用成熟 Rust crate，选型见 [Crate Selection](crate-selection.md)。
@@ -28,7 +28,7 @@ The original product requirements are preserved in [Product Requirements](produc
 
 | 决策 | 原始需求 | 变更后 | 依据 |
 | --- | --- | --- | --- |
-| MCP 工具名分隔符 | `domain:provider:tool:method`（冒号） | `domain__provider__tool__method`（双下划线） | MCP 2025-11-25 规范 SHOULD `[A-Za-z0-9_.-]`；Anthropic/OpenAI API 硬性 `^[a-zA-Z0-9_-]{1,64}$`；Docker mcp-gateway 已从 `:` 改 `__`。详见 [Naming Convention](naming-convention.md)。 |
+| MCP 工具名格式 | `domain:provider:tool:method`（冒号四段） | `domain__provider__tool`（双下划线三段） | 冒号不兼容 MCP/LLM API 字符集；`method` 段信息量为零（HTTP method 为路由细节，MCP 固定 `call`）。详见 [Naming Convention](naming-convention.md)。 |
 
 # Module Map
 
@@ -61,18 +61,18 @@ Agent
   -> Gateway proxy key (Authorization header)
   -> list_tools(include_regex, domain_regex, ..., cursor)   via _meta extension
   -> Gateway applies key scope, then request filters
-  -> Agent invokes selected domain__provider__tool__method
+  -> Agent invokes selected domain__provider__tool
   -> Gateway resolves secret ref -> injects upstream credential
   -> Upstream key pool selects key (LB strategy + health + cooldown)
   -> Rate limit / queue admission
   -> Request transformation (header/query/path/body)
   -> Upstream HTTP API or remote MCP server
-     (for MCP, strip {domain}__{provider}__ prefix and __call suffix)
+     (for MCP, strip {domain}__{provider}__ prefix to recover upstream tool name)
   -> Gateway records RequestEvent (proxy key, upstream key ref, tool, status, latency)
   -> Response normalized, redacted, returned to agent
 ```
 
-Remote MCP servers are configured under top-level `mcp_servers`, not as `api_resources` children. At startup the gateway connects to each configured server, calls upstream `tools/list`, wraps every discovered upstream tool as `{domain}__{provider}__{normalizedOriginalTool}__call`, preserves the original upstream tool name in catalog metadata, and merges those entries into the shared catalog used by `tools/list` and HTTP `/v1/tools`.
+Remote MCP servers are configured under top-level `mcp_servers`, not as `api_resources` children. At startup the gateway connects to each configured server, calls upstream `tools/list`, wraps every discovered upstream tool as `{domain}__{provider}__{normalizedOriginalTool}`, preserves the original upstream tool name in catalog metadata, and merges those entries into the shared catalog used by `tools/list` and HTTP `/v1/tools`.
 
 # Key Pool And Load Balancing
 
@@ -125,7 +125,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 ## Phase 1: Core Model（当前）
 
-- Config model、wrapped tool names（升级到 `domain__provider__tool__method`）。
+- Config model、wrapped tool names（三段 `domain__provider__tool`）。
 - Per-key scope evaluation、regex-filtered paginated tool listing。
 - 项目错误类型与稳定错误码。
 - 研发工作流初始化（CI、lint、deny、just、OKF 检查）。

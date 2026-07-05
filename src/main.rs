@@ -48,8 +48,6 @@ struct ListToolsArgs {
     #[arg(long)]
     tool: Option<String>,
     #[arg(long)]
-    method: Option<String>,
-    #[arg(long)]
     limit: Option<usize>,
     #[arg(long)]
     cursor: Option<usize>,
@@ -90,7 +88,6 @@ async fn main() -> Result<()> {
                     domain_regex: args.domain,
                     provider_regex: args.provider,
                     tool_regex: args.tool,
-                    method_regex: args.method,
                     limit: args.limit,
                     cursor: args.cursor,
                 },

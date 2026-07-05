@@ -109,17 +109,17 @@ mod tests {
     fn sample_tools() -> Vec<ToolDescriptor> {
         vec![
             ToolDescriptor {
-                name: "search__tavily__web_search__post".to_string(),
+                name: "search__tavily__web_search".to_string(),
                 description: "Search web with Tavily".to_string(),
                 input_schema: serde_json::json!({"type": "object"}),
             },
             ToolDescriptor {
-                name: "search__exa__neural_search__post".to_string(),
+                name: "search__exa__neural_search".to_string(),
                 description: "Neural search with Exa".to_string(),
                 input_schema: serde_json::json!({"type": "object"}),
             },
             ToolDescriptor {
-                name: "mcp__github__list_issues__call".to_string(),
+                name: "mcp__github__list_issues".to_string(),
                 description: "List GitHub issues".to_string(),
                 input_schema: serde_json::json!({"type": "object"}),
             },
@@ -151,12 +151,12 @@ mod tests {
     async fn list_tools_filters_by_exclude_regex() {
         let adapter = PlaceholderAdapter::new(sample_tools());
         let filter = ToolListQuery {
-            exclude_regex: Some("__post$".to_string()),
+            exclude_regex: Some("^search__".to_string()),
             ..Default::default()
         };
         let result = adapter.list_tools(&filter).await.unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "mcp__github__list_issues__call");
+        assert_eq!(result[0].name, "mcp__github__list_issues");
     }
 
     #[tokio::test]
@@ -169,7 +169,7 @@ mod tests {
         };
         let result = adapter.list_tools(&filter).await.unwrap();
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "search__tavily__web_search__post");
+        assert_eq!(result[0].name, "search__tavily__web_search");
     }
 
     #[tokio::test]
@@ -196,7 +196,7 @@ mod tests {
     async fn call_tool_unknown_tool_returns_error() {
         let adapter = PlaceholderAdapter::new(sample_tools());
         let err = adapter
-            .call_tool("search__tavily__nonexistent__post", serde_json::json!({}))
+            .call_tool("search__tavily__nonexistent", serde_json::json!({}))
             .await
             .unwrap_err();
         assert!(matches!(err, McpError::UnknownTool { .. }));
@@ -217,14 +217,14 @@ mod tests {
         let adapter = PlaceholderAdapter::new(sample_tools());
         let err = adapter
             .call_tool(
-                "search__tavily__web_search__post",
+                "search__tavily__web_search",
                 serde_json::json!({"query": "rust"}),
             )
             .await
             .unwrap_err();
         match err {
             McpError::UpstreamNotImplemented { wire_name } => {
-                assert_eq!(wire_name, "search__tavily__web_search__post");
+                assert_eq!(wire_name, "search__tavily__web_search");
             }
             other => panic!("expected UpstreamNotImplemented, got {other:?}"),
         }
@@ -235,7 +235,7 @@ mod tests {
         let adapter = PlaceholderAdapter::new(sample_tools());
         let err = adapter
             .call_tool(
-                "mcp__github__list_issues__call",
+                "mcp__github__list_issues",
                 serde_json::json!({"repo": "rust-lang/rust"}),
             )
             .await
@@ -247,19 +247,18 @@ mod tests {
 
     #[test]
     fn wire_name_roundtrip_preserves_segments() {
-        let original = "mcp__github__list_issues__call";
+        let original = "mcp__github__list_issues";
         let tool_name: ToolName = original.parse().unwrap();
         assert_eq!(tool_name.to_wire_name(), original);
     }
 
     #[test]
     fn wire_name_roundtrip_for_http_api() {
-        let original = "search__tavily__web_search__post";
+        let original = "search__tavily__web_search";
         let tool_name: ToolName = original.parse().unwrap();
         assert_eq!(tool_name.domain, "search");
         assert_eq!(tool_name.provider, "tavily");
         assert_eq!(tool_name.tool, "web_search");
-        assert_eq!(tool_name.method, "post");
         assert_eq!(tool_name.to_wire_name(), original);
     }
 }

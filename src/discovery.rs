@@ -91,7 +91,7 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Wire name of the tool to call (e.g. search__tavily__web_search__post)."
+                        "description": "Wire name of the tool to call (e.g. search__tavily__web_search)."
                     },
                     "arguments": {
                         "type": "object",
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn is_meta_tool_rejects_normal_tools() {
-        assert!(!is_meta_tool("search__tavily__web_search__post"));
+        assert!(!is_meta_tool("search__tavily__web_search"));
         assert!(!is_meta_tool("asterlane__unknown"));
         assert!(!is_meta_tool(""));
     }
@@ -318,7 +318,7 @@ mod tests {
         };
         let items: Vec<Value> = serde_json::from_str(&text).unwrap();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["name"], "search__tavily__web_search__post");
+        assert_eq!(items[0]["name"], "search__tavily__web_search");
     }
 
     #[test]

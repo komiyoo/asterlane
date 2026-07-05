@@ -59,7 +59,7 @@ mod tests {
             request_id: request_id.to_string(),
             proxy_key_id: proxy_key_id.to_string(),
             resource_id: resource_id.to_string(),
-            tool_name: "search__tavily__web_search__post".to_string(),
+            tool_name: "search__tavily__web_search".to_string(),
             upstream_key_ref: redact_secret_key("sk-1234567890abcdefwxyz"),
             status,
             latency_ms: 142,
@@ -309,10 +309,10 @@ mod tests {
                 .unwrap()
                 .with_timezone(&Utc),
             resource_id: resource_id.to_string(),
-            tool_name: Some("search__tavily__web_search__post".to_string()),
+            tool_name: Some("search__tavily__web_search".to_string()),
             kind,
             severity: Severity::Warn,
-            details: serde_json::json!({"tool_name": "search__tavily__web_search__post"}),
+            details: serde_json::json!({"tool_name": "search__tavily__web_search"}),
         }
     }
 
@@ -334,12 +334,9 @@ mod tests {
         assert_eq!(events[0].severity, Severity::Warn);
         assert_eq!(
             events[0].tool_name,
-            Some("search__tavily__web_search__post".to_string())
+            Some("search__tavily__web_search".to_string())
         );
-        assert_eq!(
-            events[0].details["tool_name"],
-            "search__tavily__web_search__post"
-        );
+        assert_eq!(events[0].details["tool_name"], "search__tavily__web_search");
     }
 
     #[tokio::test]
@@ -710,7 +707,7 @@ mod tests {
             "r1",
             "k1",
             "res-a",
-            "search__tavily__web__post",
+            "search__tavily__web",
             RequestStatus::Success,
         ))
         .await
@@ -719,7 +716,7 @@ mod tests {
             "r2",
             "k1",
             "res-a",
-            "search__tavily__web__post",
+            "search__tavily__web",
             RequestStatus::Success,
         ))
         .await
@@ -728,7 +725,7 @@ mod tests {
             "r3",
             "k1",
             "res-b",
-            "search__exa__web__post",
+            "search__exa__web",
             RequestStatus::UpstreamError(500),
         ))
         .await
@@ -764,7 +761,7 @@ mod tests {
             "r1",
             "k1",
             "res",
-            "search__tavily__web__post",
+            "search__tavily__web",
             RequestStatus::Success,
         ))
         .await
@@ -773,7 +770,7 @@ mod tests {
             "r2",
             "k1",
             "res",
-            "code__github__repo__get",
+            "code__github__repo",
             RequestStatus::Success,
         ))
         .await

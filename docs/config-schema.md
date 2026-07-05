@@ -46,7 +46,7 @@ api_resources:
       result_budget_bytes: 49152
 ```
 
-`domain`/`provider`/`tool`/`method` 决定 wire name `domain__provider__tool__method`（见 [Naming Convention](naming-convention.md)）。`provider` 缺失时回退到 `id`。
+`domain`/`provider`/`tool` 决定 wire name `domain__provider__tool`（见 [Naming Convention](naming-convention.md)）。`provider` 缺失时回退到 `id`。`method`（`POST`/`GET` 等）仅用于路由层 HTTP 请求，不参与 wire name 构成。
 
 ## Auth Types
 
@@ -137,7 +137,7 @@ mcp_servers:
       result_budget_bytes: 32768
 ```
 
-gateway 启动时连接每个 remote MCP server，调用上游 `tools/list`，并把返回工具合并进 catalog。上游工具包装为 `{domain}__{provider}__{normalizedOriginalTool}__call`；例如 RollingGo 的 `searchAirports` 暴露为 `travel__rollinggo__searchairports__call`，同时 catalog 保存原始 upstream tool name。invoke 时 gateway 识别该 wire name，再以保存的原始 upstream tool name 调用 remote MCP server。
+gateway 启动时连接每个 remote MCP server，调用上游 `tools/list`，并把返回工具合并进 catalog。上游工具包装为 `{domain}__{provider}__{normalizedOriginalTool}`；例如 RollingGo 的 `searchAirports` 暴露为 `travel__rollinggo__searchairports`，同时 catalog 保存原始 upstream tool name。invoke 时 gateway 识别该 wire name，再以保存的原始 upstream tool name 调用 remote MCP server。
 
 # Proxy Keys
 
@@ -149,7 +149,7 @@ proxy_keys:
     display_name: Basic search agent
     allowed_tools:
       - '^search:tavily:.*$'        # 配置中可继续用冒号形式，policy 层翻译为 wire name 匹配
-      - '^reader:jina:reader:get$'
+      - '^reader:jina:reader$'
     denied_tools: []
     default_tool_page_size: 5
 ```
@@ -198,15 +198,15 @@ cargo run -- serve --config examples/gateway-mcp.yaml --bind 127.0.0.1:3000
 
 # Tool Name Wire Format
 
-配置中的 `domain`/`provider`/`tool`/`method` 段组合为 wire name：
+配置中的 `domain`/`provider`/`tool` 段组合为 wire name（`method` 仅用于 HTTP 路由，不参与命名）：
 
-| domain | provider | tool | method | wire name |
-| --- | --- | --- | --- | --- |
-| search | tavily | web_search | post | `search__tavily__web_search__post` |
-| search | exa | neural_search | post | `search__exa__neural_search__post` |
-| search | exa | web_search_exa | call | `search__exa__web_search_exa__call` |
-| reader | jina | reader | get | `reader__jina__reader__get` |
-| travel | rollinggo | searchAirports | call | `travel__rollinggo__searchairports__call` |
+| domain | provider | tool | wire name |
+| --- | --- | --- | --- |
+| search | tavily | web_search | `search__tavily__web_search` |
+| search | exa | neural_search | `search__exa__neural_search` |
+| search | exa | web_search_exa | `search__exa__web_search_exa` |
+| reader | jina | reader | `reader__jina__reader` |
+| travel | rollinggo | searchAirports | `travel__rollinggo__searchairports` |
 
 详见 [Naming Convention](naming-convention.md)。
 

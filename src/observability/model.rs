@@ -58,7 +58,7 @@ pub struct RequestEvent {
     pub proxy_key_id: String,
     /// 上游资源 ID。
     pub resource_id: String,
-    /// wire name，如 `search__tavily__web_search__post`。
+    /// wire name，如 `search__tavily__web_search`。
     pub tool_name: String,
     /// 脱敏上游 key 标识，如 `key:abcd…wxyz`。
     pub upstream_key_ref: String,
@@ -96,7 +96,7 @@ mod tests {
             request_id: "req_01J".to_string(),
             proxy_key_id: "agent-dev".to_string(),
             resource_id: "tavily-default".to_string(),
-            tool_name: "search__tavily__web_search__post".to_string(),
+            tool_name: "search__tavily__web_search".to_string(),
             upstream_key_ref: "key:1234…wxyz".to_string(),
             status: RequestStatus::Success,
             latency_ms: 142,

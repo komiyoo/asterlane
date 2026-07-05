@@ -70,7 +70,7 @@ fn catalog_extends_with_remote_mcp_tools() {
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
             display_name: "Travel Agent".to_string(),
-            allowed_tools: vec![r"^travel:rollinggo:.*:call$".to_string()],
+            allowed_tools: vec![r"^travel:rollinggo:.*".to_string()],
             denied_tools: Vec::new(),
             default_tool_page_size: 20,
             discovery_mode: None,
@@ -79,10 +79,11 @@ fn catalog_extends_with_remote_mcp_tools() {
     let mut catalog = ToolCatalog::from_config(&config).unwrap();
 
     catalog.extend_with_mcp_tools(vec![WrappedTool {
-        name: ToolName::new("travel", "rollinggo", "searchAirports", "call").unwrap(),
+        name: ToolName::new("travel", "rollinggo", "searchAirports").unwrap(),
         resource_id: "rollinggo-flight".to_string(),
         description: "Search airports".to_string(),
         upstream_path: "searchAirports".to_string(),
+        http_method: asterlane::config::HttpMethod::Post,
         input_schema: serde_json::json!({"type": "object"}),
         param_locations: None,
     }]);
@@ -94,7 +95,7 @@ fn catalog_extends_with_remote_mcp_tools() {
     assert_eq!(page.tools.len(), 1);
     assert_eq!(
         page.tools[0].name.to_wire_name(),
-        "travel__rollinggo__searchairports__call"
+        "travel__rollinggo__searchairports"
     );
     assert_eq!(page.tools[0].upstream_path, "searchAirports");
 }
@@ -220,13 +221,13 @@ async fn registry_wraps_tools_and_calls_original_tool_name() {
     assert_eq!(tools.len(), 1);
     assert_eq!(
         tools[0].name.to_wire_name(),
-        "travel__rollinggo__searchairports__call"
+        "travel__rollinggo__searchairports"
     );
     assert_eq!(tools[0].upstream_path, "searchAirports");
 
     let result = registry
         .call_tool(
-            "travel__rollinggo__searchairports__call",
+            "travel__rollinggo__searchairports",
             serde_json::json!({"keyword": "杭州"}),
         )
         .await
@@ -314,7 +315,7 @@ async fn http_invoke_dispatches_remote_mcp_tool() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tools/travel__rollinggo__searchairports__call/invoke?key=agent-travel")
+                .uri("/v1/tools/travel__rollinggo__searchairports/invoke?key=agent-travel")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"keyword":"杭州"}"#))
                 .unwrap(),
@@ -380,7 +381,7 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tools/travel__rollinggo__searchairports__call/invoke?key=agent-travel")
+                .uri("/v1/tools/travel__rollinggo__searchairports/invoke?key=agent-travel")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"keyword":"杭州"}"#))
                 .unwrap(),
@@ -393,7 +394,7 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tools/travel__rollinggo__searchairports__call/invoke?key=agent-travel")
+                .uri("/v1/tools/travel__rollinggo__searchairports/invoke?key=agent-travel")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"keyword":"杭州"}"#))
                 .unwrap(),
@@ -451,7 +452,7 @@ async fn proxy_executor_limits_remote_mcp_tools() {
 
     executor
         .invoke(
-            "travel__rollinggo__searchairports__call",
+            "travel__rollinggo__searchairports",
             serde_json::json!({"keyword": "杭州"}),
             &key,
         )
@@ -459,7 +460,7 @@ async fn proxy_executor_limits_remote_mcp_tools() {
         .unwrap();
     let err = executor
         .invoke(
-            "travel__rollinggo__searchairports__call",
+            "travel__rollinggo__searchairports",
             serde_json::json!({"keyword": "杭州"}),
             &key,
         )
@@ -516,7 +517,7 @@ async fn proxy_executor_records_remote_mcp_request_events() {
 
     executor
         .invoke(
-            "travel__rollinggo__searchairports__call",
+            "travel__rollinggo__searchairports",
             serde_json::json!({"keyword": "杭州"}),
             &key,
         )
@@ -527,10 +528,7 @@ async fn proxy_executor_records_remote_mcp_request_events() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].proxy_key_id, "agent-travel");
     assert_eq!(events[0].resource_id, "rollinggo-flight");
-    assert_eq!(
-        events[0].tool_name,
-        "travel__rollinggo__searchairports__call"
-    );
+    assert_eq!(events[0].tool_name, "travel__rollinggo__searchairports");
     assert_eq!(events[0].upstream_key_ref, "<mcp>");
     assert_eq!(events[0].status, RequestStatus::Success);
 }

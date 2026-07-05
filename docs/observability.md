@@ -29,7 +29,7 @@ struct RequestEvent {
     request_id: String,           // 贯穿全链路的唯一标识
     proxy_key_id: String,          // 网关 key 标识
     resource_id: String,           // 上游资源 ID
-    tool_name: String,             // wire name，如 search__tavily__web_search__post
+    tool_name: String,             // wire name，如 search__tavily__web_search
     upstream_key_ref: String,      // 脱敏标识，如 key:abcd…wxyz
     status: RequestStatus,         // Success / UpstreamError(status) / Timeout / ConnectionFailed / Limited
     latency_ms: u32,

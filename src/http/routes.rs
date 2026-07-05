@@ -139,7 +139,6 @@ pub struct ToolsQuery {
     pub domain: Option<String>,
     pub provider: Option<String>,
     pub tool: Option<String>,
-    pub method: Option<String>,
     pub limit: Option<usize>,
     pub cursor: Option<usize>,
 }
@@ -210,7 +209,6 @@ pub async fn list_tools(
         domain_regex: query.domain,
         provider_regex: query.provider,
         tool_regex: query.tool,
-        method_regex: query.method,
         limit: query.limit,
         cursor: query.cursor,
     };

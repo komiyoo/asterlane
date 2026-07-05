@@ -11,6 +11,7 @@
 - [Observability](observability.md) - 请求事件、指标、脱敏、聚合口径。
 - [API Discovery](api-discovery.md) - OpenAPI 自动发现与 MCP 转换、第三方 MCP 代理发现。
 - [Compatibility Policy](compatibility-policy.md) - 配置、工具名、错误码、公共 API 的兼容边界。
+- [Response Rendering](response-rendering.md) - 结果再呈现层：JSON 结果转 markdown/yaml 的格式协商、转换边界与管线位置。
 - [Product Requirements](product-requirements.md) - 原始产品意图与 agent-native 要求。
 - [Configuration Schema](config-schema.md) - YAML 配置形态。
 - [Development Workflow](development-workflow.md) - 模块边界、crate 策略、子代理任务模式、验证规则。

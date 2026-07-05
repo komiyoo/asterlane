@@ -122,7 +122,7 @@ impl UpstreamToolMapping {
     /// `tool` → original_tool。这是占位逻辑；后续由 catalog/发现层
     /// 填充真实映射后，此方法改为查表。
     ///
-    /// 返回 `None` 表示 wire name 无法解析为合法的四段 `ToolName`。
+    /// 返回 `None` 表示 wire name 无法解析为合法的三段 `ToolName`。
     pub fn resolve_upstream_name(&self, wire_name: &str) -> Option<UpstreamName> {
         let tool_name: crate::naming::ToolName = wire_name.parse().ok()?;
         Some(UpstreamName {
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn tool_descriptor_serializes_with_wire_name() {
         let desc = ToolDescriptor {
-            name: "search__tavily__web_search__post".to_string(),
+            name: "search__tavily__web_search".to_string(),
             description: "Search the web".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
@@ -182,7 +182,7 @@ mod tests {
             }),
         };
         let json = serde_json::to_string(&desc).unwrap();
-        assert!(json.contains("search__tavily__web_search__post"));
+        assert!(json.contains("search__tavily__web_search"));
         assert!(json.contains("Search the web"));
 
         let back: ToolDescriptor = serde_json::from_str(&json).unwrap();
@@ -222,7 +222,7 @@ mod tests {
     fn resolve_upstream_name_strips_prefix() {
         let mapping = UpstreamToolMapping::new();
         let upstream = mapping
-            .resolve_upstream_name("mcp__github__list_issues__call")
+            .resolve_upstream_name("mcp__github__list_issues")
             .unwrap();
         assert_eq!(upstream.server, "github");
         assert_eq!(upstream.original_tool, "list_issues");
@@ -232,7 +232,7 @@ mod tests {
     fn resolve_upstream_name_for_http_api_wrapper() {
         let mapping = UpstreamToolMapping::new();
         let upstream = mapping
-            .resolve_upstream_name("search__tavily__web_search__post")
+            .resolve_upstream_name("search__tavily__web_search")
             .unwrap();
         assert_eq!(upstream.server, "tavily");
         assert_eq!(upstream.original_tool, "web_search");
@@ -242,8 +242,8 @@ mod tests {
     fn resolve_upstream_name_returns_none_for_invalid_wire_name() {
         let mapping = UpstreamToolMapping::new();
         assert!(mapping.resolve_upstream_name("invalid").is_none());
-        assert!(mapping.resolve_upstream_name("a__b__c").is_none());
-        assert!(mapping.resolve_upstream_name("a__b__c__d__e").is_none());
+        assert!(mapping.resolve_upstream_name("a__b").is_none());
+        assert!(mapping.resolve_upstream_name("a__b__c__d").is_none());
     }
 
     #[test]

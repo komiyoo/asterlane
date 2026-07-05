@@ -31,19 +31,19 @@ async fn exa_live_lists_default_tools_and_calls_web_search() -> Result<()> {
     assert!(
         wire_names
             .iter()
-            .any(|name| name == "search__exa__web_search_exa__call"),
+            .any(|name| name == "search__exa__web_search_exa"),
         "Exa should expose web_search_exa by default"
     );
     assert!(
         wire_names
             .iter()
-            .any(|name| name == "search__exa__web_fetch_exa__call"),
+            .any(|name| name == "search__exa__web_fetch_exa"),
         "Exa should expose web_fetch_exa by default"
     );
 
     let result = registry
         .call_tool(
-            "search__exa__web_search_exa__call",
+            "search__exa__web_search_exa",
             json!({"query": "Asterlane MCP gateway"}),
         )
         .await?;
@@ -76,19 +76,19 @@ async fn rollinggo_live_lists_tools_and_calls_airport_search() -> Result<()> {
     assert!(
         wire_names
             .iter()
-            .any(|name| name == "travel__rollinggo__searchhotels__call"),
+            .any(|name| name == "travel__rollinggo__searchhotels"),
         "RollingGo hotel tools should expose searchHotels"
     );
     assert!(
         wire_names
             .iter()
-            .any(|name| name == "travel__rollinggo__searchairports__call"),
+            .any(|name| name == "travel__rollinggo__searchairports"),
         "RollingGo flight tools should expose searchAirports"
     );
 
     let result = registry
         .call_tool(
-            "travel__rollinggo__searchairports__call",
+            "travel__rollinggo__searchairports",
             json!({"keyword": "杭州"}),
         )
         .await?;

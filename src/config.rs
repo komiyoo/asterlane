@@ -1,15 +1,26 @@
 use serde::{Deserialize, Serialize};
 
 use crate::integrity::IntegrityPolicy;
+use crate::render::ResponseFormat;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayConfig {
+    #[serde(default)]
+    pub defaults: GatewayDefaults,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
     #[serde(default)]
     pub proxy_keys: Vec<ProxyKey>,
+}
+
+/// 全局默认值（见 docs/response-rendering.md）。所有字段有缺省值，向后兼容。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GatewayDefaults {
+    /// 全局默认响应格式；proxy key 与请求级 override 优先。
+    #[serde(default)]
+    pub response_format: Option<ResponseFormat>,
 }
 
 impl GatewayConfig {
@@ -159,13 +170,13 @@ pub enum HttpMethod {
 }
 
 impl HttpMethod {
-    pub fn as_tool_segment(self) -> &'static str {
+    pub fn to_reqwest(self) -> reqwest::Method {
         match self {
-            HttpMethod::Get => "get",
-            HttpMethod::Post => "post",
-            HttpMethod::Put => "put",
-            HttpMethod::Patch => "patch",
-            HttpMethod::Delete => "delete",
+            HttpMethod::Get => reqwest::Method::GET,
+            HttpMethod::Post => reqwest::Method::POST,
+            HttpMethod::Put => reqwest::Method::PUT,
+            HttpMethod::Patch => reqwest::Method::PATCH,
+            HttpMethod::Delete => reqwest::Method::DELETE,
         }
     }
 }
@@ -184,6 +195,9 @@ pub struct ProxyKey {
     /// Discovery mode: `"lazy"` exposes only meta-tools, `"full"` (or absent) exposes all.
     #[serde(default)]
     pub discovery_mode: Option<String>,
+    /// 渠道级默认响应格式；缺省继承 `defaults.response_format`。
+    #[serde(default)]
+    pub response_format: Option<ResponseFormat>,
 }
 
 fn default_tool_page_size() -> usize {

@@ -16,7 +16,6 @@ pub struct ToolName {
     pub domain: String,
     pub provider: String,
     pub tool: String,
-    pub method: String,
 }
 
 impl ToolName {
@@ -24,13 +23,11 @@ impl ToolName {
         domain: impl Into<String>,
         provider: impl Into<String>,
         tool: impl Into<String>,
-        method: impl Into<String>,
     ) -> Result<Self, ToolNameError> {
         let name = Self {
             domain: normalize_segment(domain.into())?,
             provider: normalize_segment(provider.into())?,
             tool: normalize_segment(tool.into())?,
-            method: normalize_segment(method.into())?,
         };
         let wire = name.to_wire_name();
         if wire.len() > MAX_WIRE_NAME_LEN {
@@ -39,13 +36,10 @@ impl ToolName {
         Ok(name)
     }
 
-    /// 输出对外 wire name: `domain__provider__tool__method`
+    /// 输出对外 wire name: `domain__provider__tool`
     ///（双下划线 `__` 分段，段内单词用单下划线如 `web_search`）。
     pub fn to_wire_name(&self) -> String {
-        format!(
-            "{}__{}__{}__{}",
-            self.domain, self.provider, self.tool, self.method
-        )
+        format!("{}__{}__{}", self.domain, self.provider, self.tool)
     }
 }
 
@@ -60,16 +54,14 @@ impl FromStr for ToolName {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = value.split("__").collect();
-        if parts.len() != 4 {
+        if parts.len() != 3 {
             return Err(ToolNameError::InvalidShape(value.to_string()));
         }
-        ToolName::new(parts[0], parts[1], parts[2], parts[3])
+        ToolName::new(parts[0], parts[1], parts[2])
     }
 }
 
 fn normalize_segment(value: String) -> Result<String, ToolNameError> {
-    // 段内单词分隔用单下划线（如 web_search），段间分隔用双下划线 __。
-    // 仅空格归一为连字符，保留下划线以兼容目标命名约定（见 docs/naming-convention.md）。
     let trimmed = value.trim().to_ascii_lowercase().replace(' ', "-");
     if trimmed.is_empty() {
         return Err(ToolNameError::EmptySegment);
@@ -85,7 +77,7 @@ fn normalize_segment(value: String) -> Result<String, ToolNameError> {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ToolNameError {
-    #[error("tool name must be domain__provider__tool__method, got {0}")]
+    #[error("tool name must be domain__provider__tool, got {0}")]
     InvalidShape(String),
     #[error("tool name segment cannot be empty")]
     EmptySegment,
@@ -101,28 +93,26 @@ mod tests {
 
     #[test]
     fn normalizes_tool_name_segments() {
-        let name = ToolName::new("Search", "Tavily", "Web Search", "POST").unwrap();
-        assert_eq!(name.to_wire_name(), "search__tavily__web-search__post");
+        let name = ToolName::new("Search", "Tavily", "Web Search").unwrap();
+        assert_eq!(name.to_wire_name(), "search__tavily__web-search");
     }
 
     #[test]
-    fn parses_four_segment_wire_names() {
-        let name: ToolName = "search__exa__neural_search__post".parse().unwrap();
+    fn parses_three_segment_wire_names() {
+        let name: ToolName = "search__exa__neural_search".parse().unwrap();
         assert_eq!(name.domain, "search");
         assert_eq!(name.provider, "exa");
         assert_eq!(name.tool, "neural_search");
-        assert_eq!(name.method, "post");
     }
 
     #[test]
     fn displays_as_wire_name() {
-        let name = ToolName::new("mcp", "github", "list_issues", "call").unwrap();
-        assert_eq!(name.to_string(), "mcp__github__list_issues__call");
+        let name = ToolName::new("mcp", "github", "list_issues").unwrap();
+        assert_eq!(name.to_string(), "mcp__github__list_issues");
     }
 
     #[test]
     fn rejects_invalid_shapes() {
-        // 三段冒号（旧格式）应被拒绝
         let error = "search:exa:post".parse::<ToolName>().unwrap_err();
         assert_eq!(
             error,
@@ -132,26 +122,26 @@ mod tests {
 
     #[test]
     fn rejects_too_few_segments() {
-        let error = "search__exa__post".parse::<ToolName>().unwrap_err();
+        let error = "search__exa".parse::<ToolName>().unwrap_err();
         assert_eq!(
             error,
-            ToolNameError::InvalidShape("search__exa__post".to_string())
+            ToolNameError::InvalidShape("search__exa".to_string())
         );
     }
 
     #[test]
     fn rejects_overlong_wire_name() {
-        // 4×15 + 6 (三个 `__` 分隔符) = 66 > 64
-        let seg = "a".repeat(15);
-        let error = ToolName::new(&seg, &seg, &seg, &seg).unwrap_err();
+        // 3×20 + 4 (two `__` separators) = 64, so 3×21 + 4 = 67 > 64
+        let seg = "a".repeat(21);
+        let error = ToolName::new(&seg, &seg, &seg).unwrap_err();
         assert!(matches!(error, ToolNameError::Overlong(_)));
     }
 
     #[test]
     fn accepts_boundary_length() {
-        // 4×14 + 6 = 62 ≤ 64
-        let seg = "a".repeat(14);
-        let name = ToolName::new(&seg, &seg, &seg, &seg).unwrap();
-        assert_eq!(name.to_wire_name().len(), 62);
+        // 3×20 + 4 = 64 ≤ 64
+        let seg = "a".repeat(20);
+        let name = ToolName::new(&seg, &seg, &seg).unwrap();
+        assert_eq!(name.to_wire_name().len(), 64);
     }
 }

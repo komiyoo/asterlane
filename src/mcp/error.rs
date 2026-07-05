@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn unknown_tool_maps_to_catalog_unknown_tool() {
-        let err = AsterlaneError::from(McpError::unknown_tool("search__exa__missing__post"));
+        let err = AsterlaneError::from(McpError::unknown_tool("search__exa__missing"));
         assert_eq!(err.error_code(), ErrorCode::CatalogUnknownTool);
         assert_eq!(err.exit_code(), 4); // catalog → 4
     }
@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn upstream_not_implemented_maps_to_mcp_upstream_failure() {
         let err = AsterlaneError::from(McpError::upstream_not_implemented(
-            "search__tavily__web_search__post",
+            "search__tavily__web_search",
         ));
         assert_eq!(err.error_code(), ErrorCode::McpUpstreamMcpFailure);
     }
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn boundary_unknown_tool_becomes_jsonrpc_32601() {
-        let err = AsterlaneError::from(McpError::unknown_tool("mcp__github__nope__call"));
+        let err = AsterlaneError::from(McpError::unknown_tool("mcp__github__nope"));
         match err.mcp_error() {
             McpErrorForm::JsonRpc(code, msg) => {
                 assert_eq!(code, -32601);
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn boundary_upstream_not_implemented_becomes_tool_result_is_error() {
         let err = AsterlaneError::from(McpError::upstream_not_implemented(
-            "search__tavily__web_search__post",
+            "search__tavily__web_search",
         ));
         match err.mcp_error() {
             McpErrorForm::ToolResultIsError(msg) => {

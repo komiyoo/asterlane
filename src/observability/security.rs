@@ -170,7 +170,7 @@ mod tests {
                 .unwrap()
                 .with_timezone(&Utc),
             resource_id: "tavily-default".to_string(),
-            tool_name: Some("search__tavily__web_search__post".to_string()),
+            tool_name: Some("search__tavily__web_search".to_string()),
             kind: SecurityEventKind::IntegrityToolChanged,
             severity: Severity::Warn,
             details: serde_json::json!({"old_fp": "v1:aaa", "new_fp": "v1:bbb"}),

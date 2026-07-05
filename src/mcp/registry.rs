@@ -392,7 +392,7 @@ fn wrap_tools(
     let mut descriptors = Vec::with_capacity(tools.len());
     for tool in tools {
         let upstream_name = tool.name.to_string();
-        let name = ToolName::new(&config.domain, &config.provider, &upstream_name, "call")
+        let name = ToolName::new(&config.domain, &config.provider, &upstream_name)
             .map_err(|e| McpError::invalid_tool_call(e.to_string()))?;
         let wire_name = name.to_wire_name();
         let description = tool.description.unwrap_or_default().to_string();
@@ -404,6 +404,7 @@ fn wrap_tools(
             resource_id: config.id.clone(),
             description: description.clone(),
             upstream_path: upstream_name,
+            http_method: crate::config::HttpMethod::Post,
             input_schema: input_schema.clone(),
             param_locations: None,
         });
@@ -567,7 +568,7 @@ mod tests {
         // 上游不可达时保留上一次成功快照，避免 integrity baseline 误判删除。
         assert_eq!(registry.all_wrapped_tools().len(), 1);
         assert_eq!(registry.all_descriptors().len(), 1);
-        assert!(registry.contains_tool("travel__srv-a__toola__call"));
+        assert!(registry.contains_tool("travel__srv-a__toola"));
     }
 
     #[tokio::test]
@@ -588,15 +589,15 @@ mod tests {
         assert_eq!(failed.failed_server_ids, vec!["srv-a".to_string()]);
         assert_eq!(registry.all_wrapped_tools().len(), 1);
         assert_eq!(registry.all_descriptors().len(), 1);
-        assert!(registry.contains_tool("travel__srv-a__toola__call"));
+        assert!(registry.contains_tool("travel__srv-a__toola"));
 
         let recovered = registry.refresh().await;
         assert_eq!(recovered.old_tool_count, 1);
         assert_eq!(recovered.new_tool_count, 2);
         assert!(recovered.failed_server_ids.is_empty());
         assert_eq!(registry.all_wrapped_tools().len(), 2);
-        assert!(registry.contains_tool("travel__srv-a__toola__call"));
-        assert!(registry.contains_tool("travel__srv-a__toolb__call"));
+        assert!(registry.contains_tool("travel__srv-a__toola"));
+        assert!(registry.contains_tool("travel__srv-a__toolb"));
     }
 
     #[tokio::test]
@@ -633,7 +634,7 @@ mod tests {
 
         // refresh 后 toolB 可调用
         let result = registry
-            .call_tool("travel__srv-a__toolb__call", serde_json::json!({}))
+            .call_tool("travel__srv-a__toolb", serde_json::json!({}))
             .await;
         assert!(result.is_ok());
         let call_result = result.unwrap();
@@ -659,9 +660,9 @@ mod tests {
         let tools = registry.all_wrapped_tools();
         assert_eq!(tools.len(), 2);
         // 验证 contains_tool
-        assert!(registry.contains_tool("travel__srv-a__a__call"));
-        assert!(registry.contains_tool("travel__srv-b__b__call"));
-        assert!(!registry.contains_tool("travel__srv-a__nonexistent__call"));
+        assert!(registry.contains_tool("travel__srv-a__a"));
+        assert!(registry.contains_tool("travel__srv-b__b"));
+        assert!(!registry.contains_tool("travel__srv-a__nonexistent"));
     }
 
     #[tokio::test]
@@ -685,7 +686,7 @@ mod tests {
         assert_eq!(descriptors.len(), 1);
         let (resource_id, desc) = &descriptors[0];
         assert_eq!(resource_id, "srv-a");
-        assert_eq!(desc.name, "travel__srv-a__searchairports__call");
+        assert_eq!(desc.name, "travel__srv-a__searchairports");
         assert_eq!(desc.description, "Search airports");
         // input_schema 从 rmcp Tool 构造
         assert_eq!(desc.input_schema["type"], "object");

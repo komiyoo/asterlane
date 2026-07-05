@@ -84,7 +84,6 @@ impl ServerHandler for AsterlaneToolServer {
             domain_regex: meta_str(meta, "domain_regex"),
             provider_regex: meta_str(meta, "provider_regex"),
             tool_regex: meta_str(meta, "tool_regex"),
-            method_regex: meta_str(meta, "method_regex"),
             include_regex: meta_str(meta, "include"),
             exclude_regex: meta_str(meta, "exclude"),
             limit: Some(DEFAULT_PAGE_SIZE),

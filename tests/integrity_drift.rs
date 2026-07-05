@@ -205,7 +205,7 @@ async fn drift_detected_writes_security_event_and_quarantines() {
     assert_eq!(new_quarantined, 1, "should quarantine 1 tool");
 
     // 验证隔离集合
-    let wire_name = "travel__srv-a__toola__call";
+    let wire_name = "travel__srv-a__toola";
     let policy = quarantined.read().await.get(wire_name).copied();
     assert_eq!(policy, Some(IntegrityPolicy::Quarantine));
 
@@ -217,10 +217,7 @@ async fn drift_detected_writes_security_event_and_quarantines() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].kind, SecurityEventKind::IntegrityToolChanged);
     assert_eq!(events[0].resource_id, "srv-a");
-    assert_eq!(
-        events[0].tool_name.as_deref(),
-        Some("travel__srv-a__toola__call")
-    );
+    assert_eq!(events[0].tool_name.as_deref(), Some("travel__srv-a__toola"));
     // details 仅含 fingerprint（SHA256 哈希），不含明文密钥
     assert!(
         events[0].details["old_fp"]

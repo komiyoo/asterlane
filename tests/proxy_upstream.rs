@@ -83,11 +83,7 @@ async fn bearer_auth_injected_into_upstream_request() {
 
     let exec = executor(&config, "test-token-value");
     let result = exec
-        .invoke(
-            "testing__mock__list-items__get",
-            json!({}),
-            proxy_key(&config),
-        )
+        .invoke("testing__mock__list-items", json!({}), proxy_key(&config))
         .await
         .unwrap();
 
@@ -122,11 +118,7 @@ async fn custom_header_auth_injected() {
 
     let exec = executor(&config, "secret-key-123");
     let result = exec
-        .invoke(
-            "testing__mock__get-data__get",
-            json!({}),
-            proxy_key(&config),
-        )
+        .invoke("testing__mock__get-data", json!({}), proxy_key(&config))
         .await
         .unwrap();
 
@@ -164,7 +156,7 @@ async fn retries_on_503_then_succeeds() {
     let exec = executor(&config, "unused").with_max_attempts(3);
     let result = exec
         .invoke(
-            "testing__mock__do-action__post",
+            "testing__mock__do-action",
             json!({"input": "test"}),
             proxy_key(&config),
         )
@@ -197,7 +189,7 @@ async fn persistent_failure_exhausts_retries() {
     let exec = executor(&config, "unused").with_max_attempts(2);
     let err = exec
         .invoke(
-            "testing__mock__fail-endpoint__get",
+            "testing__mock__fail-endpoint",
             json!({}),
             proxy_key(&config),
         )
@@ -236,7 +228,7 @@ async fn post_with_json_body() {
     let exec = executor(&config, "unused");
     let result = exec
         .invoke(
-            "testing__mock__create-item__post",
+            "testing__mock__create-item",
             json!({"name": "test-item", "count": 42}),
             proxy_key(&config),
         )
@@ -271,7 +263,7 @@ async fn path_params_substituted_in_url() {
     let exec = executor(&config, "unused");
     let result = exec
         .invoke(
-            "testing__mock__get-profile__get",
+            "testing__mock__get-profile",
             json!({"user_id": "u-42"}),
             proxy_key(&config),
         )

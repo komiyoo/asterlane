@@ -88,7 +88,7 @@ JSON body 形态：
 {
   "error": {
     "code": "auth.forbidden_tool",
-    "message": "tool search__tavily__web_search__post not permitted for this key",
+    "message": "tool search__tavily__web_search not permitted for this key",
     "request_id": "req_01HZ..."
   }
 }

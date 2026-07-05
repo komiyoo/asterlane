@@ -33,12 +33,9 @@ fn extract_domain(tool_name: &str) -> &str {
     tool_name.split("__").next().unwrap_or(tool_name)
 }
 
-/// 从 `tool_name` 提取 method（最后一段，以 `__` 分隔）。
-fn extract_method(tool_name: &str) -> &str {
-    match tool_name.rsplit_once("__") {
-        Some((_, method)) => method,
-        None => tool_name,
-    }
+/// 从 `tool_name` 提取 provider（第二段，以 `__` 分隔）。
+fn extract_provider(tool_name: &str) -> &str {
+    tool_name.split("__").nth(1).unwrap_or(tool_name)
 }
 
 /// 记录单个 `RequestEvent` 对应的全部指标。
@@ -47,7 +44,7 @@ fn extract_method(tool_name: &str) -> &str {
 /// `upstream_key_ref` 标签必须是脱敏标识（调用方保证）。
 pub fn record_request_event(event: &RequestEvent) {
     let domain = extract_domain(&event.tool_name).to_string();
-    let method = extract_method(&event.tool_name).to_string();
+    let provider = extract_provider(&event.tool_name).to_string();
     let status_label = event.status.status_label();
 
     // 1. asterlane_requests_total
@@ -57,7 +54,7 @@ pub fn record_request_event(event: &RequestEvent) {
         "resource_id" => event.resource_id.clone(),
         "domain" => domain,
         "tool" => event.tool_name.clone(),
-        "method" => method,
+        "provider" => provider,
     )
     .increment(1);
 
@@ -145,7 +142,7 @@ mod tests {
             request_id: "req_test".to_string(),
             proxy_key_id: "agent-dev".to_string(),
             resource_id: "tavily-default".to_string(),
-            tool_name: "search__tavily__web_search__post".to_string(),
+            tool_name: "search__tavily__web_search".to_string(),
             upstream_key_ref: redact_secret_key("sk-1234567890abcdefwxyz"),
             status,
             latency_ms: 250,
@@ -182,12 +179,11 @@ mod tests {
     }
 
     #[test]
-    fn extract_domain_and_method() {
-        assert_eq!(extract_domain("search__tavily__web_search__post"), "search");
-        assert_eq!(extract_method("search__tavily__web_search__post"), "post");
-        // 无分隔符的情况
+    fn extract_domain_and_provider() {
+        assert_eq!(extract_domain("search__tavily__web_search"), "search");
+        assert_eq!(extract_provider("search__tavily__web_search"), "tavily");
         assert_eq!(extract_domain("tool"), "tool");
-        assert_eq!(extract_method("tool"), "tool");
+        assert_eq!(extract_provider("tool"), "tool");
     }
 
     #[test]

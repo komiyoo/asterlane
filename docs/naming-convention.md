@@ -4,14 +4,17 @@ title: MCP 工具命名约定
 description: 基于 MCP 规范与 LLM API 实际约束，确定 Asterlane 对外暴露的工具命名格式与映射规则。
 resource: docs/naming-convention.md
 tags: [naming, mcp, architecture, compatibility]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-07-05T00:00:00Z
 ---
 
 # 背景
 
-`docs/product-requirements.md` 原始需求把包装后的 MCP tool 名定为 `domain:provider:tool:method`，使用冒号 `:` 分段。本仓库 MVP 代码（`src/naming.rs`）也实现了三段冒号原型 `domain:tool:method`。
+`docs/product-requirements.md` 原始需求把包装后的 MCP tool 名定为 `domain:provider:tool:method`，使用冒号 `:` 分段。经过两轮演进：
 
-经过对 MCP 规范与主流 LLM API 实际约束的核查，冒号分隔会同时在协议层和 API 层被拒绝。本文件记录变更决策与证据，并定义新的对外命名格式。原始需求中的 `domain:provider:tool:method` 仍作为**内部结构化标识**保留，但不再作为对外 wire name。
+1. **冒号→双下划线**：MCP 2025-11-25 规范（SHOULD `[A-Za-z0-9_.-]`）与 Anthropic/OpenAI API 硬约束（`^[a-zA-Z0-9_-]{1,64}$`）均不允许冒号。决策改为双下划线 `__` 分隔。
+2. **四段→三段**：移除 `method` 段。HTTP method（`get`/`post`）是路由层细节，不属于工具身份；MCP 代理的 method 固定为 `call`，信息量为零。三段格式节省 5–8 字符长度预算，与生态主流对齐。
+
+本文件记录当前三段格式的设计决策。
 
 # 规范约束与证据
 
@@ -43,22 +46,31 @@ timestamp: 2026-07-03T00:00:00Z
 
 ## 对外 wire name 格式
 
-采用双下划线 `__` 分隔的多段式：
+采用双下划线 `__` 分隔的三段式：
 
 ```text
-domain__provider__tool__method
+domain__provider__tool
 ```
 
 示例：
 
 ```text
-search__tavily__web_search__post
-search__exa__neural_search__post
-reader__jina__reader__get
-crawl__firecrawl__crawl_url__post
-internal__crm__customer_lookup__get
-mcp__github__list_issues__call
+search__tavily__web_search
+search__exa__neural_search
+reader__jina__reader
+crawl__firecrawl__crawl_url
+internal__crm__customer_lookup
+mcp__github__list_issues
 ```
+
+### 为什么移除 `method` 段
+
+| 来源 | method 值 | 信息量 |
+| --- | --- | --- |
+| HTTP API endpoint | `get`/`post`/`put`/`delete` | 路由细节，不影响 agent 发现和选择 |
+| MCP 代理工具 | 固定 `call` | 零信息 |
+
+同一 API 的不同操作（如查询 vs 创建）应在 `tool` 段区分（`get_user` vs `create_user`），而非靠尾部 method 后缀。这与 Docker mcp-gateway（`{prefix}_{tool}`）、MetaMCP（`{Server}__{tool}`）等生态先例一致。
 
 选择 `__` 而非 `_`/`.`/`-` 的理由：
 
@@ -73,18 +85,17 @@ mcp__github__list_issues__call
 
 Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设 Asterlane 注册的 MCP server 名为 `asterlane`（11 字符），前缀 `mcp__asterlane__` 占 17 字符，剩余 47 字符给工具名。
 
-四段 `domain__provider__tool__method` 含 6 个分隔符，平均每段约 10 字符。为避免超长，采取以下策略：
+三段 `domain__provider__tool` 含 4 个分隔符，平均每段约 14 字符。相比旧四段格式多出约 6 字符余量。策略：
 
 1. 段值使用短形态：`web_search` 而非 `web_search_for_documents`。
-2. 当四段总长超预算时，优先压缩 `domain` 或 `method` 段（信息量最低）。
-3. 校验在 catalog 构建期完成，超长直接报配置错误，不静默截断。
+2. 校验在 catalog 构建期完成，超长直接报配置错误，不静默截断。
 
 ## 内部结构化标识
 
-内部仍保留四段结构化 `ToolName` 类型（`domain`、`provider`、`tool`、`method` 字段），用于：
+内部使用三段结构化 `ToolName` 类型（`domain`、`provider`、`tool` 字段），用于：
 
-- 正则过滤（按段匹配，如 `^search:` 内部用，对外翻译为 `^search__`）
-- 结构化过滤字段（`domain_regex`、`provider_regex` 等）
+- 正则过滤（按段匹配，如 `^search__`）
+- 结构化过滤字段（`domain_regex`、`provider_regex`、`tool_regex`）
 - 日志、统计、权限规则的稳定标识
 
 内部标识与对外 wire name 之间通过 `to_wire_name()` / `from_wire_name()` 双向转换。权限规则配置中的正则仍可使用冒号形式（`^search:tavily:`），由 policy 层在匹配前转换为 wire name 再匹配——这样配置更可读，且不因外部格式演进而破坏已有规则。
@@ -97,7 +108,7 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 
 为兼容 `provider-first` 习惯，不暴露两套 canonical wire name（避免 agent 学到重复工具），而是：
 
-- canonical wire name 始终是 `domain__provider__tool__method`（capability-first）；
+- canonical wire name 始终是 `domain__provider__tool`（capability-first）；
 - `provider` 作为一等结构化过滤字段，可在 `tools/list` 的 `_meta` 扩展中单独按 provider 过滤。
 
 # 过滤与发现
@@ -108,8 +119,7 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 | --- | --- |
 | 按域过滤 | `^search__` |
 | 按供应商过滤 | `^[a-z_]+__tavily__` |
-| 按具体资源过滤 | `^search__exa__neural_search__` |
-| 按方法过滤 | `__post$` |
+| 按具体工具过滤 | `^search__exa__neural_search$` |
 | 按 MCP 包装来源过滤 | `^mcp__` |
 
 结构化过滤字段（走 `_meta` 扩展通道，见 [API Discovery](api-discovery.md)）：
@@ -119,7 +129,6 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
   "domain_regex": "^(search|reader)$",
   "provider_regex": "^(tavily|jina)$",
   "tool_regex": "search|reader",
-  "method_regex": "^(get|post|call)$",
   "limit": 20,
   "cursor": 0
 }
@@ -127,7 +136,7 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 
 # 演进路径
 
-若 MCP 规范未来把 Tool Names 约束提升为 MUST 或调整允许字符集，`__` 方案仍兼容（`_` 和 `-` 在所有候选字符集内）。若需进一步压缩长度，可退化到三段 `provider__tool__method`（domain 降为结构化过滤字段），但当前保留四段以支持 capability-first 发现。
+若 MCP 规范未来把 Tool Names 约束提升为 MUST 或调整允许字符集，`__` 方案仍兼容（`_` 和 `-` 在所有候选字符集内）。若需进一步压缩长度，可退化到两段 `provider__tool`（domain 降为结构化过滤字段），但当前保留三段以支持 capability-first 发现。
 
 # Citations
 

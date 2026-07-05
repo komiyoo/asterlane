@@ -63,7 +63,7 @@ Workers may edit code, but each worker must own a disjoint module set.
 | Type/Error worker | `src/error.rs`, naming/catalog/policy error integration | Project error type, error codes, response mapping tests. |
 | Store worker | `src/store/`, migrations, repository traits | SQLite-backed request event repository skeleton. |
 | Gateway worker | `src/http/`, proxy executor skeleton | Axum app skeleton and upstream request abstraction. |
-| MCP worker | `src/mcp/`, catalog adapter | MCP tool list/call adapter model using `domain__provider__tool__method`（见 [Naming Convention](naming-convention.md)）。 |
+| MCP worker | `src/mcp/`, catalog adapter | MCP tool list/call adapter model using `domain__provider__tool`（见 [Naming Convention](naming-convention.md)）。 |
 | Observability worker | `src/observability/`, redaction helpers | Request event model, redaction, usage aggregation contracts. |
 | Admin worker | `src/admin/`, static/admin API | Minimal admin API routes for resources, keys, events, health. |
 
@@ -71,8 +71,8 @@ Workers may edit code, but each worker must own a disjoint module set.
 
 The first runtime milestone should build foundations without overcommitting to a full product UI:
 
-1. Upgrade tool naming from `domain:tool:method` to `domain__provider__tool__method`（见 [Naming Convention](naming-convention.md)）。
-2. Add structured list filters: `domain_regex`, `provider_regex`, `tool_regex`, `method_regex`（走 `_meta` 扩展通道）。
+1. Upgrade tool naming from `domain:tool:method` to `domain__provider__tool`（见 [Naming Convention](naming-convention.md)）。
+2. Add structured list filters: `domain_regex`, `provider_regex`, `tool_regex`（走 `_meta` 扩展通道）。
 3. Add project-level typed errors and stable error codes（见 [Error Model](error-model.md)）。
 4. Introduce `store` traits and a SQLite implementation skeleton.
 5. Add request event and redaction types（见 [Observability](observability.md)）。

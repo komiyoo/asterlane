@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn unknown_tool_maps_to_catalog_unknown_tool() {
-        let err = AsterlaneError::from(ProxyError::UnknownTool("search__x__y__post".to_string()));
+        let err = AsterlaneError::from(ProxyError::UnknownTool("search__x__y".to_string()));
         assert_eq!(err.error_code(), ErrorCode::CatalogUnknownTool);
         assert_eq!(err.exit_code(), 4); // catalog → 4
     }
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn forbidden_tool_maps_to_auth_forbidden_tool() {
         let err = AsterlaneError::from(ProxyError::ForbiddenTool(
-            "search__tavily__web_search__post".to_string(),
+            "search__tavily__web_search".to_string(),
         ));
         assert_eq!(err.error_code(), ErrorCode::AuthForbiddenTool);
         assert_eq!(err.exit_code(), 3); // auth → 3

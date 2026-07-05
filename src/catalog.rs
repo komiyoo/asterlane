@@ -12,6 +12,9 @@ pub struct WrappedTool {
     pub resource_id: String,
     pub description: String,
     pub upstream_path: String,
+    /// HTTP method for upstream proxy call (from endpoint config, not wire name).
+    #[serde(default = "default_http_method")]
+    pub http_method: crate::config::HttpMethod,
     /// JSON Schema for MCP tool inputSchema. Default: `{"type": "object"}`.
     #[serde(default = "default_input_schema")]
     pub input_schema: serde_json::Value,
@@ -19,6 +22,10 @@ pub struct WrappedTool {
     /// None for hand-written endpoints (all args sent as JSON body).
     #[serde(default)]
     pub param_locations: Option<ParamLocations>,
+}
+
+fn default_http_method() -> crate::config::HttpMethod {
+    crate::config::HttpMethod::Post
 }
 
 fn default_input_schema() -> serde_json::Value {
@@ -87,8 +94,6 @@ impl ToolCatalog {
         let domain_re = compile_optional_regex(&query.domain_regex)?;
         let provider_re = compile_optional_regex(&query.provider_regex)?;
         let tool_re = compile_optional_regex(&query.tool_regex)?;
-        let method_re = compile_optional_regex(&query.method_regex)?;
-
         let limit = query.limit.unwrap_or(key.default_tool_page_size).max(1);
         let cursor = query.cursor.unwrap_or(0);
 
@@ -133,13 +138,6 @@ impl ToolCatalog {
             {
                 continue;
             }
-            if method_re
-                .as_ref()
-                .is_some_and(|regex| !regex.is_match(&tool.name.method))
-            {
-                continue;
-            }
-
             visible.push(tool.clone());
         }
 
@@ -233,17 +231,13 @@ fn tools_for_resource(resource: &ApiResource) -> Result<Vec<WrappedTool>, Catalo
         .endpoints
         .iter()
         .map(|endpoint| {
-            let name = ToolName::new(
-                &resource.domain,
-                resource.provider_or_id(),
-                &endpoint.tool,
-                endpoint.method.as_tool_segment(),
-            )?;
+            let name = ToolName::new(&resource.domain, resource.provider_or_id(), &endpoint.tool)?;
             Ok(WrappedTool {
                 name,
                 resource_id: resource.id.clone(),
                 description: endpoint.description.clone(),
                 upstream_path: endpoint.path.clone(),
+                http_method: endpoint.method,
                 input_schema: default_input_schema(),
                 param_locations: None,
             })
@@ -293,13 +287,20 @@ fn tools_from_openapi(
                 &resource.domain,
                 resource.provider_or_id(),
                 &ep.tool_segment,
-                &ep.method,
             )?;
+            let http_method = match ep.method.as_str() {
+                "get" => crate::config::HttpMethod::Get,
+                "put" => crate::config::HttpMethod::Put,
+                "patch" => crate::config::HttpMethod::Patch,
+                "delete" => crate::config::HttpMethod::Delete,
+                _ => crate::config::HttpMethod::Post,
+            };
             Ok(WrappedTool {
                 name,
                 resource_id: resource.id.clone(),
                 description: ep.description,
                 upstream_path: ep.path,
+                http_method,
                 input_schema: ep.input_schema,
                 param_locations: Some(ep.param_locations),
             })
@@ -314,7 +315,6 @@ pub struct ToolListQuery {
     pub domain_regex: Option<String>,
     pub provider_regex: Option<String>,
     pub tool_regex: Option<String>,
-    pub method_regex: Option<String>,
     pub limit: Option<usize>,
     pub cursor: Option<usize>,
 }
@@ -401,11 +401,11 @@ mod tests {
         assert_eq!(catalog.tools.len(), 2);
         assert_eq!(
             catalog.tools[0].name.to_wire_name(),
-            "search__exa__neural_search__post"
+            "search__exa__neural_search"
         );
         assert_eq!(
             catalog.tools[1].name.to_wire_name(),
-            "search__tavily__web_search__post"
+            "search__tavily__web_search"
         );
     }
 
@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(page.tools.len(), 1);
         assert_eq!(
             page.tools[0].name.to_wire_name(),
-            "search__tavily__web_search__post"
+            "search__tavily__web_search"
         );
         assert_eq!(page.next_cursor, Some(1));
     }
@@ -439,13 +439,12 @@ mod tests {
             domain_regex: None,
             provider_regex: None,
             tool_regex: None,
-            method_regex: None,
         };
         let page = catalog.list_for_key(key, &query).unwrap();
         assert_eq!(page.tools.len(), 1);
         assert_eq!(
             page.tools[0].name.to_wire_name(),
-            "search__tavily__web_search__post"
+            "search__tavily__web_search"
         );
     }
 
@@ -464,7 +463,7 @@ mod tests {
         assert_eq!(page.tools.len(), 1);
         assert_eq!(
             page.tools[0].name.to_wire_name(),
-            "search__exa__neural_search__post"
+            "search__exa__neural_search"
         );
     }
 
@@ -476,21 +475,6 @@ mod tests {
         let key = config.proxy_key("agent-search").unwrap();
         let query = ToolListQuery {
             domain_regex: Some("^search$".to_string()),
-            limit: Some(10),
-            ..Default::default()
-        };
-        let page = catalog.list_for_key(key, &query).unwrap();
-        assert_eq!(page.tools.len(), 2);
-    }
-
-    #[test]
-    fn filters_by_method_regex() {
-        let mut config = config();
-        config.proxy_keys[0].denied_tools.clear();
-        let catalog = ToolCatalog::from_config(&config).unwrap();
-        let key = config.proxy_key("agent-search").unwrap();
-        let query = ToolListQuery {
-            method_regex: Some("^post$".to_string()),
             limit: Some(10),
             ..Default::default()
         };
@@ -519,6 +503,7 @@ mod tests {
             resource_id: resource_id.to_string(),
             description: "mcp tool".to_string(),
             upstream_path: "upstream".to_string(),
+            http_method: HttpMethod::Post,
             input_schema: serde_json::json!({"type": "object"}),
             param_locations: None,
         }
@@ -533,8 +518,8 @@ mod tests {
 
         // 添加 mcp tools
         catalog.extend_with_mcp_tools(vec![
-            mcp_tool("travel__rollinggo__search__call", "rollinggo"),
-            mcp_tool("travel__exa__fetch__call", "exa-mcp"),
+            mcp_tool("travel__rollinggo__search", "rollinggo"),
+            mcp_tool("travel__exa__fetch", "exa-mcp"),
         ]);
         assert_eq!(catalog.tools.len(), 4);
 
@@ -543,7 +528,7 @@ mod tests {
         mcp_ids.insert("rollinggo".to_string());
         mcp_ids.insert("exa-mcp".to_string());
         catalog.replace_mcp_tools(
-            vec![mcp_tool("travel__rollinggo__searchv2__call", "rollinggo")],
+            vec![mcp_tool("travel__rollinggo__searchv2", "rollinggo")],
             &mcp_ids,
         );
 
@@ -554,22 +539,19 @@ mod tests {
             .iter()
             .map(|t| t.name.to_wire_name())
             .collect();
-        assert!(wire_names.contains(&"search__tavily__web_search__post".to_string()));
-        assert!(wire_names.contains(&"search__exa__neural_search__post".to_string()));
-        assert!(wire_names.contains(&"travel__rollinggo__searchv2__call".to_string()));
+        assert!(wire_names.contains(&"search__tavily__web_search".to_string()));
+        assert!(wire_names.contains(&"search__exa__neural_search".to_string()));
+        assert!(wire_names.contains(&"travel__rollinggo__searchv2".to_string()));
         // 旧 mcp 工具已移除
-        assert!(!wire_names.contains(&"travel__rollinggo__search__call".to_string()));
-        assert!(!wire_names.contains(&"travel__exa__fetch__call".to_string()));
+        assert!(!wire_names.contains(&"travel__rollinggo__search".to_string()));
+        assert!(!wire_names.contains(&"travel__exa__fetch".to_string()));
     }
 
     #[test]
     fn replace_mcp_tools_empty_new_clears_all_mcp() {
         let config = config();
         let mut catalog = ToolCatalog::from_config(&config).unwrap();
-        catalog.extend_with_mcp_tools(vec![mcp_tool(
-            "travel__rollinggo__search__call",
-            "rollinggo",
-        )]);
+        catalog.extend_with_mcp_tools(vec![mcp_tool("travel__rollinggo__search", "rollinggo")]);
         assert_eq!(catalog.tools.len(), 3);
 
         let mut mcp_ids = std::collections::HashSet::new();

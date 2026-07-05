@@ -12,7 +12,7 @@
 
 use crate::WrappedTool;
 use crate::catalog::ToolCatalog;
-use crate::config::{GatewayConfig, ProxyKey, SecurityConfig, UpstreamAuth};
+use crate::config::{GatewayConfig, HttpMethod, ProxyKey, SecurityConfig, UpstreamAuth};
 use crate::defense;
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
 use crate::keys::{KeyPool, LoadBalanceStrategy};
@@ -384,7 +384,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
 
         let outcome = self
             .execute_with_retry(
-                &tool_name,
+                tool.http_method,
                 &tool.upstream_path,
                 &resource.base_url,
                 &resource.auth,
@@ -447,7 +447,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
     #[allow(clippy::too_many_arguments)]
     async fn execute_with_retry(
         &self,
-        tool_name: &ToolName,
+        http_method: HttpMethod,
         upstream_path: &str,
         base_url: &str,
         auth: &UpstreamAuth,
@@ -455,9 +455,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
         secret: &Option<SecretString>,
         param_locations: Option<&crate::catalog::ParamLocations>,
     ) -> Result<(InvokeResult, u8, String), ExecutionError> {
-        let method = method_from_segment(&tool_name.method)?;
+        let method = http_method.to_reqwest();
         let url = build_url(base_url, upstream_path, args, param_locations);
-        let is_get = tool_name.method == "get";
+        let is_get = http_method == HttpMethod::Get;
 
         let backoff_builder = backon::ExponentialBuilder::default()
             .with_min_delay(Duration::from_millis(100))
@@ -860,20 +860,6 @@ async fn resolve_auth_secret<S: SecretStore>(
     }
 }
 
-/// 把 `ToolName.method` 段（`"get"`/`"post"`/...）映射为 `reqwest::Method`。
-fn method_from_segment(segment: &str) -> Result<reqwest::Method, ProxyError> {
-    match segment {
-        "get" => Ok(reqwest::Method::GET),
-        "post" => Ok(reqwest::Method::POST),
-        "put" => Ok(reqwest::Method::PUT),
-        "patch" => Ok(reqwest::Method::PATCH),
-        "delete" => Ok(reqwest::Method::DELETE),
-        other => Err(ProxyError::InvalidToolCall(format!(
-            "unsupported method: {other}"
-        ))),
-    }
-}
-
 /// 拼接 base_url 与 upstream_path，替换路径参数 `{xxx}` 并追加 query params。
 fn build_url(
     base_url: &str,
@@ -1218,11 +1204,7 @@ mod tests {
         let key = proxy_key(&exec.config, "agent-search").clone();
 
         let err = exec
-            .invoke(
-                "search__tavily__nonexistent__post",
-                serde_json::json!({}),
-                &key,
-            )
+            .invoke("search__tavily__nonexistent", serde_json::json!({}), &key)
             .await
             .unwrap_err();
         let asterlane: crate::error::AsterlaneError = err.into();
@@ -1241,11 +1223,7 @@ mod tests {
         let key = proxy_key(&exec.config, "agent-search").clone();
 
         let err = exec
-            .invoke(
-                "search__exa__neural_search__post",
-                serde_json::json!({}),
-                &key,
-            )
+            .invoke("search__exa__neural_search", serde_json::json!({}), &key)
             .await
             .unwrap_err();
         let asterlane: crate::error::AsterlaneError = err.into();
@@ -1270,11 +1248,7 @@ mod tests {
         let key = exec.config.proxy_key("agent-search").unwrap().clone();
 
         let err = exec
-            .invoke(
-                "search__tavily__web_search__post",
-                serde_json::json!({}),
-                &key,
-            )
+            .invoke("search__tavily__web_search", serde_json::json!({}), &key)
             .await
             .unwrap_err();
         let asterlane: crate::error::AsterlaneError = err.into();
@@ -1311,11 +1285,7 @@ mod tests {
         let key = proxy_key(&exec.config, "agent-search").clone();
 
         let err = exec
-            .invoke(
-                "search__tavily__web_search__post",
-                serde_json::json!({}),
-                &key,
-            )
+            .invoke("search__tavily__web_search", serde_json::json!({}), &key)
             .await
             .unwrap_err();
         let asterlane: crate::error::AsterlaneError = err.into();
@@ -1393,7 +1363,7 @@ mod tests {
 
         let result = exec
             .invoke(
-                "search__mock__search__post",
+                "search__mock__search",
                 serde_json::json!({"query": "test"}),
                 &key,
             )
@@ -1449,11 +1419,7 @@ mod tests {
         let key = proxy_key(&exec.config, "agent-test").clone();
 
         let result = exec
-            .invoke(
-                "tools__remote__failingtool__call",
-                serde_json::json!({}),
-                &key,
-            )
+            .invoke("tools__remote__failingtool", serde_json::json!({}), &key)
             .await
             .expect("remote MCP invoke should succeed with tool error payload");
 
@@ -1509,7 +1475,7 @@ mod tests {
 
         let result = exec
             .invoke(
-                "tools__remote__multicontenttool__call",
+                "tools__remote__multicontenttool",
                 serde_json::json!({}),
                 &key,
             )
@@ -1536,7 +1502,7 @@ mod tests {
         let key = proxy_key(&exec.config, "agent-test").clone();
 
         let err = exec
-            .invoke("search__mock__search__post", serde_json::json!({}), &key)
+            .invoke("search__mock__search", serde_json::json!({}), &key)
             .await
             .unwrap_err();
         // 500 可重试，2 次尝试后 RetryExhausted
@@ -1557,7 +1523,7 @@ mod tests {
         let key = proxy_key(&exec.config, "agent-test").clone();
 
         let err = exec
-            .invoke("search__mock__search__post", serde_json::json!({}), &key)
+            .invoke("search__mock__search", serde_json::json!({}), &key)
             .await
             .unwrap_err();
         // 404 不可重试，直接返回 UpstreamError(404)
@@ -1586,7 +1552,7 @@ mod tests {
         let key = proxy_key(&exec.config, "agent-test").clone();
 
         let result = exec
-            .invoke("search__mock__search__post", serde_json::json!({}), &key)
+            .invoke("search__mock__search", serde_json::json!({}), &key)
             .await
             .expect("invoke should succeed");
         assert_eq!(result.status, 200);
@@ -1603,7 +1569,7 @@ mod tests {
         let exec = executor(config, secrets).with_event_repository(repo.clone());
         let key = proxy_key(&exec.config, "agent-test").clone();
 
-        exec.invoke("search__mock__search__post", serde_json::json!({}), &key)
+        exec.invoke("search__mock__search", serde_json::json!({}), &key)
             .await
             .expect("invoke should succeed");
 
@@ -1614,7 +1580,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].proxy_key_id, "agent-test");
         assert_eq!(events[0].resource_id, "mock");
-        assert_eq!(events[0].tool_name, "search__mock__search__post");
+        assert_eq!(events[0].tool_name, "search__mock__search");
         assert_eq!(events[0].status, RequestStatus::Success);
     }
 
@@ -1640,30 +1606,6 @@ mod tests {
             None,
         );
         assert_eq!(url, "https://api.example.com/{url}");
-    }
-
-    #[test]
-    fn method_from_segment_maps_correctly() {
-        assert_eq!(method_from_segment("get").unwrap(), reqwest::Method::GET);
-        assert_eq!(method_from_segment("post").unwrap(), reqwest::Method::POST);
-        assert_eq!(method_from_segment("put").unwrap(), reqwest::Method::PUT);
-        assert_eq!(
-            method_from_segment("patch").unwrap(),
-            reqwest::Method::PATCH
-        );
-        assert_eq!(
-            method_from_segment("delete").unwrap(),
-            reqwest::Method::DELETE
-        );
-    }
-
-    #[test]
-    fn method_from_segment_rejects_unknown() {
-        let err = method_from_segment("head").unwrap_err();
-        match err {
-            ProxyError::InvalidToolCall(detail) => assert!(detail.contains("head")),
-            other => panic!("expected InvalidToolCall, got {other:?}"),
-        }
     }
 
     #[test]
@@ -1715,13 +1657,13 @@ mod tests {
         let quarantined: crate::integrity::QuarantinedTools =
             Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
         quarantined.write().await.insert(
-            "search__mock__search__post".to_string(),
+            "search__mock__search".to_string(),
             crate::integrity::IntegrityPolicy::Quarantine,
         );
         let exec = exec.with_quarantined(quarantined);
 
         let err = exec
-            .invoke("search__mock__search__post", serde_json::json!({}), &key)
+            .invoke("search__mock__search", serde_json::json!({}), &key)
             .await
             .unwrap_err();
 
@@ -1744,13 +1686,13 @@ mod tests {
         let quarantined: crate::integrity::QuarantinedTools =
             Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
         quarantined.write().await.insert(
-            "search__mock__search__post".to_string(),
+            "search__mock__search".to_string(),
             crate::integrity::IntegrityPolicy::Block,
         );
         let exec = exec.with_quarantined(quarantined);
 
         let err = exec
-            .invoke("search__mock__search__post", serde_json::json!({}), &key)
+            .invoke("search__mock__search", serde_json::json!({}), &key)
             .await
             .unwrap_err();
 
@@ -1774,14 +1716,14 @@ mod tests {
         let quarantined: crate::integrity::QuarantinedTools =
             Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
         quarantined.write().await.insert(
-            "other__tool__name__post".to_string(),
+            "other__tool__name".to_string(),
             crate::integrity::IntegrityPolicy::Block,
         );
         let exec = executor(config, secrets).with_quarantined(quarantined);
         let key = proxy_key(&exec.config, "agent-test").clone();
 
         let result = exec
-            .invoke("search__mock__search__post", serde_json::json!({}), &key)
+            .invoke("search__mock__search", serde_json::json!({}), &key)
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().status, 200);

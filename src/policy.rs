@@ -61,37 +61,37 @@ mod tests {
     #[test]
     fn allows_matching_tools_colon_form() {
         let key = key(vec![r"^search:.*"], vec![]);
-        let tool = ToolName::new("search", "tavily", "web_search", "post").unwrap();
+        let tool = ToolName::new("search", "tavily", "web_search").unwrap();
         assert!(key_can_use_tool(&key, &tool).unwrap());
     }
 
     #[test]
     fn allows_matching_tools_wire_form() {
         let key = key(vec![r"^search__.*"], vec![]);
-        let tool = ToolName::new("search", "tavily", "web_search", "post").unwrap();
+        let tool = ToolName::new("search", "tavily", "web_search").unwrap();
         assert!(key_can_use_tool(&key, &tool).unwrap());
     }
 
     #[test]
     fn deny_rules_override_allow_rules() {
         let key = key(vec![r"^search:.*"], vec![r"^search:exa:.*"]);
-        let tool = ToolName::new("search", "exa", "neural_search", "post").unwrap();
+        let tool = ToolName::new("search", "exa", "neural_search").unwrap();
         assert!(!key_can_use_tool(&key, &tool).unwrap());
     }
 
     #[test]
     fn empty_allow_list_denies_by_default() {
         let key = key(vec![], vec![]);
-        let tool = ToolName::new("search", "tavily", "web_search", "post").unwrap();
+        let tool = ToolName::new("search", "tavily", "web_search").unwrap();
         assert!(!key_can_use_tool(&key, &tool).unwrap());
     }
 
     #[test]
     fn colon_form_matches_specific_provider() {
         let key = key(vec![r"^search:tavily:"], vec![]);
-        let allow = ToolName::new("search", "tavily", "web_search", "post").unwrap();
+        let allow = ToolName::new("search", "tavily", "web_search").unwrap();
         assert!(key_can_use_tool(&key, &allow).unwrap());
-        let deny = ToolName::new("search", "exa", "neural_search", "post").unwrap();
+        let deny = ToolName::new("search", "exa", "neural_search").unwrap();
         assert!(!key_can_use_tool(&key, &deny).unwrap());
     }
 }
