@@ -1,5 +1,15 @@
 # Documentation Update Log
 
+## 2026-07-05（结构性债务清理）
+
+- **executor 拆分**：`src/proxy/executor.rs`（生产代码约 1030 行）按管线阶段拆为三文件：`executor.rs`（489 行，struct + builders + invoke 入口）、`retry.rs`（328 行，重试循环 + URL 构造 + 参数分解）、`post.rs`（251 行，观测记录 + defense + render + shaping）。所有生产代码文件低于 500 行预算。
+- **integrity drift 迁移**：`check_integrity_drift` 从 `main.rs` 迁入 `integrity::check_drift`（泛型化 `R: SecurityEventRepository`），`main.rs` 只调用。
+- **tracing span 补齐**：`proxy::executor::invoke` 加 `#[instrument(skip_all, fields(wire_name, proxy_key_id, resource_id, request_id))]`，动态 `record` resource_id 和 request_id；`mcp::server` 的 `list_tools`/`call_tool` 加 `#[instrument]`。
+- **静默吞错修复**：`post.rs` 的 `record_event`、`shape_remote_mcp_result`、`apply_defense_and_shaping` 中 3 处 `let _ = repo.insert_*` 改为 `if let Err(e) = ... { warn!(...) }`；`integrity::check_drift` 同样修复。
+- **naming.rs 注释勘误**：`asterlane` 字符数 11→9，前缀 17→16，剩余 47→48。
+- **architecture.md 模块状态更新**：Module Map Status 列从"待实现"更新为实际实现状态。
+- **债务台账更新**：`engineering-conventions.md` 五项结构性债务全部标记已完成。
+
 ## 2026-07-05（Response Rendering 端到端验证沉淀）
 
 - **验证**：对 Exa hosted MCP（`exa-search-server` 3.2.1，`examples/gateway-mcp.yaml`）+ 本地 JSON HTTP 上游实测响应渲染。格式协商链全绿：缺省透传、`?format=yaml/markdown` 渲染并置 `x-asterlane-format` + 切 `Content-Type`、`Accept:` 协商、非法值 400 `mcp.invalid_tool_call`；对象数组正确渲染为 markdown 表格。

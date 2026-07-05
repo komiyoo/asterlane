@@ -6,8 +6,8 @@ use thiserror::Error;
 /// Wire name 最大长度（字符数）。
 ///
 /// Claude Code 把 MCP 工具展开为 `mcp__<server>__<tool>`，总长上限 64 字符。
-/// 假设注册的 server 名为 `asterlane`（11 字符），前缀 `mcp__asterlane__` 占 17 字符，
-/// 剩余 47 字符给工具名。这里取 64 作为绝对上限，超长直接报配置错误。
+/// 假设注册的 server 名为 `asterlane`（9 字符），前缀 `mcp__asterlane__` 占 16 字符，
+/// 剩余 48 字符给工具名。这里取 64 作为绝对上限，超长直接报配置错误。
 /// 详见 docs/naming-convention.md「长度预算」。
 const MAX_WIRE_NAME_LEN: usize = 64;
 

@@ -9,7 +9,7 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::{Peer, RoleServer, ServerHandler};
 use serde_json::json;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use crate::catalog::{ToolListQuery, WrappedTool};
 use crate::config::ProxyKey;
@@ -63,6 +63,7 @@ impl ServerHandler for AsterlaneToolServer {
         ))
     }
 
+    #[instrument(skip_all)]
     async fn list_tools(
         &self,
         request: Option<PaginatedRequestParams>,
@@ -109,6 +110,7 @@ impl ServerHandler for AsterlaneToolServer {
         })
     }
 
+    #[instrument(skip_all, fields(wire_name = %request.name))]
     async fn call_tool(
         &self,
         request: CallToolRequestParams,

@@ -7,12 +7,15 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tracing::{info, warn};
 
 use crate::mcp::model::ToolDescriptor;
+use crate::observability::{SecurityEvent, SecurityEventKind};
 
 /// Fingerprint of a single tool definition at a point in time.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,6 +242,90 @@ impl IntegrityBaseline {
     pub fn rebase(&mut self, tools: &[ToolDescriptor]) {
         self.pins.clear();
         self.pin_tools(tools);
+    }
+}
+
+/// MCP refresh 后做 integrity drift 检测。
+///
+/// 1. 取新 `ToolDescriptor` 列表，`IntegrityBaseline::check` 比对。
+/// 2. 每个 drift event 构造 `SecurityEvent` 并写入 store。
+/// 3. 按 per-resource `integrity_policy` 更新隔离集合。
+/// 4. `IntegrityBaseline::rebase` 更新基线。
+pub async fn check_drift<R: crate::store::SecurityEventRepository>(
+    registry: &crate::mcp::McpServerRegistry,
+    config: &crate::GatewayConfig,
+    baseline: &Arc<tokio::sync::RwLock<IntegrityBaseline>>,
+    quarantined: &QuarantinedTools,
+    event_repo: &Option<Arc<R>>,
+) {
+    let pairs = registry.all_descriptors();
+    let descriptors: Vec<ToolDescriptor> = pairs.iter().map(|(_, d)| d.clone()).collect();
+
+    let events = {
+        let bl = baseline.read().await;
+        bl.check(&descriptors)
+    };
+
+    if events.is_empty() {
+        baseline.write().await.rebase(&descriptors);
+        return;
+    }
+
+    let mut new_quarantined_count = 0usize;
+    for ev in &events {
+        let wire_name = ev.tool_name();
+        let resource_id = pairs
+            .iter()
+            .find(|(_, d)| d.name == wire_name)
+            .map(|(rid, _)| rid.clone())
+            .unwrap_or_default();
+
+        let (kind, severity, details) = SecurityEventKind::from_integrity_event(ev);
+        let security_event = SecurityEvent {
+            timestamp: Utc::now(),
+            resource_id: resource_id.clone(),
+            tool_name: Some(wire_name.to_string()),
+            kind,
+            severity,
+            details,
+        };
+        if let Some(repo) = event_repo {
+            if let Err(e) = repo.insert_security_event(&security_event).await {
+                warn!(error = %e, wire_name, "failed to persist integrity drift security event");
+            }
+        }
+
+        if resource_id.is_empty() {
+            continue;
+        }
+        let policy = config
+            .mcp_server(&resource_id)
+            .map(|s| s.security.integrity_policy)
+            .or_else(|| {
+                config
+                    .resource(&resource_id)
+                    .map(|r| r.security.integrity_policy)
+            });
+        if let Some(p) = policy
+            && matches!(p, IntegrityPolicy::Quarantine | IntegrityPolicy::Block)
+        {
+            quarantined.write().await.insert(wire_name.to_string(), p);
+            new_quarantined_count += 1;
+        }
+    }
+
+    baseline.write().await.rebase(&descriptors);
+
+    info!(
+        drift_events = events.len(),
+        new_quarantined = new_quarantined_count,
+        "integrity drift detected after mcp refresh"
+    );
+    if new_quarantined_count > 0 {
+        warn!(
+            count = new_quarantined_count,
+            "tools quarantined due to integrity drift"
+        );
     }
 }
 

@@ -282,7 +282,7 @@ fn spawn_mcp_refresh_task(
                     catalog.write().await.replace_mcp_tools(new_tools, &mcp_ids);
 
                     // integrity drift 检测：写 security event + 更新隔离集合 + rebase baseline
-                    check_integrity_drift(
+                    asterlane::integrity::check_drift(
                         &registry,
                         &config,
                         &baseline,
@@ -301,102 +301,6 @@ fn spawn_mcp_refresh_task(
             }
         }
     });
-}
-
-/// MCP refresh 后做 integrity drift 检测。
-///
-/// 流程见 `docs/product-requirements.md` 第 296-307 行：
-/// 1. 取新 `ToolDescriptor` 列表，`baseline.check` 比对。
-/// 2. 每个 drift event 构造 `SecurityEvent` 并写入 store（若 `event_repo` 存在）。
-///    `details` 仅含 fingerprint（SHA256 哈希）与 hint 元数据，不含明文密钥。
-/// 3. 按 per-resource `integrity_policy` 更新隔离集合
-///    （`Quarantine`/`Block` → 加入隔离；`Warn` → 仅记录 event）。
-///    `ToolRemoved` 的 resource_id 未知，仅记录 event，不隔离。
-/// 4. `baseline.rebase` 更新为最新（为下次 refresh 比对基线）。
-/// 5. tracing 结构化记录 drift 事件数与新增隔离 tool 数。
-async fn check_integrity_drift(
-    registry: &asterlane::mcp::McpServerRegistry,
-    config: &asterlane::GatewayConfig,
-    baseline: &Arc<tokio::sync::RwLock<asterlane::integrity::IntegrityBaseline>>,
-    quarantined: &asterlane::http::QuarantinedTools,
-    event_repo: &Option<Arc<asterlane::store::SqliteRequestEventRepository>>,
-) {
-    use asterlane::integrity::IntegrityPolicy;
-    use asterlane::observability::{SecurityEvent, SecurityEventKind};
-    use asterlane::store::SecurityEventRepository;
-    use chrono::Utc;
-
-    let pairs = registry.all_descriptors();
-    let descriptors: Vec<asterlane::mcp::ToolDescriptor> =
-        pairs.iter().map(|(_, d)| d.clone()).collect();
-
-    let events = {
-        let bl = baseline.read().await;
-        bl.check(&descriptors)
-    };
-
-    if events.is_empty() {
-        // 无 drift，仍更新 baseline 以反映最新（新增工具需要 pin）
-        baseline.write().await.rebase(&descriptors);
-        return;
-    }
-
-    let mut new_quarantined_count = 0usize;
-    for ev in &events {
-        let wire_name = ev.tool_name();
-        // 查 tool 对应的 resource_id（ToolRemoved 的 tool 不在当前列表中，resource_id 为空）
-        let resource_id = pairs
-            .iter()
-            .find(|(_, d)| d.name == wire_name)
-            .map(|(rid, _)| rid.clone())
-            .unwrap_or_default();
-
-        let (kind, severity, details) = SecurityEventKind::from_integrity_event(ev);
-        let security_event = SecurityEvent {
-            timestamp: Utc::now(),
-            resource_id: resource_id.clone(),
-            tool_name: Some(wire_name.to_string()),
-            kind,
-            severity,
-            details,
-        };
-        if let Some(repo) = event_repo {
-            let _ = repo.insert_security_event(&security_event).await;
-        }
-
-        // ToolRemoved 的 tool 不在当前列表中，无法查 per-resource policy，不隔离
-        if resource_id.is_empty() {
-            continue;
-        }
-        let policy = config
-            .mcp_server(&resource_id)
-            .map(|s| s.security.integrity_policy)
-            .or_else(|| {
-                config
-                    .resource(&resource_id)
-                    .map(|r| r.security.integrity_policy)
-            });
-        if let Some(p) = policy
-            && matches!(p, IntegrityPolicy::Quarantine | IntegrityPolicy::Block)
-        {
-            quarantined.write().await.insert(wire_name.to_string(), p);
-            new_quarantined_count += 1;
-        }
-    }
-
-    baseline.write().await.rebase(&descriptors);
-
-    info!(
-        drift_events = events.len(),
-        new_quarantined = new_quarantined_count,
-        "integrity drift detected after mcp refresh"
-    );
-    if new_quarantined_count > 0 {
-        warn!(
-            count = new_quarantined_count,
-            "tools quarantined due to integrity drift"
-        );
-    }
 }
 
 #[cfg(test)]

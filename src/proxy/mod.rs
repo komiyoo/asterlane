@@ -19,6 +19,8 @@
 pub mod auth;
 pub mod error;
 pub mod executor;
+mod post;
+mod retry;
 
 pub use error::ProxyError;
 pub use executor::{InvokeResult, ProxyExecutor};

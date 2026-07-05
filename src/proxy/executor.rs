@@ -12,41 +12,30 @@
 
 use crate::WrappedTool;
 use crate::catalog::ToolCatalog;
-use crate::config::{GatewayConfig, HttpMethod, ProxyKey, SecurityConfig, UpstreamAuth};
-use crate::defense;
+use crate::config::{GatewayConfig, ProxyKey, SecurityConfig, UpstreamAuth};
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
-use crate::keys::{KeyPool, LoadBalanceStrategy};
+use crate::keys::KeyPool;
 use crate::limits::{ApiId, LimiterKey, RateLimits};
 use crate::mcp::McpServerRegistry;
-use crate::mcp::model::{ToolCallResult, ToolContent};
 use crate::naming::ToolName;
-use crate::observability::{
-    RequestEvent, RequestStatus, SecurityEvent, SecurityEventKind, Severity, record_request_event,
-    redact_body,
-};
+use crate::observability::RequestStatus;
 use crate::policy;
-use crate::render::{self, ResponseFormat};
+use crate::render::ResponseFormat;
 use crate::secrets::{SecretRef, SecretStore, SecretString};
-use crate::shaping::{self, ResultCache, ShapingConfig, ShapingOutcome, budget_for};
+use crate::shaping::ResultCache;
 use crate::store::{RequestEventRepository, SecurityEventRepository};
-use chrono::Utc;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use super::auth::apply_auth;
 use super::error::ProxyError;
-use backon::BackoffBuilder;
 
 /// 默认最大尝试次数（含首次调用）。
 const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 
 /// 默认请求超时（秒）。
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
-
-/// 可重试的上游状态码白名单（见 architecture.md Retry And Failover）。
-const RETRYABLE_STATUSES: &[u16] = &[429, 500, 502, 503, 504];
 
 /// 进程内递增的 request_id 计数器（占位；后续由调用方或中间件生成 UUID）。
 static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -93,25 +82,19 @@ pub struct InvokeResult {
 /// 泛型 `S` 为 `SecretStore` 实现，允许测试注入 mock。
 #[derive(Clone)]
 pub struct ProxyExecutor<S: SecretStore, R: RequestEventRepository + SecurityEventRepository = ()> {
-    config: Arc<GatewayConfig>,
-    catalog: Arc<ToolCatalog>,
-    secrets: Arc<S>,
-    event_repo: Option<Arc<R>>,
-    http: reqwest::Client,
-    mcp_registry: Option<Arc<McpServerRegistry>>,
-    keys: Option<Arc<KeyPool>>,
-    limits: Option<Arc<RateLimits>>,
-    /// 被隔离的 tool 集合（wire name → policy），调用前检查拦截。
-    /// 由 `AppState.quarantined_tools` 共享注入。
-    quarantined: Option<QuarantinedTools>,
-    /// 结果截断缓存，用于 shaping per-resource budget。
-    /// 未注入时跳过 shaping。
-    result_cache: Option<Arc<ResultCache>>,
-    /// 已解析的响应格式（请求级 > key 级 > 全局默认，由调用方解析注入）。
-    /// `Json` 为透传，等价于不启用 rendering。
-    response_format: ResponseFormat,
-    max_attempts: u32,
-    request_timeout: Duration,
+    pub(super) config: Arc<GatewayConfig>,
+    pub(super) catalog: Arc<ToolCatalog>,
+    pub(super) secrets: Arc<S>,
+    pub(super) event_repo: Option<Arc<R>>,
+    pub(super) http: reqwest::Client,
+    pub(super) mcp_registry: Option<Arc<McpServerRegistry>>,
+    pub(super) keys: Option<Arc<KeyPool>>,
+    pub(super) limits: Option<Arc<RateLimits>>,
+    pub(super) quarantined: Option<QuarantinedTools>,
+    pub(super) result_cache: Option<Arc<ResultCache>>,
+    pub(super) response_format: ResponseFormat,
+    pub(super) max_attempts: u32,
+    pub(super) request_timeout: Duration,
 }
 
 impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> std::fmt::Debug
@@ -265,6 +248,12 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
     /// 9. (可选) failover：重试时 mark_cooling + acquire 新 key
     /// 10. 记录 RequestEvent
     /// 11. 返回 InvokeResult
+    #[tracing::instrument(skip_all, fields(
+        wire_name = %wire_name,
+        proxy_key_id = %proxy_key.id,
+        resource_id = tracing::field::Empty,
+        request_id = tracing::field::Empty,
+    ))]
     pub async fn invoke(
         &self,
         wire_name: &str,
@@ -281,6 +270,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             .catalog
             .find_by_wire_name(wire_name)
             .ok_or_else(|| ProxyError::UnknownTool(wire_name.to_string()))?;
+
+        tracing::Span::current().record("resource_id", tool.resource_id.as_str());
 
         // 3. Integrity 隔离检查：被隔离（Quarantine/Block）的 tool 拒绝调用。
         //    Warn 策略不隔离，不在此拦截。检查发生在 catalog 查找之后、
@@ -319,6 +310,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             }
 
             let request_id = next_request_id();
+            tracing::Span::current().record("request_id", request_id.as_str());
             let start = Instant::now();
             let result = registry
                 .call_tool(wire_name, args)
@@ -397,6 +389,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
 
         // 7-10. 构造请求 + 重试 + failover + 记录
         let request_id = next_request_id();
+        tracing::Span::current().record("request_id", request_id.as_str());
         let start = Instant::now();
 
         let outcome = self
@@ -456,443 +449,6 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             }
         }
     }
-
-    /// 重试循环：构造请求 → 发送 → 判定可重试 → 退避 → failover。
-    ///
-    /// 第一阶段 failover 基础实现：重试时 mark_cooling 当前 key + acquire 新 key。
-    /// 完整 failover 策略（per-key 凭据映射、权重感知轮换）留后续。
-    #[allow(clippy::too_many_arguments)]
-    async fn execute_with_retry(
-        &self,
-        http_method: HttpMethod,
-        upstream_path: &str,
-        base_url: &str,
-        auth: &UpstreamAuth,
-        args: &serde_json::Value,
-        secret: &Option<SecretString>,
-        param_locations: Option<&crate::catalog::ParamLocations>,
-    ) -> Result<(InvokeResult, u8, String), ExecutionError> {
-        let method = http_method.to_reqwest();
-        let url = build_url(base_url, upstream_path, args, param_locations);
-        let is_get = http_method == HttpMethod::Get;
-
-        let backoff_builder = backon::ExponentialBuilder::default()
-            .with_min_delay(Duration::from_millis(100))
-            .with_max_delay(Duration::from_secs(10))
-            .with_jitter()
-            .with_max_times((self.max_attempts.saturating_sub(1)) as usize);
-        let mut backoff = backoff_builder.build();
-
-        let mut retry_count: u8 = 0;
-        let mut upstream_key_ref = "<none>".to_string();
-
-        for attempt in 1..=self.max_attempts {
-            let key_guard = if let Some(pool) = &self.keys {
-                match pool.acquire(LoadBalanceStrategy::RoundRobin) {
-                    Ok(guard) => {
-                        upstream_key_ref = guard.key_id().to_string();
-                        Some(guard)
-                    }
-                    Err(e) => {
-                        return Err(ExecutionError {
-                            proxy_error: ProxyError::from(e),
-                            retry_count,
-                            upstream_key_ref,
-                        });
-                    }
-                }
-            } else {
-                None
-            };
-
-            let mut builder = self.http.request(method.clone(), &url);
-            builder = apply_auth(auth, secret.as_ref(), builder);
-            builder = apply_params(builder, args, param_locations, is_get);
-
-            // 发送（带超时包裹）
-            let send_future = builder.send();
-            let send_result = tokio::time::timeout(self.request_timeout, send_future).await;
-
-            let response_result = match send_result {
-                Ok(r) => r,
-                Err(_elapsed) => {
-                    // tokio::time::timeout 超时
-                    if let (Some(pool), Some(guard)) = (&self.keys, &key_guard) {
-                        pool.mark_cooling(guard.key_id(), None);
-                    }
-                    drop(key_guard);
-                    if attempt < self.max_attempts {
-                        if let Some(delay) = backoff.next() {
-                            tokio::time::sleep(delay).await;
-                        }
-                        retry_count += 1;
-                        continue;
-                    }
-                    return Err(ExecutionError {
-                        proxy_error: ProxyError::UpstreamTimeout {
-                            ms: self.request_timeout.as_millis() as u64,
-                        },
-                        retry_count,
-                        upstream_key_ref,
-                    });
-                }
-            };
-
-            match response_result {
-                Ok(response) => {
-                    let status = response.status().as_u16();
-                    let content_type = response
-                        .headers()
-                        .get(reqwest::header::CONTENT_TYPE)
-                        .and_then(|v| v.to_str().ok())
-                        .map(|s| s.to_string());
-                    let content_length = response.content_length();
-
-                    let body = match response.bytes().await {
-                        Ok(b) => b.to_vec(),
-                        Err(_) => Vec::new(),
-                    };
-
-                    // 日志用脱敏摘要（不记录响应体内容）
-                    let _summary = redact_body(status, content_length);
-
-                    if (200..300).contains(&status) {
-                        return Ok((
-                            InvokeResult {
-                                status,
-                                body,
-                                content_type,
-                                content_defense_flag: false,
-                                shaped: false,
-                                rendered_format: None,
-                            },
-                            retry_count,
-                            upstream_key_ref,
-                        ));
-                    }
-
-                    // 判定可重试
-                    if attempt < self.max_attempts && is_retryable_status(status) {
-                        // failover: mark cooling 当前 key
-                        if let (Some(pool), Some(guard)) = (&self.keys, &key_guard) {
-                            // TODO: 从 response header 解析 Retry-After
-                            pool.mark_cooling(guard.key_id(), None);
-                        }
-                        drop(key_guard);
-                        if let Some(delay) = backoff.next() {
-                            tokio::time::sleep(delay).await;
-                        }
-                        retry_count += 1;
-                        continue;
-                    }
-
-                    // 不可重试或最后一次
-                    drop(key_guard);
-                    let proxy_error = if retry_count > 0 && is_retryable_status(status) {
-                        ProxyError::RetryExhausted { attempts: attempt }
-                    } else {
-                        ProxyError::UpstreamError(status)
-                    };
-                    return Err(ExecutionError {
-                        proxy_error,
-                        retry_count,
-                        upstream_key_ref,
-                    });
-                }
-                Err(e) => {
-                    if let (Some(pool), Some(guard)) = (&self.keys, &key_guard) {
-                        pool.mark_cooling(guard.key_id(), None);
-                    }
-                    drop(key_guard);
-                    if e.is_timeout() {
-                        if attempt < self.max_attempts {
-                            if let Some(delay) = backoff.next() {
-                                tokio::time::sleep(delay).await;
-                            }
-                            retry_count += 1;
-                            continue;
-                        }
-                        return Err(ExecutionError {
-                            proxy_error: ProxyError::UpstreamTimeout {
-                                ms: self.request_timeout.as_millis() as u64,
-                            },
-                            retry_count,
-                            upstream_key_ref,
-                        });
-                    }
-                    // 连接失败（DNS/TCP/TLS）或其他请求错误
-                    if attempt < self.max_attempts {
-                        if let Some(delay) = backoff.next() {
-                            tokio::time::sleep(delay).await;
-                        }
-                        retry_count += 1;
-                        continue;
-                    }
-                    return Err(ExecutionError {
-                        proxy_error: ProxyError::ConnectionFailed,
-                        retry_count,
-                        upstream_key_ref,
-                    });
-                }
-            }
-        }
-
-        // 循环结束仍未成功（重试耗尽）
-        Err(ExecutionError {
-            proxy_error: ProxyError::RetryExhausted {
-                attempts: self.max_attempts,
-            },
-            retry_count,
-            upstream_key_ref,
-        })
-    }
-
-    /// 记录 `RequestEvent`（metrics facade，未设导出器时为 no-op）。
-    #[allow(clippy::too_many_arguments)] // 内部观测 helper，字段由 invoke 各步骤汇聚
-    async fn record_event(
-        &self,
-        request_id: &str,
-        proxy_key_id: &str,
-        resource_id: &str,
-        wire_name: &str,
-        upstream_key_ref: &str,
-        status: RequestStatus,
-        latency_ms: u32,
-        retry_count: u8,
-    ) {
-        let event = RequestEvent {
-            timestamp: Utc::now(),
-            request_id: request_id.to_string(),
-            proxy_key_id: proxy_key_id.to_string(),
-            resource_id: resource_id.to_string(),
-            tool_name: wire_name.to_string(),
-            upstream_key_ref: upstream_key_ref.to_string(),
-            status,
-            latency_ms,
-            request_units: 1,
-            retry_count,
-            rate_limited: false,
-            queued_ms: 0,
-        };
-        record_request_event(&event);
-        if let Some(repo) = &self.event_repo {
-            let _ = repo.insert_event(&event).await;
-        }
-    }
-
-    /// 对 remote MCP `ToolCallResult` 的文本内容执行 defense + shaping 后再序列化。
-    ///
-    /// remote MCP 的 `is_error` 是 MCP 语义的一部分，不能先把整个
-    /// `ToolCallResult` JSON 序列化后按通用文本裁剪，否则 shaped 后会丢失
-    /// error/success 结构。这里仅裁剪文本 content，并保持 `is_error` 原值。
-    async fn shape_remote_mcp_result(
-        &self,
-        mut tool_result: ToolCallResult,
-        resource_id: &str,
-        wire_name: &str,
-        proxy_key_id: &str,
-        security: &SecurityConfig,
-    ) -> InvokeResult {
-        let text_body = tool_result
-            .content
-            .iter()
-            .map(|content| match content {
-                ToolContent::Text(text) => text.as_str(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let mut content_defense_flag = false;
-        if security.defense.enabled {
-            let defense_result = defense::scan_content(&text_body);
-            if defense_result.flagged {
-                content_defense_flag = true;
-                if let Some(repo) = &self.event_repo {
-                    let event = SecurityEvent {
-                        timestamp: Utc::now(),
-                        resource_id: resource_id.to_string(),
-                        tool_name: Some(wire_name.to_string()),
-                        kind: SecurityEventKind::ContentDefenseFlag,
-                        severity: Severity::Warn,
-                        details: serde_json::json!({
-                            "matched_rules": defense_result.matched_rules,
-                        }),
-                    };
-                    let _ = repo.insert_security_event(&event).await;
-                }
-            }
-        }
-
-        // Render：非 error 结果的 JSON 文本内容重呈现（defense 之后、shaping 之前）。
-        // is_error 结果与非 JSON 文本原样保留（docs/response-rendering.md 转换边界）。
-        let mut rendered_format = None;
-        if self.response_format != ResponseFormat::Json && !tool_result.is_error {
-            let mut any_rendered = false;
-            tool_result.content = tool_result
-                .content
-                .into_iter()
-                .map(|content| match content {
-                    ToolContent::Text(text) => {
-                        match serde_json::from_str::<serde_json::Value>(&text)
-                            .ok()
-                            .and_then(|v| render::render(&v, self.response_format))
-                        {
-                            Some(rendered) => {
-                                any_rendered = true;
-                                ToolContent::Text(rendered)
-                            }
-                            None => ToolContent::Text(text),
-                        }
-                    }
-                })
-                .collect();
-            if any_rendered {
-                rendered_format = Some(self.response_format);
-            }
-        }
-
-        // shaping 按渲染后的文本计算 budget（缓存存最终字节，分页片段格式一致）
-        let text_body = tool_result
-            .content
-            .iter()
-            .map(|content| match content {
-                ToolContent::Text(text) => text.as_str(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let mut shaped = false;
-        if let Some(cache) = &self.result_cache {
-            let budget = budget_for(security.result_budget_bytes);
-            let config = ShapingConfig {
-                budget_bytes: budget,
-            };
-            match shaping::shape_result(&text_body, &config, cache, proxy_key_id) {
-                ShapingOutcome::Unchanged => {}
-                ShapingOutcome::Shaped {
-                    head,
-                    cursor,
-                    total_len,
-                } => {
-                    let shaped_text = format!(
-                        "{head}\n\n[Result truncated. Total {total_len} bytes. \
-                         Use asterlane__fetch_result with cursor \"{cursor}\" to get more.]"
-                    );
-                    tool_result.content = vec![ToolContent::Text(shaped_text)];
-                    shaped = true;
-                }
-            }
-        }
-
-        InvokeResult {
-            status: 200,
-            body: serde_json::to_vec(&tool_result).unwrap_or_default(),
-            content_type: Some("application/json".to_string()),
-            content_defense_flag,
-            shaped,
-            rendered_format,
-        }
-    }
-
-    /// 对调用结果执行 defense 扫描 + shaping，返回修改后的结果。
-    ///
-    /// 顺序：先 defense 扫描完整 body（截断会丢失尾部注入），再 shaping 截断返回。
-    /// 不阻断调用，只标记。security event 写入 `event_repo`（若注入），
-    /// `details` 仅含规则名，不含原文片段。
-    async fn apply_defense_and_shaping(
-        &self,
-        mut result: InvokeResult,
-        resource_id: &str,
-        wire_name: &str,
-        proxy_key_id: &str,
-        security: &SecurityConfig,
-    ) -> InvokeResult {
-        // 只对 2xx 成功响应做 defense + shaping
-        if result.status < 200 || result.status >= 300 {
-            return result;
-        }
-
-        let mut body_str = String::from_utf8_lossy(&result.body).to_string();
-
-        // 1. Defense 扫描（在 shaping 截断之前，扫描完整 body）
-        if security.defense.enabled {
-            let defense_result = defense::scan_content(&body_str);
-            if defense_result.flagged {
-                result.content_defense_flag = true;
-                if let Some(repo) = &self.event_repo {
-                    let event = SecurityEvent {
-                        timestamp: Utc::now(),
-                        resource_id: resource_id.to_string(),
-                        tool_name: Some(wire_name.to_string()),
-                        kind: SecurityEventKind::ContentDefenseFlag,
-                        severity: Severity::Warn,
-                        details: serde_json::json!({
-                            "matched_rules": defense_result.matched_rules,
-                        }),
-                    };
-                    let _ = repo.insert_security_event(&event).await;
-                }
-            }
-        }
-
-        // 2. Render：JSON body 重呈现为目标格式（defense 之后、shaping 之前，
-        //    budget 按渲染后字节计算；非 JSON body 原样透传）
-        if self.response_format != ResponseFormat::Json
-            && let Some(rendered) = serde_json::from_str::<serde_json::Value>(&body_str)
-                .ok()
-                .and_then(|v| render::render(&v, self.response_format))
-        {
-            body_str = rendered;
-            result.body = body_str.clone().into_bytes();
-            result.content_type = Some(self.response_format.content_type().to_string());
-            result.rendered_format = Some(self.response_format);
-        }
-
-        // 3. Shaping（per-resource budget 覆盖默认值）
-        if let Some(cache) = &self.result_cache {
-            let budget = budget_for(security.result_budget_bytes);
-            let config = ShapingConfig {
-                budget_bytes: budget,
-            };
-            match shaping::shape_result(&body_str, &config, cache, proxy_key_id) {
-                ShapingOutcome::Unchanged => {}
-                ShapingOutcome::Shaped {
-                    head,
-                    cursor,
-                    total_len,
-                } => {
-                    let shaped_body = format!(
-                        "{head}\n\n[Result truncated. Total {total_len} bytes. \
-                         Use asterlane__fetch_result with cursor \"{cursor}\" to get more.]"
-                    );
-                    result.body = shaped_body.into_bytes();
-                    result.content_type = Some("text/plain; charset=utf-8".to_string());
-                    result.shaped = true;
-                }
-            }
-        }
-
-        result
-    }
-}
-
-/// 内部执行错误：携带 `ProxyError` 与观测字段（retry_count、upstream_key_ref），
-/// 供 `invoke` 记录 `RequestEvent` 后再提取 `ProxyError` 返回。
-#[derive(Debug)]
-struct ExecutionError {
-    proxy_error: ProxyError,
-    retry_count: u8,
-    upstream_key_ref: String,
-}
-
-impl From<ProxyError> for ExecutionError {
-    fn from(e: ProxyError) -> Self {
-        Self {
-            proxy_error: e,
-            retry_count: 0,
-            upstream_key_ref: "<none>".to_string(),
-        }
-    }
 }
 
 /// 从 `ProxyError` 推导 `RequestStatus`（用于记录 `RequestEvent`）。
@@ -930,107 +486,6 @@ async fn resolve_auth_secret<S: SecretStore>(
     }
 }
 
-/// 拼接 base_url 与 upstream_path，替换路径参数 `{xxx}` 并追加 query params。
-fn build_url(
-    base_url: &str,
-    path: &str,
-    args: &serde_json::Value,
-    param_locations: Option<&crate::catalog::ParamLocations>,
-) -> String {
-    let mut resolved = path.to_string();
-    if let Some(obj) = args.as_object() {
-        for (key, value) in obj {
-            let placeholder = format!("{{{key}}}");
-            if resolved.contains(&placeholder) {
-                let s = match value {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                resolved = resolved.replace(&placeholder, &s);
-            }
-        }
-    }
-    let mut url = format!("{base_url}{resolved}");
-
-    if let (Some(pl), Some(obj)) = (param_locations, args.as_object()) {
-        let mut first = true;
-        for name in &pl.query_params {
-            if let Some(v) = obj.get(name) {
-                let s = match v {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                url.push(if first { '?' } else { '&' });
-                url.push_str(name);
-                url.push('=');
-                url.push_str(&s);
-                first = false;
-            }
-        }
-    }
-
-    url
-}
-
-/// Build request with parameter decomposition per ParamLocations.
-///
-/// When `param_locations` is Some (OpenAPI-discovered tool), args are decomposed:
-/// - query_params → query string
-/// - header_params → request headers
-/// - body key → JSON body
-///   When None (hand-written endpoint), falls back to legacy behavior:
-///   non-GET sends entire args as JSON body.
-fn apply_params(
-    mut builder: reqwest::RequestBuilder,
-    args: &serde_json::Value,
-    param_locations: Option<&crate::catalog::ParamLocations>,
-    is_get: bool,
-) -> reqwest::RequestBuilder {
-    let obj = args.as_object();
-
-    match param_locations {
-        Some(pl) => {
-            if let Some(obj) = obj {
-                // Query params — append to URL
-                // (handled in build_url via param_locations)
-
-                // Header params
-                for (field_name, header_name) in &pl.header_params {
-                    if let Some(v) = obj.get(field_name).and_then(|v| v.as_str()) {
-                        if let Ok(hv) = reqwest::header::HeaderValue::from_str(v) {
-                            if let Ok(hn) =
-                                reqwest::header::HeaderName::from_bytes(header_name.as_bytes())
-                            {
-                                builder = builder.header(hn, hv);
-                            }
-                        }
-                    }
-                }
-
-                // Body
-                if pl.has_body {
-                    if let Some(body) = obj.get("body") {
-                        builder = builder.json(body);
-                    }
-                }
-            }
-        }
-        None => {
-            // Legacy: non-GET sends entire args as JSON body
-            if !is_get {
-                builder = builder.json(args);
-            }
-        }
-    }
-
-    builder
-}
-
-/// 判断状态码是否在可重试白名单中。
-fn is_retryable_status(status: u16) -> bool {
-    RETRYABLE_STATUSES.contains(&status)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1039,8 +494,9 @@ mod tests {
         UpstreamAuth,
     };
     use crate::keys::{KeyId, KeyPoolBuilder};
+    use crate::mcp::model::ToolContent;
     use crate::mcp::{McpError, McpServerRegistry, RemoteMcpPeer};
-    use crate::observability::RequestEvent;
+    use crate::observability::{RequestEvent, SecurityEvent};
     use crate::secrets::{SecretRef, SecretStore, SecretString};
     use crate::shaping::ResultCache;
     use crate::store::{RequestEventFilter, RequestEventRepository, StoreError};
@@ -1693,40 +1149,6 @@ mod tests {
     }
 
     // ── 纯函数测试 ──
-
-    #[test]
-    fn build_url_replaces_path_params() {
-        let url = build_url(
-            "https://api.example.com",
-            "/{url}",
-            &serde_json::json!({"url": "https://docs.rs"}),
-            None,
-        );
-        assert_eq!(url, "https://api.example.com/https://docs.rs");
-    }
-
-    #[test]
-    fn build_url_no_params_keeps_placeholder() {
-        let url = build_url(
-            "https://api.example.com",
-            "/{url}",
-            &serde_json::json!({}),
-            None,
-        );
-        assert_eq!(url, "https://api.example.com/{url}");
-    }
-
-    #[test]
-    fn is_retryable_status_covers_default_whitelist() {
-        assert!(is_retryable_status(429));
-        assert!(is_retryable_status(500));
-        assert!(is_retryable_status(502));
-        assert!(is_retryable_status(503));
-        assert!(is_retryable_status(504));
-        assert!(!is_retryable_status(200));
-        assert!(!is_retryable_status(400));
-        assert!(!is_retryable_status(404));
-    }
 
     #[test]
     fn next_request_id_is_monotonic() {

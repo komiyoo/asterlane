@@ -89,10 +89,10 @@ timestamp: 2026-07-05T00:00:00Z
 
 评估结论中的结构性债务，改到对应位置时优先偿还：
 
-| 债务 | 位置 | 方向 |
+| 债务 | 位置 | 状态 |
 | --- | --- | --- |
-| invoke 编排 god-file 化 | `src/proxy/executor.rs`（生产代码约 1030 行，已超预算） | 下次功能改动前按管线阶段拆：admission（quarantine/policy/limits）/ execution（keys/secrets/transform/retry）/ post（defense/render/shaping/record） |
-| integrity drift 编排住在 main | `src/main.rs` `check_integrity_drift` | 迁入 `integrity`（或 `mcp`）模块公开函数，main 只调用 |
-| 热路径无 tracing span | `proxy::executor::invoke`、`mcp::server` | 按上节 instrument 规则补齐；`record_event` 补 tracing 事件，落实 observability.md 的双写承诺 |
-| 观测写入静默吞错 | executor `record_event` 中 `let _ = repo.insert_event(...)` | 补 `warn!` |
-| 注释字符数算错 | `src/naming.rs` 长度预算注释 | 改为 9/16 或删去具体数字 |
+| ~~invoke 编排 god-file 化~~ | `src/proxy/executor.rs` | ✓ 已拆为 executor（489 行）+ retry（328 行）+ post（251 行） |
+| ~~integrity drift 编排住在 main~~ | `src/integrity.rs` `check_drift` | ✓ 迁入 `integrity` 模块，`main.rs` 只调用 |
+| ~~热路径无 tracing span~~ | `proxy::executor::invoke`、`mcp::server` | ✓ 已补 `#[instrument]` |
+| ~~观测写入静默吞错~~ | `proxy::post` / `integrity` | ✓ 已补 `warn!` |
+| ~~注释字符数算错~~ | `src/naming.rs` | ✓ 已改为 9/16/48 |

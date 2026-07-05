@@ -36,21 +36,21 @@ The original product requirements are preserved in [Product Requirements](produc
 
 | Module | Responsibility | Status |
 | --- | --- | --- |
-| `config` | 配置加载、schema、校验。 | MVP |
-| `naming` | wrapped MCP tool name 解析、规范化、wire name 转换。 | MVP（需升级） |
-| `policy` | gateway key scope 与请求级收窄。 | MVP |
-| `catalog` | 工具目录构建、过滤、分页、metadata。 | MVP（需升级） |
-| `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 待实现 |
-| `secrets` | secret ref 解析与脱敏。 | 待实现 |
-| `keys` | upstream key pool、冷却、健康、权重。 | 待实现 |
-| `routing` | 负载均衡与 failover 策略。 | 待实现 |
-| `limits` | 限流、配额、队列准入。 | 待实现 |
-| `transform` | header/query/path/body 变换。 | 待实现 |
-| `proxy` | 上游 HTTP 执行。 | 待实现 |
-| `mcp` | MCP 协议适配器与远程 MCP 代理。 | 待实现 |
-| `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 待实现 |
-| `store` | 数据库抽象、迁移、仓库。 | 待实现 |
-| `admin` | admin API 与管理 UI。 | 待实现 |
+| `config` | 配置加载、schema、校验。 | 已实现 |
+| `naming` | wrapped MCP tool name 解析、规范化、wire name 转换。 | 已实现（三段式） |
+| `policy` | gateway key scope 与请求级收窄。 | 已实现 |
+| `catalog` | 工具目录构建、过滤、分页、metadata。 | 已实现（含 MCP + OpenAPI） |
+| `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现（21 错误码） |
+| `secrets` | secret ref 解析与脱敏。 | 已实现（env/file/Vault/Infisical） |
+| `keys` | upstream key pool、冷却、健康、权重。 | 已实现（pool + LB） |
+| `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |
+| `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
+| `transform` | header/query/path/body 变换。 | 已实现（声明式规则） |
+| `proxy` | 上游 HTTP 执行。 | 已实现（retry + failover） |
+| `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 2.1 + lazy discovery） |
+| `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 已实现（metrics + store + Prometheus） |
+| `store` | 数据库抽象、迁移、仓库。 | 已实现（SQLite） |
+| `admin` | admin API 与管理 UI。 | 已实现（7 端点） |
 
 模块编排关系：proxy 执行层编排 keys/limits/routing/transform/secrets，不反向依赖；observability 横切所有层；catalog 是 config→MCP/HTTP 的投影层。借鉴 NyaProxy 的 TrafficManager 三合一（key 池+限流+LB）反模式，Asterlane 保持 keys/limits/routing 边界独立。
 
