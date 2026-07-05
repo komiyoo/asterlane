@@ -14,12 +14,13 @@ use crate::http::state::AppState;
 use crate::limits::{ApiId, LimiterKey, PrincipalId};
 use crate::mcp::model::{ToolCallResult, ToolContent};
 use crate::proxy::ProxyExecutor;
+use crate::render::{self, ResponseFormat};
 use crate::shaping::ShapingConfig;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::header::CONTENT_TYPE;
-use axum::http::{HeaderValue, StatusCode};
+use axum::http::header::{ACCEPT, CONTENT_TYPE};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -27,6 +28,7 @@ use std::sync::Arc;
 
 const CONTENT_DEFENSE_FLAG_HEADER: &str = "x-asterlane-content-defense-flag";
 const RESULT_SHAPED_HEADER: &str = "x-asterlane-result-shaped";
+const FORMAT_HEADER: &str = "x-asterlane-format";
 
 // ── health / version ──
 
@@ -141,6 +143,8 @@ pub struct ToolsQuery {
     pub tool: Option<String>,
     pub limit: Option<usize>,
     pub cursor: Option<usize>,
+    /// 响应格式 override（`json | yaml | markdown`），仅 invoke 路径消费。
+    pub format: Option<String>,
 }
 
 // ── Lazy discovery DTO ──
@@ -164,6 +168,7 @@ struct MetaToolInvokeResult {
     result: ToolCallResult,
     content_defense_flag: bool,
     shaped: bool,
+    rendered_format: Option<ResponseFormat>,
 }
 
 /// `GET /v1/tools` — 工具列表。
@@ -241,6 +246,7 @@ pub async fn invoke_tool(
     State(state): State<AppState>,
     Path(name): Path<String>,
     Query(query): Query<ToolsQuery>,
+    headers: HeaderMap,
     Json(args): Json<serde_json::Value>,
 ) -> Result<Response, AsterlaneError> {
     let key = query.key.ok_or_else(|| {
@@ -254,15 +260,28 @@ pub async fn invoke_tool(
         })?
         .clone();
 
+    // 响应格式：?format= 显式优先，其次 Accept 内容协商，再落渠道/全局配置
+    let accept_override = headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .and_then(render::format_from_accept);
+    let format = render::resolve_format(
+        query.format.as_deref().or(accept_override),
+        proxy_key.response_format,
+        state.config.defaults.response_format,
+    )?;
+
     // Intercept meta-tool calls
     if discovery::is_meta_tool(&name) {
-        let meta_result = handle_meta_tool_with_proxy(&name, args, &state, &proxy_key).await?;
+        let meta_result =
+            handle_meta_tool_with_proxy(&name, args, &state, &proxy_key, format).await?;
         let body = serde_json::to_vec(&meta_result.result).unwrap_or_default();
         let mut response = json_response(body);
         add_invoke_metadata_headers(
             &mut response,
             meta_result.content_defense_flag,
             meta_result.shaped,
+            meta_result.rendered_format,
         );
         return Ok(response);
     }
@@ -281,7 +300,8 @@ pub async fn invoke_tool(
     }
     executor = executor
         .with_quarantined(state.quarantined_tools.clone())
-        .with_result_cache(state.result_cache.clone());
+        .with_result_cache(state.result_cache.clone())
+        .with_response_format(format);
 
     let result = if let Some(repo) = &state.event_repo {
         executor
@@ -303,11 +323,21 @@ pub async fn invoke_tool(
     {
         response.headers_mut().insert(CONTENT_TYPE, value);
     }
-    add_invoke_metadata_headers(&mut response, result.content_defense_flag, result.shaped);
+    add_invoke_metadata_headers(
+        &mut response,
+        result.content_defense_flag,
+        result.shaped,
+        result.rendered_format,
+    );
     Ok(response)
 }
 
-fn add_invoke_metadata_headers(response: &mut Response, content_defense_flag: bool, shaped: bool) {
+fn add_invoke_metadata_headers(
+    response: &mut Response,
+    content_defense_flag: bool,
+    shaped: bool,
+    rendered_format: Option<ResponseFormat>,
+) {
     if content_defense_flag {
         response.headers_mut().insert(
             CONTENT_DEFENSE_FLAG_HEADER,
@@ -319,6 +349,11 @@ fn add_invoke_metadata_headers(response: &mut Response, content_defense_flag: bo
             .headers_mut()
             .insert(RESULT_SHAPED_HEADER, HeaderValue::from_static("true"));
     }
+    if let Some(format) = rendered_format {
+        response
+            .headers_mut()
+            .insert(FORMAT_HEADER, HeaderValue::from_static(format.as_str()));
+    }
 }
 
 /// 处理 meta-tool 调用，接入 proxy executor 和 result shaping。
@@ -327,6 +362,7 @@ async fn handle_meta_tool_with_proxy(
     args: serde_json::Value,
     state: &AppState,
     proxy_key: &ProxyKey,
+    format: ResponseFormat,
 ) -> Result<MetaToolInvokeResult, AsterlaneError> {
     match name {
         "asterlane__call_tool" => {
@@ -357,7 +393,8 @@ async fn handle_meta_tool_with_proxy(
             }
             executor = executor
                 .with_quarantined(state.quarantined_tools.clone())
-                .with_result_cache(state.result_cache.clone());
+                .with_result_cache(state.result_cache.clone())
+                .with_response_format(format);
             let invoke_result = if let Some(repo) = &state.event_repo {
                 executor
                     .with_event_repository(repo.clone())
@@ -377,6 +414,7 @@ async fn handle_meta_tool_with_proxy(
                     result: parsed,
                     content_defense_flag: invoke_result.content_defense_flag,
                     shaped: invoke_result.shaped,
+                    rendered_format: invoke_result.rendered_format,
                 });
             }
 
@@ -388,6 +426,7 @@ async fn handle_meta_tool_with_proxy(
                 result: ToolCallResult::text_ok(body),
                 content_defense_flag: invoke_result.content_defense_flag,
                 shaped: invoke_result.shaped,
+                rendered_format: invoke_result.rendered_format,
             })
         }
         "asterlane__fetch_result" => {
@@ -416,12 +455,14 @@ async fn handle_meta_tool_with_proxy(
                         result: ToolCallResult::text_ok(text),
                         content_defense_flag: false,
                         shaped: false,
+                        rendered_format: None,
                     })
                 }
                 None => Ok(MetaToolInvokeResult {
                     result: ToolCallResult::text_error("cursor not found or expired"),
                     content_defense_flag: false,
                     shaped: false,
+                    rendered_format: None,
                 }),
             }
         }
@@ -433,6 +474,7 @@ async fn handle_meta_tool_with_proxy(
                     result,
                     content_defense_flag: false,
                     shaped: false,
+                    rendered_format: None,
                 },
             )
         }

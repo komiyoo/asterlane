@@ -109,6 +109,7 @@ mod tests {
 
     fn test_config() -> GatewayConfig {
         GatewayConfig {
+            defaults: Default::default(),
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),
@@ -156,6 +157,7 @@ mod tests {
                 denied_tools: vec![],
                 default_tool_page_size: 10,
                 discovery_mode: None,
+                response_format: None,
             }],
         }
     }
@@ -202,6 +204,7 @@ mod tests {
 
     async fn invoke_state_with_body(addr: SocketAddr, security: SecurityConfig) -> AppState {
         let config = GatewayConfig {
+            defaults: Default::default(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -226,6 +229,7 @@ mod tests {
                 denied_tools: vec![],
                 default_tool_page_size: 20,
                 discovery_mode: None,
+                response_format: None,
             }],
         };
         let catalog = ToolCatalog::from_config(&config).unwrap();
@@ -236,6 +240,7 @@ mod tests {
 
     async fn remote_mcp_state() -> AppState {
         let config = GatewayConfig {
+            defaults: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -257,6 +262,7 @@ mod tests {
                 denied_tools: vec![],
                 default_tool_page_size: 20,
                 discovery_mode: None,
+                response_format: None,
             }],
         };
         let registry = Arc::new(
@@ -628,6 +634,127 @@ mod tests {
                 .get(CONTENT_TYPE)
                 .and_then(|v| v.to_str().ok()),
             Some("text/plain; charset=utf-8")
+        );
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_format_query_renders_yaml() {
+        let app = build_app(invoke_state().await);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/search__mock__search/invoke?key=agent-test&format=yaml")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"query":"hello"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("x-asterlane-format")
+                .and_then(|v| v.to_str().ok()),
+            Some("yaml")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/yaml")
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let yaml: serde_json::Value = serde_norway::from_slice(&bytes).unwrap();
+        assert_eq!(yaml["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_accept_header_renders_markdown() {
+        let app = build_app(invoke_state().await);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/search__mock__search/invoke?key=agent-test")
+                    .header(CONTENT_TYPE, "application/json")
+                    .header("accept", "text/markdown")
+                    .body(Body::from(r#"{"query":"hello"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("x-asterlane-format")
+                .and_then(|v| v.to_str().ok()),
+            Some("markdown")
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(body.contains("- **ok**: true"), "markdown body: {body}");
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_unknown_format_rejected() {
+        let app = build_app(invoke_state().await);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/search__mock__search/invoke?key=agent-test&format=xml")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["error"]["code"], "mcp.invalid_tool_call");
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_proxy_key_response_format_applies_without_override() {
+        // proxy key 配置 response_format: yaml，请求不带 override
+        let addr = start_mock_upstream(200, br#"{"ok":true}"#.to_vec()).await;
+        let mut state_config = invoke_state_with_body(addr, SecurityConfig::default()).await;
+        {
+            let config = Arc::make_mut(&mut state_config.config);
+            config.proxy_keys[0].response_format = Some(crate::render::ResponseFormat::Yaml);
+        }
+        let app = build_app(state_config);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/search__mock__search/invoke?key=agent-test")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"query":"hello"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("x-asterlane-format")
+                .and_then(|v| v.to_str().ok()),
+            Some("yaml")
         );
     }
 

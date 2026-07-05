@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-07-05（Response Rendering 实现落地）
+
+- **新模块** `src/render.rs`：`ResponseFormat` enum（json/yaml/markdown）+ `render()` / `resolve_format()` / `format_from_accept()` 纯函数。yaml 走 `serde_norway`；markdown 为确定性 value walk（同构扁平对象数组→表格[列=键并集按首次出现序]、标量数组→列表、对象→键值列表、多行字符串→fence、深度>4 或异构数组→子树降级 yaml fence）。
+- **管线接入**：`ProxyExecutor` 新增 `with_response_format`，render 插在 defense 与 shaping 之间（HTTP API 与 remote MCP 两条路径）；`InvokeResult` 新增 `rendered_format`。remote MCP `is_error` 结果与非 JSON body 不渲染。
+- **入口**：HTTP `?format=` > `Accept` header > key 级 `response_format` > `defaults.response_format` > json；MCP `_meta["asterlane.dev/format"]`。未知值报 `mcp.invalid_tool_call`（400 / -32602）。渲染发生时 HTTP 响应带 `x-asterlane-format`。
+- **配置**：顶层 `defaults.response_format` + `proxy_keys[].response_format`（`config-schema.md` 同步）。
+- **延后**：`RequestEvent.response_format` 字段（见 `response-rendering.md` 可观测性）。
+- **验证**：478 tests passed（450 lib + 集成 + doc），`cargo fmt -- --check` 与 clippy 无告警。
+
 ## 2026-07-05（Response Rendering 概念设计）
 
 - **新增** `response-rendering.md`：结果再呈现层设计。网关将上游 JSON tool result 渲染为 markdown/yaml 后返回 agent；格式决定规则为请求级 `_meta["asterlane.dev/format"]` / HTTP `?format=`+`Accept` > proxy key `response_format` > 顶层 `defaults.response_format` > 缺省 `json`（现状透传）。

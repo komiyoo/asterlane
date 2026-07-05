@@ -73,6 +73,7 @@ fn make_tool_with_desc(name: &str, desc: &str) -> Tool {
 fn config_with_quarantine_policy() -> asterlane::config::GatewayConfig {
     use asterlane::config::{McpServerConfig, ProxyKey, SecurityConfig, UpstreamAuth};
     asterlane::config::GatewayConfig {
+        defaults: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "srv-a".to_string(),
@@ -93,6 +94,7 @@ fn config_with_quarantine_policy() -> asterlane::config::GatewayConfig {
             denied_tools: vec![],
             default_tool_page_size: 20,
             discovery_mode: None,
+            response_format: None,
         }],
     }
 }
@@ -242,6 +244,7 @@ async fn drift_with_warn_policy_does_not_quarantine() {
         vec![make_tool_with_desc("toolA", "v2")],
     ]));
     let config = asterlane::config::GatewayConfig {
+        defaults: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "srv-a".to_string(),
@@ -262,6 +265,7 @@ async fn drift_with_warn_policy_does_not_quarantine() {
             denied_tools: vec![],
             default_tool_page_size: 20,
             discovery_mode: None,
+            response_format: None,
         }],
     };
     let registry = McpServerRegistry::from_peers(&config.mcp_servers, vec![peer])

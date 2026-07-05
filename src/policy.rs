@@ -55,6 +55,7 @@ mod tests {
             denied_tools: denied_tools.into_iter().map(str::to_string).collect(),
             default_tool_page_size: 20,
             discovery_mode: None,
+            response_format: None,
         }
     }
 

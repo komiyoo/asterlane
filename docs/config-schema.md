@@ -15,10 +15,20 @@ The initial gateway config is YAML. It should be easy to review in git and later
 
 ```yaml
 schema_version: 1
+defaults: {}
 api_resources: []
 mcp_servers: []
 proxy_keys: []
 ```
+
+## Defaults
+
+```yaml
+defaults:
+  response_format: markdown   # json | yaml | markdown；缺省 json（透传）
+```
+
+`response_format` 为全局默认响应格式，可被 proxy key 级 `response_format` 与请求级 override 覆盖（见 [Response Rendering](response-rendering.md)）。
 
 # API Resources
 
@@ -152,6 +162,7 @@ proxy_keys:
       - '^reader:jina:reader$'
     denied_tools: []
     default_tool_page_size: 5
+    response_format: yaml           # 渠道级响应格式，缺省继承 defaults.response_format
 ```
 
 Rules use Rust regex syntax. 配置中的正则可使用冒号形式（`^search:tavily:`）或 wire name 形式（`^search__tavily__`），policy 层统一翻译为 wire name 匹配。`denied_tools` override `allowed_tools`。
@@ -183,7 +194,7 @@ The gateway first applies the proxy key scope, then applies request-level filter
 
 - `GET /config?key=<proxy-key>` 返回脱敏配置概要；缺失或无效 key 返回 `auth.*` 错误。若应用状态注入 `RateLimits`，该端点按 `GatewayPrincipal(config, key)` 消费配额。
 - `GET /v1/tools?key=<proxy-key>&provider=...` 返回该 key 可见的工具页，并支持 `include`/`exclude` 与结构化过滤。
-- `POST /v1/tools/{wire_name}/invoke?key=<proxy-key>` 解析 JSON body 作为工具参数，经 `ProxyExecutor` 注入上游凭据并转发请求。若应用状态注入 SQLite request event repository，调用事件会写入 `request_events`；content defense 命中时响应带 `x-asterlane-content-defense-flag: true`，result shaping 命中时响应带 `x-asterlane-result-shaped: true`。
+- `POST /v1/tools/{wire_name}/invoke?key=<proxy-key>` 解析 JSON body 作为工具参数，经 `ProxyExecutor` 注入上游凭据并转发请求。若应用状态注入 SQLite request event repository，调用事件会写入 `request_events`；content defense 命中时响应带 `x-asterlane-content-defense-flag: true`，result shaping 命中时响应带 `x-asterlane-result-shaped: true`。支持 `?format=yaml|markdown|json` 或 `Accept: application/yaml` / `text/markdown` 指定响应格式，渲染发生时响应带 `x-asterlane-format: <format>`（见 [Response Rendering](response-rendering.md)）；MCP 端点等价能力为 `tools/call` 的 `_meta["asterlane.dev/format"]`。
 - `POST /v1/tools/asterlane__call_tool/invoke?key=<proxy-key>` 在 lazy discovery 模式下间接调用真实工具，复用同一 `ProxyExecutor` 路径。remote MCP 的 `ToolCallResult.is_error` 语义会保留；普通 HTTP API 响应即使 JSON 形态类似 `ToolCallResult`，也只作为文本结果返回。
 
 CLI `serve` 子命令启动 Axum runtime：

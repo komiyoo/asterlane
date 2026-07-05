@@ -25,6 +25,7 @@ use crate::observability::{
     redact_body,
 };
 use crate::policy;
+use crate::render::{self, ResponseFormat};
 use crate::secrets::{SecretRef, SecretStore, SecretString};
 use crate::shaping::{self, ResultCache, ShapingConfig, ShapingOutcome, budget_for};
 use crate::store::{RequestEventRepository, SecurityEventRepository};
@@ -74,6 +75,9 @@ pub struct InvokeResult {
     /// True 表示 body 已被 shaping 截断，完整结果已缓存到 `ResultCache`。
     /// body 中附带了 cursor 获取提示文本。
     pub shaped: bool,
+    /// Some 表示 body 已被 render 重呈现为该格式（见 docs/response-rendering.md）。
+    /// 调用方可据此设置 `x-asterlane-format` header。
+    pub rendered_format: Option<ResponseFormat>,
 }
 
 /// proxy 执行器：编排 catalog、config、secrets、key pool、limits 与 reqwest，
@@ -103,6 +107,9 @@ pub struct ProxyExecutor<S: SecretStore, R: RequestEventRepository + SecurityEve
     /// 结果截断缓存，用于 shaping per-resource budget。
     /// 未注入时跳过 shaping。
     result_cache: Option<Arc<ResultCache>>,
+    /// 已解析的响应格式（请求级 > key 级 > 全局默认，由调用方解析注入）。
+    /// `Json` 为透传，等价于不启用 rendering。
+    response_format: ResponseFormat,
     max_attempts: u32,
     request_timeout: Duration,
 }
@@ -134,6 +141,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> std::f
                 "result_cache",
                 &self.result_cache.as_ref().map(|_| "<ResultCache>"),
             )
+            .field("response_format", &self.response_format)
             .field("max_attempts", &self.max_attempts)
             .field("request_timeout", &self.request_timeout)
             .finish()
@@ -159,6 +167,7 @@ impl<S: SecretStore> ProxyExecutor<S> {
             limits: None,
             quarantined: None,
             result_cache: None,
+            response_format: ResponseFormat::Json,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             request_timeout: Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS),
         }
@@ -199,6 +208,13 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
         self
     }
 
+    /// 设置已解析的响应格式（见 docs/response-rendering.md）。
+    /// 调用方负责按 请求级 > key 级 > 全局默认 解析；缺省 `Json` 透传。
+    pub fn with_response_format(mut self, format: ResponseFormat) -> Self {
+        self.response_format = format;
+        self
+    }
+
     /// 设置最大尝试次数（含首次调用）。
     pub fn with_max_attempts(mut self, max_attempts: u32) -> Self {
         self.max_attempts = max_attempts.max(1);
@@ -229,6 +245,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             limits: self.limits,
             quarantined: self.quarantined,
             result_cache: self.result_cache,
+            response_format: self.response_format,
             max_attempts: self.max_attempts,
             request_timeout: self.request_timeout,
         }
@@ -547,6 +564,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                                 content_type,
                                 content_defense_flag: false,
                                 shaped: false,
+                                rendered_format: None,
                             },
                             retry_count,
                             upstream_key_ref,
@@ -705,6 +723,44 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             }
         }
 
+        // Render：非 error 结果的 JSON 文本内容重呈现（defense 之后、shaping 之前）。
+        // is_error 结果与非 JSON 文本原样保留（docs/response-rendering.md 转换边界）。
+        let mut rendered_format = None;
+        if self.response_format != ResponseFormat::Json && !tool_result.is_error {
+            let mut any_rendered = false;
+            tool_result.content = tool_result
+                .content
+                .into_iter()
+                .map(|content| match content {
+                    ToolContent::Text(text) => {
+                        match serde_json::from_str::<serde_json::Value>(&text)
+                            .ok()
+                            .and_then(|v| render::render(&v, self.response_format))
+                        {
+                            Some(rendered) => {
+                                any_rendered = true;
+                                ToolContent::Text(rendered)
+                            }
+                            None => ToolContent::Text(text),
+                        }
+                    }
+                })
+                .collect();
+            if any_rendered {
+                rendered_format = Some(self.response_format);
+            }
+        }
+
+        // shaping 按渲染后的文本计算 budget（缓存存最终字节，分页片段格式一致）
+        let text_body = tool_result
+            .content
+            .iter()
+            .map(|content| match content {
+                ToolContent::Text(text) => text.as_str(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
         let mut shaped = false;
         if let Some(cache) = &self.result_cache {
             let budget = budget_for(security.result_budget_bytes);
@@ -734,6 +790,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             content_type: Some("application/json".to_string()),
             content_defense_flag,
             shaped,
+            rendered_format,
         }
     }
 
@@ -755,7 +812,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             return result;
         }
 
-        let body_str = String::from_utf8_lossy(&result.body).to_string();
+        let mut body_str = String::from_utf8_lossy(&result.body).to_string();
 
         // 1. Defense 扫描（在 shaping 截断之前，扫描完整 body）
         if security.defense.enabled {
@@ -778,7 +835,20 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             }
         }
 
-        // 2. Shaping（per-resource budget 覆盖默认值）
+        // 2. Render：JSON body 重呈现为目标格式（defense 之后、shaping 之前，
+        //    budget 按渲染后字节计算；非 JSON body 原样透传）
+        if self.response_format != ResponseFormat::Json
+            && let Some(rendered) = serde_json::from_str::<serde_json::Value>(&body_str)
+                .ok()
+                .and_then(|v| render::render(&v, self.response_format))
+        {
+            body_str = rendered;
+            result.body = body_str.clone().into_bytes();
+            result.content_type = Some(self.response_format.content_type().to_string());
+            result.rendered_format = Some(self.response_format);
+        }
+
+        // 3. Shaping（per-resource budget 覆盖默认值）
         if let Some(cache) = &self.result_cache {
             let budget = budget_for(security.result_budget_bytes);
             let config = ShapingConfig {
@@ -1077,6 +1147,33 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct JsonContentMcpPeer;
+
+    impl RemoteMcpPeer for JsonContentMcpPeer {
+        fn list_tools(&self) -> TestFuture<'_, Result<Vec<rmcp::model::Tool>, McpError>> {
+            Box::pin(async {
+                Ok(vec![rmcp::model::Tool::new(
+                    "jsonTool",
+                    "JSON content tool",
+                    serde_json::Map::new(),
+                )])
+            })
+        }
+
+        fn call_tool(
+            &self,
+            _name: &str,
+            _arguments: serde_json::Value,
+        ) -> TestFuture<'_, Result<rmcp::model::CallToolResult, McpError>> {
+            Box::pin(async {
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    rmcp::model::ContentBlock::text(r#"{"answer":42,"tags":["a","b"]}"#),
+                ]))
+            })
+        }
+    }
+
     impl RequestEventRepository for CapturingEventRepository {
         async fn insert_event(&self, event: &RequestEvent) -> Result<(), StoreError> {
             self.events.lock().unwrap().push(event.clone());
@@ -1109,6 +1206,7 @@ mod tests {
 
     fn tavily_config() -> GatewayConfig {
         GatewayConfig {
+            defaults: Default::default(),
             api_resources: vec![ApiResource {
                 id: "tavily".to_string(),
                 domain: "search".to_string(),
@@ -1135,12 +1233,14 @@ mod tests {
                 denied_tools: vec![],
                 default_tool_page_size: 20,
                 discovery_mode: None,
+                response_format: None,
             }],
         }
     }
 
     fn exa_config() -> GatewayConfig {
         GatewayConfig {
+            defaults: Default::default(),
             api_resources: vec![ApiResource {
                 id: "exa".to_string(),
                 domain: "search".to_string(),
@@ -1168,6 +1268,7 @@ mod tests {
                 denied_tools: vec![r"^search:exa:.*".to_string()],
                 default_tool_page_size: 20,
                 discovery_mode: None,
+                response_format: None,
             }],
         }
     }
@@ -1239,6 +1340,7 @@ mod tests {
         let config_with_tavily = tavily_config();
         let catalog = Arc::new(ToolCatalog::from_config(&config_with_tavily).unwrap());
         let empty_config = Arc::new(GatewayConfig {
+            defaults: Default::default(),
             api_resources: vec![],
             mcp_servers: Vec::new(),
             proxy_keys: config_with_tavily.proxy_keys.clone(),
@@ -1323,6 +1425,7 @@ mod tests {
 
     fn mock_config(base_url: String) -> GatewayConfig {
         GatewayConfig {
+            defaults: Default::default(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -1347,6 +1450,7 @@ mod tests {
                 denied_tools: vec![],
                 default_tool_page_size: 20,
                 discovery_mode: None,
+                response_format: None,
             }],
         }
     }
@@ -1378,6 +1482,7 @@ mod tests {
     #[tokio::test]
     async fn remote_mcp_shaping_preserves_tool_call_error_result() {
         let config = GatewayConfig {
+            defaults: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1399,6 +1504,7 @@ mod tests {
                 denied_tools: vec![],
                 default_tool_page_size: 20,
                 discovery_mode: None,
+                response_format: None,
             }],
         };
         let registry = Arc::new(
@@ -1433,6 +1539,7 @@ mod tests {
     #[tokio::test]
     async fn remote_mcp_shaping_replaces_all_content_with_single_shaped_text() {
         let config = GatewayConfig {
+            defaults: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1454,6 +1561,7 @@ mod tests {
                 denied_tools: vec![],
                 default_tool_page_size: 20,
                 discovery_mode: None,
+                response_format: None,
             }],
         };
         let registry = Arc::new(
@@ -1727,5 +1835,189 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().status, 200);
+    }
+
+    // ── render（响应格式再呈现）──
+
+    #[tokio::test]
+    async fn invoke_with_yaml_format_renders_json_body() {
+        let mock_body = br#"{"results":[{"title":"a"}],"count":1}"#.to_vec();
+        let addr = start_mock_upstream(200, mock_body).await;
+        let config = mock_config(format!("http://{addr}"));
+
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_response_format(crate::render::ResponseFormat::Yaml);
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let result = exec
+            .invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .expect("invoke should succeed");
+
+        assert_eq!(
+            result.rendered_format,
+            Some(crate::render::ResponseFormat::Yaml)
+        );
+        assert_eq!(result.content_type.as_deref(), Some("application/yaml"));
+        let body = String::from_utf8(result.body).unwrap();
+        assert!(body.contains("count: 1"), "yaml body: {body}");
+        let back: serde_json::Value = serde_norway::from_str(&body).unwrap();
+        assert_eq!(back["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn invoke_with_markdown_format_renders_json_body() {
+        let mock_body = br#"{"items":[{"name":"x","n":1},{"name":"y","n":2}]}"#.to_vec();
+        let addr = start_mock_upstream(200, mock_body).await;
+        let config = mock_config(format!("http://{addr}"));
+
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_response_format(crate::render::ResponseFormat::Markdown);
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let result = exec
+            .invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .expect("invoke should succeed");
+
+        assert_eq!(
+            result.rendered_format,
+            Some(crate::render::ResponseFormat::Markdown)
+        );
+        assert_eq!(
+            result.content_type.as_deref(),
+            Some("text/markdown; charset=utf-8")
+        );
+        let body = String::from_utf8(result.body).unwrap();
+        assert!(body.contains("- **items**:"), "markdown body: {body}");
+        assert!(body.contains("| n | name |"), "table rendered: {body}");
+    }
+
+    #[tokio::test]
+    async fn render_passes_through_non_json_body() {
+        let mock_body = b"plain text, not json at all {".to_vec();
+        let addr = start_mock_upstream(200, mock_body.clone()).await;
+        let config = mock_config(format!("http://{addr}"));
+
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_response_format(crate::render::ResponseFormat::Yaml);
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let result = exec
+            .invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .expect("invoke should succeed");
+
+        assert_eq!(result.rendered_format, None);
+        assert_eq!(result.body, mock_body);
+    }
+
+    #[tokio::test]
+    async fn render_skips_remote_mcp_error_result() {
+        // ErrorMcpPeer 返回 is_error=true；yaml 格式下内容必须原样保留
+        let config = GatewayConfig {
+            defaults: Default::default(),
+            api_resources: Vec::new(),
+            mcp_servers: vec![McpServerConfig {
+                id: "remote".to_string(),
+                domain: "tools".to_string(),
+                provider: "remote".to_string(),
+                url: "https://mcp.example.test".to_string(),
+                description: "remote MCP".to_string(),
+                auth: UpstreamAuth::None,
+                security: SecurityConfig::default(),
+            }],
+            proxy_keys: vec![ProxyKey {
+                id: "agent-test".to_string(),
+                display_name: "Test Agent".to_string(),
+                allowed_tools: vec![r"^tools:.*".to_string()],
+                denied_tools: vec![],
+                default_tool_page_size: 20,
+                discovery_mode: None,
+                response_format: None,
+            }],
+        };
+        let registry = Arc::new(
+            McpServerRegistry::from_peers(&config.mcp_servers, vec![Arc::new(ErrorMcpPeer)])
+                .await
+                .unwrap(),
+        );
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
+        let exec = ProxyExecutor::new(
+            Arc::new(config),
+            Arc::new(catalog),
+            Arc::new(MockSecretStore::default()),
+            no_proxy_client(),
+        )
+        .with_mcp_registry(registry)
+        .with_response_format(crate::render::ResponseFormat::Yaml);
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let result = exec
+            .invoke("tools__remote__failingtool", serde_json::json!({}), &key)
+            .await
+            .expect("remote MCP invoke should succeed with tool error payload");
+
+        assert_eq!(result.rendered_format, None);
+        let tool_result: crate::mcp::model::ToolCallResult =
+            serde_json::from_slice(&result.body).unwrap();
+        assert!(tool_result.is_error);
+    }
+
+    #[tokio::test]
+    async fn render_remote_mcp_json_text_content_to_yaml() {
+        let config = GatewayConfig {
+            defaults: Default::default(),
+            api_resources: Vec::new(),
+            mcp_servers: vec![McpServerConfig {
+                id: "remote".to_string(),
+                domain: "tools".to_string(),
+                provider: "remote".to_string(),
+                url: "https://mcp.example.test".to_string(),
+                description: "remote MCP".to_string(),
+                auth: UpstreamAuth::None,
+                security: SecurityConfig::default(),
+            }],
+            proxy_keys: vec![ProxyKey {
+                id: "agent-test".to_string(),
+                display_name: "Test Agent".to_string(),
+                allowed_tools: vec![r"^tools:.*".to_string()],
+                denied_tools: vec![],
+                default_tool_page_size: 20,
+                discovery_mode: None,
+                response_format: None,
+            }],
+        };
+        let registry = Arc::new(
+            McpServerRegistry::from_peers(&config.mcp_servers, vec![Arc::new(JsonContentMcpPeer)])
+                .await
+                .unwrap(),
+        );
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
+        let exec = ProxyExecutor::new(
+            Arc::new(config),
+            Arc::new(catalog),
+            Arc::new(MockSecretStore::default()),
+            no_proxy_client(),
+        )
+        .with_mcp_registry(registry)
+        .with_response_format(crate::render::ResponseFormat::Yaml);
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let result = exec
+            .invoke("tools__remote__jsontool", serde_json::json!({}), &key)
+            .await
+            .expect("remote MCP invoke should succeed");
+
+        assert_eq!(
+            result.rendered_format,
+            Some(crate::render::ResponseFormat::Yaml)
+        );
+        let tool_result: crate::mcp::model::ToolCallResult =
+            serde_json::from_slice(&result.body).unwrap();
+        let ToolContent::Text(text) = &tool_result.content[0];
+        assert!(text.contains("answer: 42"), "yaml content: {text}");
     }
 }

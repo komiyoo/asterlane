@@ -17,6 +17,7 @@ use crate::http::AppState;
 use crate::http::ToolListChangedPeers;
 use crate::mcp::model::{ToolCallResult, ToolContent};
 use crate::proxy::{InvokeResult, ProxyExecutor};
+use crate::render::{self, ResponseFormat};
 use crate::shaping::{ResultCache, ShapingConfig};
 
 /// 默认分页大小。
@@ -32,6 +33,7 @@ fn mcp_default_key() -> ProxyKey {
         denied_tools: vec![],
         default_tool_page_size: DEFAULT_PAGE_SIZE,
         discovery_mode: None,
+        response_format: None,
     }
 }
 
@@ -124,11 +126,22 @@ impl ServerHandler for AsterlaneToolServer {
             register_peer(&self.state.tool_list_changed_peers, context.peer.clone()).await;
         }
 
+        // 响应格式：`_meta["asterlane.dev/format"]` 请求级 override（见
+        // docs/response-rendering.md），未知值按 INVALID_PARAMS fail fast。
+        let format_override = meta_str(request.meta.as_ref(), "asterlane.dev/format");
+        let key_for_format = mcp_default_key();
+        let format = render::resolve_format(
+            format_override.as_deref(),
+            key_for_format.response_format,
+            self.state.config.defaults.response_format,
+        )
+        .map_err(|e| ErrorData::new(rmcp::model::ErrorCode::INVALID_PARAMS, e.to_string(), None))?;
+
         // Meta-tool 路径
         if crate::discovery::is_meta_tool(wire_name) {
             let key = mcp_default_key();
             if wire_name == "asterlane__call_tool" {
-                return match invoke_meta_call_tool(arguments, &self.state, &key).await {
+                return match invoke_meta_call_tool(arguments, &self.state, &key, format).await {
                     Ok(result) => Ok(result),
                     Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
                         e.to_string(),
@@ -183,7 +196,8 @@ impl ServerHandler for AsterlaneToolServer {
             }
             executor = executor
                 .with_quarantined(self.state.quarantined_tools.clone())
-                .with_result_cache(self.state.result_cache.clone());
+                .with_result_cache(self.state.result_cache.clone())
+                .with_response_format(format);
             let invoke_result = if let Some(repo) = &self.state.event_repo {
                 executor
                     .with_event_repository(repo.clone())
@@ -271,6 +285,7 @@ async fn invoke_meta_call_tool(
     args: serde_json::Value,
     state: &AppState,
     key: &ProxyKey,
+    format: ResponseFormat,
 ) -> Result<CallToolResult, crate::proxy::ProxyError> {
     let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
         crate::proxy::ProxyError::InvalidToolCall(
@@ -298,7 +313,8 @@ async fn invoke_meta_call_tool(
     }
     executor = executor
         .with_quarantined(state.quarantined_tools.clone())
-        .with_result_cache(state.result_cache.clone());
+        .with_result_cache(state.result_cache.clone())
+        .with_response_format(format);
 
     let result = if let Some(repo) = &state.event_repo {
         executor
@@ -413,6 +429,7 @@ mod tests {
             content_type: Some("application/json".to_string()),
             content_defense_flag: false,
             shaped: true,
+            rendered_format: None,
         };
 
         let mcp_result = invoke_result_to_mcp(result, true);

@@ -20,6 +20,7 @@ impl SecretStore for FixedSecretStore {
 
 fn test_config(base_url: &str, auth: UpstreamAuth, endpoints: Vec<ToolEndpoint>) -> GatewayConfig {
     GatewayConfig {
+        defaults: Default::default(),
         api_resources: vec![ApiResource {
             id: "test-api".to_string(),
             domain: "testing".to_string(),
@@ -39,6 +40,7 @@ fn test_config(base_url: &str, auth: UpstreamAuth, endpoints: Vec<ToolEndpoint>)
             denied_tools: Vec::new(),
             default_tool_page_size: 20,
             discovery_mode: None,
+            response_format: None,
         }],
     }
 }

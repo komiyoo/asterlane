@@ -344,6 +344,7 @@ mod tests {
 
     fn config() -> GatewayConfig {
         GatewayConfig {
+            defaults: Default::default(),
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),
@@ -391,6 +392,7 @@ mod tests {
                 denied_tools: vec![r"^search:exa:.*".to_string()],
                 default_tool_page_size: 1,
                 discovery_mode: None,
+                response_format: None,
             }],
         }
     }
