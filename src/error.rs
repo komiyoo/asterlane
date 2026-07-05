@@ -71,6 +71,12 @@ pub enum ErrorCode {
     McpInvalidToolCall,
     /// 上游 MCP server 失败。
     McpUpstreamMcpFailure,
+
+    // ── transform ──
+    /// 变换规则尝试设置危险 header。
+    TransformDangerousHeader,
+    /// JSON Pointer 路径不合法。
+    TransformInvalidPointer,
 }
 
 impl ErrorCode {
@@ -98,6 +104,8 @@ impl ErrorCode {
             Self::LimitQueueTimeout => "limit.queue_timeout",
             Self::McpInvalidToolCall => "mcp.invalid_tool_call",
             Self::McpUpstreamMcpFailure => "mcp.upstream_mcp_failure",
+            Self::TransformDangerousHeader => "transform.dangerous_header",
+            Self::TransformInvalidPointer => "transform.invalid_pointer",
         }
     }
 
@@ -120,6 +128,7 @@ impl ErrorCode {
             | Self::ProxyConnectionFailed => "proxy",
             Self::LimitQuotaExceeded | Self::LimitQueueFull | Self::LimitQueueTimeout => "limit",
             Self::McpInvalidToolCall | Self::McpUpstreamMcpFailure => "mcp",
+            Self::TransformDangerousHeader | Self::TransformInvalidPointer => "transform",
         }
     }
 }
@@ -203,6 +212,7 @@ impl AsterlaneError {
             "store" => 5,
             "proxy" => 6,
             "limit" => 7,
+            "transform" => 8,
             _ => 1,
         }
     }
@@ -308,6 +318,7 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::ProxyRetryExhausted | ErrorCode::ProxyUpstreamError => 502,
         ErrorCode::LimitQuotaExceeded => 429,
         ErrorCode::LimitQueueFull | ErrorCode::LimitQueueTimeout => 503,
+        ErrorCode::TransformDangerousHeader | ErrorCode::TransformInvalidPointer => 500,
     }
 }
 

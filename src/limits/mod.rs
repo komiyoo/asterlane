@@ -7,7 +7,9 @@
 mod error;
 mod key;
 mod limiter;
+mod queue;
 
 pub use error::LimitError;
 pub use key::{ApiId, LimiterKey, PrincipalId};
-pub use limiter::{QueueAdmission, RateLimits};
+pub use limiter::RateLimits;
+pub use queue::{Priority, QueuePermit, RequestQueue};

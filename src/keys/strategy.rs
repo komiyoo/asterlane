@@ -1,35 +1,28 @@
 //! 负载均衡策略枚举（见 `docs/architecture.md` Key Pool And Load Balancing）。
-//!
-//! 借鉴 NyaProxy（`services/lb.py`）的 5 种策略，按 Asterlane 模型重新实现：
-//! - `RoundRobin` / `LeastRequests`：完整实现，确定性可测。
-//! - `Random`：无 `rand` 依赖的确定性伪随机（基于 cursor 的 LCG），生产环境
-//!   接入 `rand` 后替换为真随机（见 TODO）。
-//! - `FastestResponse`：基于 EWMA 延迟选取最低，延迟数据由 `KeyPool::record_latency` 维护。
-//! - `Weighted`：加权轮换（cursor 驱动），接入 `rand::distr::WeightedIndex` 后
-//!   替换为 O(log n) 加权随机（见 TODO）。
+
+use rand::Rng;
+use rand::distr::Distribution;
+use rand::distr::weighted::WeightedIndex;
 
 /// 负载均衡策略。
 ///
 /// `select` 在候选 `KeyCandidate` 列表上选取一个。`cursor` 由调用方
-/// （`KeyPool`）持有并传入，用于 `RoundRobin` / `Weighted` / `Random` 的
-/// 游标推进，保证状态可复用且线程安全。
+/// （`KeyPool`）持有并传入，用于 `RoundRobin` 的游标推进。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadBalanceStrategy {
     /// 轮询：按 cursor 顺序循环选取。
     RoundRobin,
-    /// 随机：当前用确定性伪随机（LCG），TODO 接入 `rand`。
+    /// 随机：真随机选取。
     Random,
     /// 最少请求：选取 `active_count` 最小的候选。
     LeastRequests,
     /// 最快响应：选取 EWMA 延迟最低的候选（无数据视为最慢）。
     FastestResponse,
-    /// 加权：按 `weight` 分配，当前为加权轮换，TODO 接入 `WeightedIndex`。
+    /// 加权随机：按 `weight` 加权随机选取（`WeightedIndex`，O(log n)）。
     Weighted,
 }
 
 /// LB 候选快照，由 `KeyPool` 在选取时从池状态构建。
-///
-/// `id` 为脱敏序号标识；`ewma_latency_ms` 为 `None` 表示尚无延迟样本。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyCandidate {
     /// 候选 key 的标识（序号，不含明文）。
@@ -46,7 +39,7 @@ impl LoadBalanceStrategy {
     /// 在候选列表上选取一个 key。
     ///
     /// - `candidates` 必须已排除冷却中的 key（由 `KeyPool::acquire` 保证）。
-    /// - `cursor` 由调用方持有，用于游标类策略推进。
+    /// - `cursor` 由调用方持有，用于 `RoundRobin` 游标推进。
     ///
     /// 返回 `None` 仅当候选列表为空。
     pub fn select<'a>(
@@ -64,14 +57,7 @@ impl LoadBalanceStrategy {
                 candidates.get(idx)
             }
             Self::Random => {
-                // TODO(rand): 接入 rand crate 后替换为真随机选择。
-                // 当前用基于 cursor 的 LCG 实现确定性伪随机,可复现、可测试,
-                // 生产环境替换为 OS 级随机源。
-                let seed = cursor
-                    .wrapping_mul(6_364_136_223_846_793_005)
-                    .wrapping_add(1_442_695_040_888_963_407);
-                *cursor = seed;
-                let idx = (seed % candidates.len() as u64) as usize;
+                let idx = rand::rng().random_range(0..candidates.len());
                 candidates.get(idx)
             }
             Self::LeastRequests => candidates.iter().min_by_key(|c| c.active_count),
@@ -79,22 +65,12 @@ impl LoadBalanceStrategy {
                 .iter()
                 .min_by_key(|c| c.ewma_latency_ms.unwrap_or(u32::MAX)),
             Self::Weighted => {
-                // TODO(rand): 接入 rand::distr::WeightedIndex 后替换为 O(log n) 加权随机。
-                // 当前实现为加权轮换:按累积权重用 cursor 取模分配,确定性可测。
-                let total: u32 = candidates.iter().map(|c| c.weight.max(1)).sum();
-                if total == 0 {
+                let weights: Vec<u32> = candidates.iter().map(|c| c.weight.max(1)).collect();
+                let Ok(dist) = WeightedIndex::new(&weights) else {
                     return candidates.first();
-                }
-                let pick = (*cursor % total as u64) as u32;
-                *cursor = cursor.wrapping_add(1);
-                let mut acc = 0u32;
-                for c in candidates {
-                    acc += c.weight.max(1);
-                    if pick < acc {
-                        return Some(c);
-                    }
-                }
-                candidates.last()
+                };
+                let idx = dist.sample(&mut rand::rng());
+                candidates.get(idx)
             }
         }
     }
@@ -211,33 +187,43 @@ mod tests {
 
     #[test]
     fn weighted_favors_higher_weight() {
-        // weight 1 vs 3:轮换序列 pick=0→acc1,1→acc2,2→acc2,3→acc2,4→acc4
         let cs = [cand(1, 1, 0, None), cand(2, 3, 0, None)];
         let mut cursor = 0u64;
-        let mut counts = [0u32, 0];
-        for _ in 0..4 {
+        let mut counts = [0u32; 2];
+        for _ in 0..1000 {
             let id = LoadBalanceStrategy::Weighted
                 .select(&cs, &mut cursor)
                 .unwrap()
                 .id;
             counts[(id.as_u64() - 1) as usize] += 1;
         }
-        assert_eq!(counts, [1, 3], "weight 3 should get 3 of 4 picks");
+        // weight ratio 1:3 → expect ~250:750. Allow wide margin.
+        assert!(
+            counts[1] > counts[0],
+            "weight 3 should dominate: {counts:?}"
+        );
+        assert!(counts[1] > 500, "weight 3 should get majority: {counts:?}");
     }
 
     #[test]
-    fn random_is_deterministic_given_cursor() {
+    fn random_selects_all_candidates_over_many_iterations() {
         let cs = [
             cand(1, 1, 0, None),
             cand(2, 1, 0, None),
             cand(3, 1, 0, None),
         ];
-        let mut c1 = 0u64;
-        let mut c2 = 0u64;
-        for _ in 0..10 {
-            let a = LoadBalanceStrategy::Random.select(&cs, &mut c1).unwrap().id;
-            let b = LoadBalanceStrategy::Random.select(&cs, &mut c2).unwrap().id;
-            assert_eq!(a, b, "same cursor must yield same selection");
+        let mut cursor = 0u64;
+        let mut seen = [false; 3];
+        for _ in 0..100 {
+            let id = LoadBalanceStrategy::Random
+                .select(&cs, &mut cursor)
+                .unwrap()
+                .id;
+            seen[(id.as_u64() - 1) as usize] = true;
         }
+        assert!(
+            seen.iter().all(|&s| s),
+            "all candidates should be picked at least once over 100 iterations"
+        );
     }
 }

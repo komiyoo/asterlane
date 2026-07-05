@@ -57,8 +57,7 @@ impl ToolCatalog {
 
     pub fn extend_with_mcp_tools(&mut self, tools: impl IntoIterator<Item = WrappedTool>) {
         self.tools.extend(tools);
-        self.tools
-            .sort_by_key(|a| a.name.to_wire_name());
+        self.tools.sort_by_key(|a| a.name.to_wire_name());
     }
 
     /// 用新的 MCP 工具快照替换 catalog 中由 `mcp_resource_ids` 标记的远程 MCP 工具。

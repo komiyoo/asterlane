@@ -70,17 +70,6 @@ impl std::fmt::Debug for RateLimits {
     }
 }
 
-/// 队列准入抽象（第一阶段占位）。
-///
-/// 完整实现见 `docs/architecture.md` Rate Limit And Queue 节：每 API
-/// 一个 tokio 调度器，优先级队列（重试 > master key > 普通），
-/// `tokio::time::timeout` 包裹排队，过期直接 429。
-///
-/// 第一阶段仅定义接口与错误码（`LimitError::QueueFull` /
-/// `LimitError::QueueTimeout`），实现标注 TODO。
-// TODO: 实现 per-API tokio 调度器 + 优先级队列 + timeout 包裹。
-pub trait QueueAdmission: Send + Sync {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

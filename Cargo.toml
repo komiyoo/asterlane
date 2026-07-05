@@ -45,6 +45,7 @@ tokio-util = "0.7"
 backon = "1.6"
 openapiv3 = "2.0"
 sha2 = "0.10"
+rand = "0.9"
 
 [dev-dependencies]
 wiremock = "0.6"
