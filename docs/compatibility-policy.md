@@ -26,6 +26,8 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | tool name `domain:tool:method` → `domain__provider__tool` | MVP 为三段冒号；经四段双下划线过渡后简化为三段（移除 `method`） | 配置中 `domain`/`provider`/`tool` 字段决定 wire name；`method` 仅用于 HTTP 路由，不参与命名；wire name 由 catalog 层生成，配置作者无感知 |
 | `allowed_tools` 正则匹配目标 | 原匹配冒号名，现匹配 wire name | policy 层在匹配前转换；配置正则可继续用冒号形式（`^search:tavily:`），由 policy 翻译为 wire name 匹配 |
 | OpenAPI discovery 字段 | 新增 | `#[serde(default)]`，不配置即不启用 |
+| `admin` 节（admin key 认证） | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `/admin/*` 整体不挂载 |
+| `api_resources[].key_pool` | 新增（2026-07-05） | `#[serde(default)]`，不配置时走单 ref 凭据路径；配置后 `auth` 单 ref 不再使用（只提供注入形状） |
 
 ## 配置版本字段
 

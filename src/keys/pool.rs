@@ -220,6 +220,31 @@ impl KeyPool {
         }
     }
 
+    /// 返回全部 key 的状态快照（按 `KeyId` 排序，供 admin 只读展示）。
+    ///
+    /// 到期冷却先惰性恢复；快照不含明文，`cooling_remaining` 为剩余冷却时长。
+    pub fn snapshot(&self) -> Vec<KeyStatusSnapshot> {
+        let mut state = self.inner.state.lock().unwrap_or_else(recover);
+        let now = Instant::now();
+        state.expire_cooling(now);
+        let mut entries: Vec<KeyStatusSnapshot> = state
+            .entries
+            .iter()
+            .map(|(id, e)| KeyStatusSnapshot {
+                key_id: *id,
+                state: e.state,
+                cooling_remaining: match e.state {
+                    KeyState::CoolingUntil(until) => until.checked_duration_since(now),
+                    _ => None,
+                },
+                weight: e.weight,
+                ewma_latency_ms: e.ewma_latency_ms,
+            })
+            .collect();
+        entries.sort_by_key(|s| s.key_id);
+        entries
+    }
+
     /// 返回池中 key 数量。
     pub fn len(&self) -> usize {
         self.inner
@@ -240,6 +265,21 @@ impl Default for KeyPool {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 单 key 状态快照（admin 只读展示用；不含明文）。
+#[derive(Debug, Clone, Copy)]
+pub struct KeyStatusSnapshot {
+    /// 脱敏 key 标识。
+    pub key_id: KeyId,
+    /// 当前状态。
+    pub state: KeyState,
+    /// 冷却剩余时长（仅 `CoolingUntil` 时为 `Some`）。
+    pub cooling_remaining: Option<Duration>,
+    /// 配置权重。
+    pub weight: u32,
+    /// EWMA 延迟（毫秒），无样本为 `None`。
+    pub ewma_latency_ms: Option<u32>,
 }
 
 /// RAII guard:持有 `KeyId` 的活跃租约,`Drop` 时自动释放。

@@ -40,9 +40,9 @@ The original product requirements are preserved in [Product Requirements](produc
 | `naming` | wrapped MCP tool name 解析、规范化、wire name 转换。 | 已实现（三段式） |
 | `policy` | gateway key scope 与请求级收窄。 | 已实现 |
 | `catalog` | 工具目录构建、过滤、分页、metadata。 | 已实现（含 MCP + OpenAPI） |
-| `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现（21 错误码） |
+| `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现（23 错误码） |
 | `secrets` | secret ref 解析与脱敏。 | 已实现（env/file/Vault/Infisical） |
-| `keys` | upstream key pool、冷却、健康、权重。 | 已实现（pool + LB） |
+| `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线） |
 | `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |
 | `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
 | `transform` | header/query/path/body 变换。 | 已实现（声明式规则） |
@@ -50,7 +50,7 @@ The original product requirements are preserved in [Product Requirements](produc
 | `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 2.1 + lazy discovery） |
 | `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 已实现（metrics + store + Prometheus） |
 | `store` | 数据库抽象、迁移、仓库。 | 已实现（SQLite） |
-| `admin` | admin API 与管理 UI。 | 已实现（7 端点） |
+| `admin` | admin API 与管理 UI。 | 已实现（7 端点 + Bearer 认证 + Web 控制台） |
 
 模块编排关系：proxy 执行层编排 keys/limits/routing/transform/secrets，不反向依赖；observability 横切所有层；catalog 是 config→MCP/HTTP 的投影层。借鉴 NyaProxy 的 TrafficManager 三合一（key 池+限流+LB）反模式，Asterlane 保持 keys/limits/routing 边界独立。
 
@@ -81,7 +81,8 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 - **key 状态枚举**：`Available` / `CoolingUntil(Instant)` / `Leased{count}`，替代 NyaProxy 的伪时间戳填充冷却。
 - **RAII guard**：`acquire()` 返回 guard，`Drop` 时自动 `release`，避免 NyaProxy 手工 `release_*` 四连调漏调。
 - **负载均衡策略**（enum + trait）：`round_robin`、`random`、`least_requests`、`fastest_response`（EWMA 替代滑动平均数组）、`weighted`（`rand::distr::WeightedIndex`，O(log n)）。
-- **冷却**：429/5xx 触发 key 冷却 `CoolingUntil(now + retry_after)`，failover 轮换到下一 key。
+- **冷却**：429/5xx 触发 key 冷却 `CoolingUntil(now + retry_after)`，failover 轮换到下一 key；429/503 优先采用上游 `Retry-After` 秒数。
+- **per-key 凭据**：`KeyPoolRegistry`（`src/keys/registry.rs`）持 resource_id → 池 + `KeyId`→secret ref 映射；重试循环每次尝试按配置策略 acquire、解析选中 key 的 ref 后注入（配置形态见 [Configuration Schema – Key Pool](config-schema.md)）。
 - **配额退还**：失败时事务性退还各维度配额（gateway key/endpoint/upstream key），封装为单一操作避免不一致。
 
 # Rate Limit And Queue
@@ -119,7 +120,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 # Admin Console
 
-第一阶段最小集：health/version、resource catalog、proxy key scopes、upstream key pool status、recent request events、usage summary、config validation report。区分 admin key 与 proxy key（NyaProxy 混用是反模式）。详见 [Development Workflow – Admin Console Strategy](development-workflow.md)。
+第一阶段最小集：health/version、resource catalog、proxy key scopes、upstream key pool status、recent request events、usage summary、config validation report。区分 admin key 与 proxy key（NyaProxy 混用是反模式）。Web 控制台的形态决策、页面地图与分阶段路线见 [Admin Console](admin-console.md)；策略背景见 [Development Workflow – Admin Console Strategy](development-workflow.md)。
 
 # Roadmap
 

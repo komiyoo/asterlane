@@ -42,15 +42,19 @@ pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
             StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
         );
 
-    Router::new()
+    let mut router = Router::new()
         .route("/healthz", get(routes::healthz))
         .route("/versionz", get(routes::versionz))
         .route("/metrics", get(metrics_handler))
         .route("/config", get(routes::get_config))
         .route("/v1/tools", get(routes::list_tools))
         .route("/v1/tools/{name}/invoke", post(routes::invoke_tool))
-        .nest_service("/mcp", mcp_service)
-        .nest("/admin", crate::admin::router())
+        .nest_service("/mcp", mcp_service);
+    // admin API 仅在配置了 admin key 时挂载（见 docs/admin-console.md C0）
+    if state.admin_auth.is_some() {
+        router = router.nest("/admin", crate::admin::router(&state));
+    }
+    router
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -110,6 +114,7 @@ mod tests {
     fn test_config() -> GatewayConfig {
         GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),
@@ -126,6 +131,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Tavily".to_string(),
                     }],
+                    key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
                 },
@@ -145,6 +151,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Exa".to_string(),
                     }],
+                    key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
                 },
@@ -205,6 +212,7 @@ mod tests {
     async fn invoke_state_with_body(addr: SocketAddr, security: SecurityConfig) -> AppState {
         let config = GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -218,6 +226,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "mock search".to_string(),
                 }],
+                key_pool: None,
                 discovery: None,
                 security,
             }],
@@ -241,6 +250,7 @@ mod tests {
     async fn remote_mcp_state() -> AppState {
         let config = GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -922,5 +932,226 @@ mod tests {
         assert!(json["error"]["code"].is_string());
         assert!(json["error"]["message"].is_string());
         assert!(json["error"].get("request_id").is_some());
+    }
+
+    // ── admin auth（见 docs/admin-console.md C0/C1）──
+
+    fn admin_state() -> AppState {
+        test_state().with_admin_auth(Arc::new(crate::admin::AdminAuth::from_plain(&[(
+            "ops",
+            "test-admin-token",
+        )])))
+    }
+
+    #[tokio::test]
+    async fn admin_routes_absent_without_admin_keys() {
+        let app = build_app(test_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn admin_rejects_missing_token_with_stable_code() {
+        let app = build_app(admin_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["error"]["code"], "admin.unauthorized");
+    }
+
+    #[tokio::test]
+    async fn admin_rejects_wrong_token() {
+        let app = build_app(admin_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/stats")
+                    .header("authorization", "Bearer wrong-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_accepts_valid_token() {
+        let app = build_app(admin_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/health")
+                    .header("authorization", "Bearer test-admin-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn admin_ui_page_public_and_html() {
+        let app = build_app(admin_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/ui")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        assert!(content_type.starts_with("text/html"));
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("Asterlane 控制台"));
+        // 页面本身不内嵌任何数据或密钥，只有取数脚本
+        assert!(!html.contains("test-admin-token"));
+    }
+
+    // ── admin usage / stats / events（C2，见 docs/admin-console.md）──
+
+    fn admin_get(uri: &str) -> Request<Body> {
+        Request::builder()
+            .uri(uri)
+            .header("authorization", "Bearer test-admin-token")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn admin_usage_invalid_group_by_returns_400() {
+        let app = build_app(admin_state());
+        let response = app
+            .oneshot(admin_get("/admin/usage?group_by=bogus"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["error"]["code"], "admin.invalid_query");
+    }
+
+    #[tokio::test]
+    async fn admin_events_invalid_from_returns_400() {
+        let app = build_app(admin_state());
+        let response = app
+            .oneshot(admin_get("/admin/events?from=not-a-time"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["error"]["code"], "admin.invalid_query");
+    }
+
+    #[tokio::test]
+    async fn admin_usage_without_repo_returns_empty_rows() {
+        let app = build_app(admin_state());
+        let response = app.oneshot(admin_get("/admin/usage")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["group_by"], "tool");
+        assert_eq!(json["rows"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn admin_stats_without_repo_returns_zero_shape() {
+        let app = build_app(admin_state());
+        let response = app.oneshot(admin_get("/admin/stats")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["total_requests"], 0);
+        assert_eq!(json["total_errors"], 0);
+        assert!(json.get("avg_latency_ms").is_some());
+    }
+
+    async fn admin_state_with_events() -> AppState {
+        use crate::observability::{RequestEvent, RequestStatus};
+        use crate::store::repository::RequestEventRepository;
+
+        let pool = sqlx::sqlite::SqlitePool::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::store::run_migrations(&pool).await.unwrap();
+        let repo = Arc::new(crate::store::SqliteRequestEventRepository::new(pool));
+        let event = |request_id: &str, status: RequestStatus| RequestEvent {
+            timestamp: chrono::DateTime::parse_from_rfc3339("2026-07-03T12:00:00Z")
+                .unwrap()
+                .with_timezone(&chrono::Utc),
+            request_id: request_id.to_string(),
+            proxy_key_id: "agent-search".to_string(),
+            resource_id: "tavily".to_string(),
+            tool_name: "search__tavily__web_search".to_string(),
+            upstream_key_ref: "key:redacted".to_string(),
+            status,
+            latency_ms: 100,
+            request_units: 1,
+            retry_count: 0,
+            rate_limited: false,
+            queued_ms: 0,
+        };
+        repo.insert_event(&event("req-1", RequestStatus::Success))
+            .await
+            .unwrap();
+        repo.insert_event(&event("req-2", RequestStatus::UpstreamError(502)))
+            .await
+            .unwrap();
+        admin_state().with_event_repository(repo)
+    }
+
+    #[tokio::test]
+    async fn admin_usage_aggregates_by_dimension() {
+        let app = build_app(admin_state_with_events().await);
+        let response = app
+            .oneshot(admin_get("/admin/usage?group_by=resource"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["group_by"], "resource");
+        assert_eq!(json["rows"][0]["dimension_value"], "tavily");
+        assert_eq!(json["rows"][0]["request_count"], 2);
+        assert_eq!(json["rows"][0]["error_count"], 1);
+    }
+
+    #[tokio::test]
+    async fn admin_events_time_filter_excludes_out_of_range() {
+        let app = build_app(admin_state_with_events().await);
+        // to 为不含边界：取事件时间之前的范围应为空
+        let response = app
+            .oneshot(admin_get(
+                "/admin/events?to=2026-07-03T11:00:00%2B00:00&limit=10",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json.as_array().map(Vec::len), Some(0));
     }
 }

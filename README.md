@@ -33,7 +33,8 @@ cargo run -- serve --config examples/gateway.yaml \
 | --- | --- |
 | `/mcp` | MCP Streamable HTTP（`tools/list` / `tools/call`） |
 | `/v1/tools`、`/v1/tools/{name}/invoke` | REST 形式的工具发现与调用 |
-| `/admin/*` | health / resources / proxy-keys / tools / events / security-events / stats |
+| `/admin/*` | 管理 API（Bearer admin key 认证；未配置 `admin.keys` 时不挂载） |
+| `/admin/ui` | Web 控制台（单文件，嵌入二进制；见 `docs/admin-console.md`） |
 | `/healthz`、`/versionz`、`/metrics`、`/config` | 运维端点 |
 
 示例配置：`examples/gateway.yaml`（HTTP API 上游）、`examples/gateway-mcp.yaml`（远程 MCP 代理）。配置形态见 `docs/config-schema.md`。

@@ -8,11 +8,31 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub defaults: GatewayDefaults,
     #[serde(default)]
+    pub admin: AdminConfig,
+    #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
     #[serde(default)]
     pub proxy_keys: Vec<ProxyKey>,
+}
+
+/// Admin API 认证配置（见 docs/admin-console.md）。
+///
+/// admin key 与 proxy key 物理分离：不同配置节、不同校验路径。
+/// `keys` 为空时 admin API 与控制台整体不挂载。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminConfig {
+    #[serde(default)]
+    pub keys: Vec<AdminKey>,
+}
+
+/// 单个 admin key：token 只存 secret ref，不存明文。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminKey {
+    pub id: String,
+    /// admin token 的 secret ref（如 `secret://env/ASTERLANE_ADMIN_TOKEN`）。
+    pub token_ref: String,
 }
 
 /// 全局默认值（见 docs/response-rendering.md）。所有字段有缺省值，向后兼容。
@@ -50,12 +70,40 @@ pub struct ApiResource {
     pub description: String,
     #[serde(default)]
     pub auth: UpstreamAuth,
+    /// 上游多 key 池（可选）。存在时按池策略选 key 并 per-key 解析凭据，
+    /// `auth` 只提供注入形状（bearer/header），其单 ref 不再使用。
+    #[serde(default)]
+    pub key_pool: Option<KeyPoolConfig>,
     #[serde(default)]
     pub endpoints: Vec<ToolEndpoint>,
     #[serde(default)]
     pub discovery: Option<DiscoveryConfig>,
     #[serde(default)]
     pub security: SecurityConfig,
+}
+
+/// 上游 key 池配置（见 docs/config-schema.md Key Pool）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyPoolConfig {
+    /// LB 策略，缺省 `round_robin`。
+    #[serde(default)]
+    pub strategy: crate::keys::LoadBalanceStrategy,
+    pub keys: Vec<PoolKeyConfig>,
+}
+
+/// 池内单个 key：secret ref + 权重。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PoolKeyConfig {
+    /// secret ref（如 `secret://tavily/key-a`），不存明文。
+    #[serde(rename = "ref")]
+    pub secret_ref: String,
+    /// `weighted` 策略下的权重，缺省 1。
+    #[serde(default = "default_key_weight")]
+    pub weight: u32,
+}
+
+fn default_key_weight() -> u32 {
+    1
 }
 
 /// API 自动发现配置（见 docs/api-discovery.md）。

@@ -32,6 +32,12 @@ pub enum KeyPoolError {
     /// 负载均衡策略无效（如候选列表与策略不兼容）。
     #[error("invalid load balance strategy")]
     InvalidStrategy,
+
+    /// key_pool 配置无效（启动期校验：空 keys、auth 形状缺失、ref 格式错误）。
+    ///
+    /// 消息只含 resource id 与脱敏 ref，不含明文。
+    #[error("invalid key pool config: {0}")]
+    InvalidConfig(String),
 }
 
 /// 把 `KeyPoolError` 映射为顶层 `AsterlaneError`。
@@ -45,6 +51,8 @@ impl From<KeyPoolError> for AsterlaneError {
             KeyPoolError::NoAvailableKey
             | KeyPoolError::NotFound(_)
             | KeyPoolError::InvalidStrategy => ErrorCode::ProxyRetryExhausted,
+            // 启动期配置校验错误，归类 config
+            KeyPoolError::InvalidConfig(_) => ErrorCode::ConfigInvalidYaml,
         };
         AsterlaneError::internal(code, err.to_string())
     }

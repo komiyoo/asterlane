@@ -3,9 +3,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::admin::AdminAuth;
 use crate::catalog::ToolCatalog;
 use crate::config::GatewayConfig;
 use crate::integrity::{IntegrityBaseline, IntegrityPolicy, QuarantinedTools};
+use crate::keys::KeyPoolRegistry;
 use crate::limits::RateLimits;
 use crate::mcp::McpServerRegistry;
 use crate::secrets::DefaultSecretStore;
@@ -58,6 +60,10 @@ pub struct AppState {
     pub quarantined_tools: QuarantinedTools,
     /// Prometheus metrics handle for rendering /metrics endpoint.
     pub metrics_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
+    /// Admin API 认证状态；`None` 时 admin 路由不挂载。
+    pub admin_auth: Option<Arc<AdminAuth>>,
+    /// Key 池注册表；`None` 时资源走单 ref 凭据路径。
+    pub key_pools: Option<Arc<KeyPoolRegistry>>,
 }
 
 // ponytail: manual Debug because PrometheusHandle doesn't impl Debug
@@ -90,7 +96,21 @@ impl AppState {
             integrity_baseline: Arc::new(RwLock::new(IntegrityBaseline::new())),
             quarantined_tools: Arc::new(RwLock::new(HashMap::new())),
             metrics_handle: None,
+            admin_auth: None,
+            key_pools: None,
         }
+    }
+
+    /// 注入 admin 认证状态（main.rs 启动时解析 admin key 后注入）。
+    pub fn with_admin_auth(mut self, admin_auth: Arc<AdminAuth>) -> Self {
+        self.admin_auth = Some(admin_auth);
+        self
+    }
+
+    /// 注入 key 池注册表（main.rs 启动时从配置构建后注入）。
+    pub fn with_key_pools(mut self, key_pools: Arc<KeyPoolRegistry>) -> Self {
+        self.key_pools = Some(key_pools);
+        self
     }
 
     pub fn with_limits(mut self, limits: Arc<RateLimits>) -> Self {

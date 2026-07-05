@@ -360,6 +360,7 @@ mod tests {
     fn config() -> GatewayConfig {
         GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),
@@ -376,6 +377,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Tavily".to_string(),
                     }],
+                    key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
                 },
@@ -395,6 +397,7 @@ mod tests {
                         path: "/search".to_string(),
                         description: "Search web with Exa".to_string(),
                     }],
+                    key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
                 },

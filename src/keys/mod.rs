@@ -15,15 +15,19 @@
 //!   `LeastRequests` / `FastestResponse`(EWMA) / `Weighted`。
 //! - **`KeyPoolError`**（[`error`]）:`NoAvailableKey` 等,通过 `From` 接入
 //!   `AsterlaneError::Internal { code: ProxyRetryExhausted, .. }`。
+//! - **`KeyPoolRegistry`**（[`registry`]）:resource_id → 池 + `KeyId`→secret ref
+//!   映射,配置装载入口,per-key 凭据由 proxy 层按选中 key 解析。
 //!
 //! 本模块只管 `KeyId` 状态;明文密钥由 `secrets` 模块解析、`proxy` 模块注入。
 
 pub mod error;
 pub mod pool;
+pub mod registry;
 pub mod state;
 pub mod strategy;
 
 pub use error::KeyPoolError;
-pub use pool::{KeyGuard, KeyPool, KeyPoolBuilder};
+pub use pool::{KeyGuard, KeyPool, KeyPoolBuilder, KeyStatusSnapshot};
+pub use registry::{KeyPoolRegistry, ResourceKeyPool};
 pub use state::{KeyId, KeyState};
 pub use strategy::{KeyCandidate, LoadBalanceStrategy};

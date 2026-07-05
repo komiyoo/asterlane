@@ -26,7 +26,7 @@ timestamp: 2026-07-03T00:00:00Z
 
 | Category | 错误码 | 触发场景 | 对外消息示例 |
 | --- | --- | --- | --- |
-| `config.*` | `config.invalid_yaml` | YAML 解析失败 | "gateway config parse failed at line {n}" |
+| `config.*` | `config.invalid_yaml` | YAML 解析失败；key_pool 等配置节启动期校验失败 | "gateway config parse failed at line {n}" |
 | `config.*` | `config.unknown_resource` | 引用不存在的 resource_id | "unknown resource: {resource_id}" |
 | `config.*` | `config.invalid_regex` | scope 正则编译失败 | "invalid tool scope regex: {detail}" |
 | `config.*` | `config.invalid_tool_name` | 工具名段不合法或超长 | "invalid tool name segment: {detail}" |
@@ -47,6 +47,10 @@ timestamp: 2026-07-03T00:00:00Z
 | `limit.*` | `limit.queue_timeout` | 排队超时 | "request exceeded queue wait limit" |
 | `mcp.*` | `mcp.invalid_tool_call` | 参数不合法 | "invalid tool call arguments" |
 | `mcp.*` | `mcp.upstream_mcp_failure` | 上游 MCP server 失败 | "upstream MCP server error" |
+| `transform.*` | `transform.dangerous_header` | 变换规则尝试设置危险 header | "transform rule targets protected header" |
+| `transform.*` | `transform.invalid_pointer` | JSON Pointer 路径不合法 | "invalid transform pointer: {detail}" |
+| `admin.*` | `admin.unauthorized` | admin token 缺失或不匹配 | "missing or invalid admin token" |
+| `admin.*` | `admin.invalid_query` | admin 查询参数不合法 | "invalid group_by: {value}" |
 
 # 边界转换
 
@@ -57,11 +61,12 @@ timestamp: 2026-07-03T00:00:00Z
 | 错误类别 | 退出码 |
 | --- | --- |
 | `config.*` | 2 |
-| `auth.*` | 3 |
+| `auth.*` / `admin.*` | 3 |
 | `catalog.*` / `mcp.*` | 4 |
 | `store.*` | 5 |
 | `proxy.*` | 6 |
 | `limit.*` | 7 |
+| `transform.*` | 8 |
 | 其他 | 1 |
 
 ## HTTP 边界
@@ -81,6 +86,9 @@ timestamp: 2026-07-03T00:00:00Z
 | `mcp.upstream_mcp_failure` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
 | `limit.quota_exceeded` | 429 |
 | `limit.queue_full` / `limit.queue_timeout` | 503 |
+| `transform.*` | 500 |
+| `admin.unauthorized` | 401 |
+| `admin.invalid_query` | 400 |
 
 JSON body 形态：
 

@@ -1,5 +1,45 @@
 # Documentation Update Log
 
+## 2026-07-05（文档审计补漏）
+
+- **compatibility-policy.md**：「当前已知演进」表登记 `admin` 节与 `api_resources[].key_pool` 两个新增配置字段及兼容措施。
+- **observability.md**：`upstream_key_ref` 脱敏格式补充 key pool 路径的 `key#0001`（KeyId）形式，与单 ref 路径的 `key:abcd…wxyz` 并列。
+- **error-model.md**：`config.invalid_yaml` 触发场景补充 key_pool 启动期校验失败。
+- **admin-console.md**：Overview 行内容对齐 C2 后的 8 张卡片。
+
+## 2026-07-05（Key pool 接入请求路径）
+
+- **配置形态**：`api_resources[].key_pool`（`strategy` 五策略 + `keys[].ref/weight`）；`LoadBalanceStrategy` 加 serde（snake_case）与 `Default`（round_robin）。启动期校验 fail fast：keys 非空、auth 形状非 none、ref 格式合法；`KeyPoolError` 新增 `InvalidConfig` 变体（映射 `config.invalid_yaml`）。
+- **`KeyPoolRegistry`**（`src/keys/registry.rs`）：resource_id → `ResourceKeyPool`（池 + `KeyId`→secret ref 映射 + 策略）。
+- **per-key 凭据与 failover**（`src/proxy/retry.rs`）：每次尝试按配置策略 acquire → 解析选中 key 的 ref → 注入（`auth` 只提供形状）；429/5xx/超时冷却当前 key（429/503 优先采用上游 `Retry-After` 秒数，兑现既有 TODO）；成功记录该 key EWMA 延迟供 `fastest_response`。凭据解析失败视为配置错误直接失败，不冷却不重试。
+- **装配**：`AppState.key_pools`；main 启动构建 registry；routes×2 + mcp/server×2 四个 executor 构造点注入；`ProxyExecutor::with_keys(Arc<KeyPool>)` 更名 `with_key_pools(Arc<KeyPoolRegistry>)`。
+- **可见性**：`/admin/key-pools` 快照（state/leased_count/cooling_remaining_ms/weight/ewma/脱敏 ref）+ 控制台 Key Pools 页；`KeyPool::snapshot()` 新增。
+- **范围外**：`mcp_servers[]` 不支持 key pool（连接级鉴权，per-call 轮换不适用），已在 config-schema 注明。
+- **验证**：mini 上 fmt/clippy(-D warnings)/test 全绿（477 单测；proxy_upstream +2 wiremock 集成：round_robin 两次调用分别命中 key-a/key-b 凭据（expect(1) 强约束）、429+Retry-After:30 冷却 key-a 并 failover key-b 成功且快照剩余冷却 20–30s）；服务级冒烟：weighted 池启动装配、`/admin/key-pools` 输出脱敏快照、控制台含 Key Pools 页。
+
+## 2026-07-05（Admin Console C2 主体交付）
+
+- **`/admin/usage`**：暴露既有 `AggregationRepository::summarize_by`（proxy_key/resource/tool/status/domain 五维度；请求数、错误数、units、平均延迟、限流命中）；`group_by` 非法值与非 RFC3339 时间返回新错误码 `admin.invalid_query`（400，CLI 退出码 3），错误码 22→23。
+- **`/admin/events`**：补 `from`/`to`（RFC3339）时间过滤；`to` 不含边界，兼作时间游标分页（下一页传上一页末行 timestamp）。
+- **`/admin/stats`**：从内存扫描 10k 事件升级为 `overall_stats` SQL 聚合（既有 ponytail 升级路径兑现）；响应字段更名/扩展：`error_count`→`total_errors`，新增 `unique_resources`/`avg_latency_ms`/`total_rate_limit_hits`。
+- **控制台**：新增「用量」页（维度选择 + datetime-local 时间范围 + CSS 条形图带错误占比着色 + 表格）；事件页补时间范围输入与「加载更多」（时间游标）；总览卡片扩展至 8 张。
+- **未完项**：`/admin/key-pools`（等 key pool 接线）；时间桶趋势线（等 `usage_buckets` 写入路径接通）。
+- **验证**：mini 上 fmt/clippy(-D warnings)/test 全绿（468 单测，+6）；SQLite 实库冒烟：stats 空库零值、usage 空行、非法 group_by/from 均 400 `admin.invalid_query`、events 时间范围过滤生效、控制台含用量页。
+
+## 2026-07-05（Admin Console C0+C1 交付）
+
+- **C0 admin 认证**：新增 `config::AdminConfig`/`AdminKey`（`admin.keys[].token_ref` 为 secret ref）与 `src/admin/auth.rs`（`AdminAuth`：启动期解析 ref、内存只存 SHA-256 摘要；`require_admin` Bearer middleware）。未配置 admin key 时 `/admin/*` 整体不挂载。新错误码 `admin.unauthorized`（401，CLI 退出码 3），错误码总数 21→22。
+- **C1 只读控制台**：`src/admin/console.html` 单文件 vanilla JS（零新依赖，`include_str!` 嵌入），`GET /admin/ui` 公开返回登录引导页，数据请求走 Bearer + sessionStorage。页面：总览/资源/工具/Proxy Keys/事件/安全事件；上游可控文本（tool description 等）全部 HTML 转义。
+- **范围修正**：`/admin/key-pools` 从 C1 推迟至 C2——key pool 尚未接入请求路径（`ProxyExecutor::with_keys` 无调用方、配置无多 key 池形态），端点随接线一起交付。
+- **文档**：`config-schema.md` 增 Admin 节；`error-model.md` 补 `admin.unauthorized` 及既有缺漏的 `transform.*` 两码；`admin-console.md` 状态更新；根 README 端点表更新；`examples/gateway.yaml` 增 admin 节。
+- **验证**：mini 构建机 fmt/clippy(-D warnings)/test 全绿（462 单测 + 集成）；端到端冒烟：无 token 401 `admin.unauthorized`、错 token 401、正确 token 200、`/admin/ui` 200 text/html、公开 `/healthz` 不受影响、拒绝日志不含 token。
+
+## 2026-07-05（Admin Console 规划）
+
+- **新增** `admin-console.md`（type: Design）：Web 管理控制台规划。形态决策（同进程 `/admin/ui`、静态资源嵌入二进制、C1 单文件 vanilla JS、C3 才评估构建式前端）；页面地图与 admin API 缺口清单（缺 `/admin/key-pools`、`/admin/usage`、`/admin/config/validate`，events 缺时间过滤与 cursor 分页）；分阶段路线 C0→C3。
+- **关键现状**：`/admin/*` 当前无认证——C0（admin key Bearer 认证，与 proxy key 物理分离）为控制台硬前置，未配置 admin key 时不挂载 admin 路由。
+- **交叉引用**：`architecture.md` Admin Console 节与 `development-workflow.md` Admin Console Strategy 节补链接。
+
 ## 2026-07-05（评估类收尾）
 
 - **reqwest TLS**：从 native-tls 切换到 rustls（`default-features = false, features = ["json", "rustls"]`），去除 OpenSSL 系统依赖。native-tls 相关依赖（core-foundation, system-configuration, encoding_rs, windows-registry）已从 lockfile 移除。

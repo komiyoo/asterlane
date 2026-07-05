@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asterlane 控制台</title>
+<style>
+:root {
+  --bg: #f6f7f9; --fg: #1c2128; --muted: #6a737d; --card: #ffffff;
+  --border: #d8dde3; --accent: #3b5bdb; --ok: #2b8a3e; --err: #c92a2a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171b; --fg: #dbe1e8; --muted: #8b949e; --card: #1d2126;
+    --border: #30363d; --accent: #748ffc; --ok: #69b979; --err: #f08080;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 10px 20px; background: var(--card); border-bottom: 1px solid var(--border);
+}
+header h1 { font-size: 16px; margin: 0; }
+header h1 span { color: var(--accent); }
+#auth { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+#conn { font-size: 12px; color: var(--muted); }
+#conn.ok { color: var(--ok); }
+#conn.err { color: var(--err); }
+input, button, select {
+  font: inherit; color: inherit; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px;
+}
+button { cursor: pointer; background: var(--card); }
+button:hover { border-color: var(--accent); }
+nav { display: flex; gap: 2px; padding: 8px 20px 0; flex-wrap: wrap; }
+nav button { border: 1px solid transparent; border-radius: 6px 6px 0 0; color: var(--muted); background: none; }
+nav button.active { background: var(--card); border-color: var(--border); border-bottom-color: var(--card); color: var(--fg); }
+main { padding: 16px 20px; }
+main h3 { font-size: 14px; margin: 16px 0 8px; }
+.cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 18px; min-width: 140px;
+}
+.card .num { font-size: 24px; font-weight: 600; }
+.card .lbl { font-size: 12px; color: var(--muted); }
+.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.tablewrap { overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); position: sticky; top: 0; background: var(--card); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; white-space: pre-line; word-break: break-word; }
+td.ok { color: var(--ok); }
+td.err { color: var(--err); }
+.empty, .hint { color: var(--muted); padding: 24px; text-align: center; }
+.bars { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
+.bar-row { display: grid; grid-template-columns: minmax(120px, 30%) 1fr 110px; gap: 10px; align-items: center; padding: 3px 0; }
+.bar-lbl, .bar-num { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-num { text-align: right; color: var(--muted); }
+.bar-track { background: var(--bg); border-radius: 4px; height: 14px; overflow: hidden; }
+.bar-fill { background: var(--accent); height: 100%; border-radius: 4px; display: flex; justify-content: flex-end; min-width: 2px; }
+.bar-err { background: var(--err); height: 100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>✳</span> Asterlane 控制台</h1>
+  <div id="auth">
+    <input type="password" id="token" placeholder="Admin token" size="24">
+    <button id="connect">连接</button>
+    <span id="conn">未连接</span>
+  </div>
+</header>
+<nav id="nav"></nav>
+<main id="view"><p class="hint">输入 admin token 并点击「连接」</p></main>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const TOKEN_KEY = "asterlane-admin-token";
+
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[c]);
+}
+
+async function api(path) {
+  const token = sessionStorage.getItem(TOKEN_KEY) || "";
+  const res = await fetch(path, { headers: { Authorization: "Bearer " + token } });
+  if (res.status === 401) throw new Error("认证失败：token 无效");
+  if (!res.ok) throw new Error("请求失败：HTTP " + res.status);
+  return res.json();
+}
+
+function fmtCell(key, v) {
+  if (v === null || v === undefined || v === "") return "";
+  if (key === "status" && typeof v === "object" && v.kind)
+    return v.kind + (v.code != null ? " " + v.code : "");
+  if (key === "avg_latency_ms" && typeof v === "number") return v.toFixed(1);
+  if (Array.isArray(v)) return v.map(x => typeof x === "object" ? JSON.stringify(x) : String(x)).join("\n");
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function cellClass(key, v) {
+  if (key !== "status") return "";
+  const kind = typeof v === "object" && v ? v.kind : String(v);
+  return /success/i.test(kind) ? "ok" : "err";
+}
+
+function objTable(rows, order) {
+  if (!rows || !rows.length) return '<p class="empty">无数据</p>';
+  const present = new Set();
+  rows.forEach(r => Object.keys(r).forEach(k => present.add(k)));
+  const cols = (order || []).filter(k => present.has(k))
+    .concat([...present].filter(k => !(order || []).includes(k)));
+  const head = cols.map(c => "<th>" + esc(c) + "</th>").join("");
+  const body = rows.map(r =>
+    "<tr>" + cols.map(c =>
+      '<td class="' + cellClass(c, r[c]) + '">' + esc(fmtCell(c, r[c])) + "</td>"
+    ).join("") + "</tr>"
+  ).join("");
+  return '<div class="tablewrap"><table><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+}
+
+const TABS = {
+  overview: { label: "总览", load: loadOverview },
+  usage: { label: "用量", load: loadUsage },
+  resources: { label: "资源", load: loadResources },
+  tools: { label: "工具", load: loadTools },
+  keys: { label: "Proxy Keys", load: loadProxyKeys },
+  keypools: { label: "Key Pools", load: loadKeyPools },
+  events: { label: "事件", load: loadEvents },
+  security: { label: "安全事件", load: loadSecurity },
+};
+let current = "overview";
+
+async function loadOverview(view) {
+  const [health, stats] = await Promise.all([api("/admin/health"), api("/admin/stats")]);
+  const card = (num, lbl) =>
+    '<div class="card"><div class="num">' + esc(num) + '</div><div class="lbl">' + esc(lbl) + "</div></div>";
+  view.innerHTML = '<div class="cards">'
+    + card(health.status + " · v" + health.version, "网关状态")
+    + card(stats.total_requests, "请求总数")
+    + card(stats.total_errors, "错误数")
+    + card(stats.avg_latency_ms.toFixed(1) + " ms", "平均延迟")
+    + card(stats.total_rate_limit_hits, "限流命中")
+    + card(stats.unique_tools, "活跃工具")
+    + card(stats.unique_proxy_keys, "活跃 proxy key")
+    + card(stats.unique_resources, "活跃资源")
+    + "</div>";
+}
+
+async function loadUsage(view) {
+  view.innerHTML = '<div class="toolbar">'
+    + '<select id="us-dim">'
+    + '<option value="tool">按工具</option><option value="domain">按 domain</option>'
+    + '<option value="resource">按资源</option><option value="proxy_key">按 proxy key</option>'
+    + '<option value="status">按状态</option></select>'
+    + '<input type="datetime-local" id="us-from"><input type="datetime-local" id="us-to">'
+    + '<button id="us-go">查询</button></div>'
+    + '<div id="us-chart"></div><div id="us-table"></div>';
+  const run = async () => {
+    const p = new URLSearchParams({ group_by: $("#us-dim").value });
+    if ($("#us-from").value) p.set("from", new Date($("#us-from").value).toISOString());
+    if ($("#us-to").value) p.set("to", new Date($("#us-to").value).toISOString());
+    try {
+      const data = await api("/admin/usage?" + p);
+      const rows = data.rows;
+      if (!rows.length) {
+        $("#us-chart").innerHTML = "";
+        $("#us-table").innerHTML = '<p class="empty">无数据</p>';
+        return;
+      }
+      const max = Math.max(...rows.map(r => r.request_count));
+      $("#us-chart").innerHTML = '<div class="bars">' + rows.map(r => {
+        const w = max ? (r.request_count / max * 100) : 0;
+        const ew = r.request_count ? (r.error_count / r.request_count * 100) : 0;
+        return '<div class="bar-row"><span class="bar-lbl" title="' + esc(r.dimension_value) + '">'
+          + esc(r.dimension_value) + '</span><div class="bar-track">'
+          + '<div class="bar-fill" style="width:' + w + '%">'
+          + '<div class="bar-err" style="width:' + ew + '%"></div></div></div>'
+          + '<span class="bar-num">' + esc(r.request_count)
+          + (r.error_count ? " (" + esc(r.error_count) + " 错)" : "") + "</span></div>";
+      }).join("") + "</div>";
+      $("#us-table").innerHTML = objTable(rows,
+        ["dimension_value", "request_count", "error_count", "total_units", "avg_latency_ms", "rate_limit_hits"]);
+    } catch (e) {
+      $("#us-chart").innerHTML = "";
+      $("#us-table").innerHTML = '<p class="empty">' + esc(e.message) + "</p>";
+    }
+  };
+  $("#us-go").addEventListener("click", run);
+  $("#us-dim").addEventListener("change", run);
+  await run();
+}
+
+async function loadResources(view) {
+  const rows = await api("/admin/resources");
+  view.innerHTML = objTable(rows, ["id", "domain", "provider", "base_url", "endpoint_count"]);
+}
+
+async function loadTools(view) {
+  const data = await api("/admin/tools");
+  const render = filter => {
+    const f = filter.trim().toLowerCase();
+    const rows = data.tools.filter(t =>
+      !f || t.name.toLowerCase().includes(f) || (t.description || "").toLowerCase().includes(f));
+    $("#tools-table").innerHTML = objTable(rows, ["name", "description"]);
+    $("#tools-count").textContent = rows.length + " / " + data.total_count;
+  };
+  view.innerHTML = '<div class="toolbar"><input id="tools-filter" placeholder="按名称/描述过滤" size="32">'
+    + '<span id="tools-count" class="hint" style="padding:6px"></span></div><div id="tools-table"></div>';
+  $("#tools-filter").addEventListener("input", e => render(e.target.value));
+  render("");
+}
+
+async function loadProxyKeys(view) {
+  const rows = await api("/admin/proxy-keys");
+  view.innerHTML = objTable(rows,
+    ["id", "display_name", "allowed_tools", "denied_tools", "default_tool_page_size"]);
+}
+
+async function loadKeyPools(view) {
+  const pools = await api("/admin/key-pools");
+  if (!pools.length) {
+    view.innerHTML = '<p class="empty">未配置 key pool（资源级 key_pool 配置见 docs/config-schema.md）</p>';
+    return;
+  }
+  view.innerHTML = pools.map(p =>
+    '<h3>' + esc(p.resource_id) + ' <span class="hint" style="padding:0">· ' + esc(p.strategy) + "</span></h3>"
+    + objTable(p.keys,
+      ["key_id", "state", "leased_count", "cooling_remaining_ms", "weight", "ewma_latency_ms", "ref"])
+  ).join("");
+}
+
+async function loadEvents(view) {
+  view.innerHTML = '<div class="toolbar">'
+    + '<input id="ev-key" placeholder="proxy_key_id" size="14">'
+    + '<input id="ev-res" placeholder="resource_id" size="14">'
+    + '<input type="datetime-local" id="ev-from" title="起始时间">'
+    + '<input type="datetime-local" id="ev-to" title="结束时间">'
+    + '<input id="ev-limit" value="50" size="5">'
+    + '<button id="ev-go">查询</button>'
+    + '<button id="ev-more" disabled>加载更多</button></div><div id="ev-table"></div>';
+  const COLS = ["timestamp", "proxy_key_id", "resource_id", "tool_name", "status",
+    "latency_ms", "retry_count", "rate_limited", "queued_ms", "upstream_key_ref", "request_id"];
+  let acc = [];      // 累积行（加载更多在此追加）
+  let cursor = null; // 时间游标 = 上一页末行 timestamp（events 按时间降序）
+  const run = async append => {
+    const limit = parseInt($("#ev-limit").value, 10) || 50;
+    const p = new URLSearchParams({ limit });
+    if ($("#ev-key").value) p.set("proxy_key_id", $("#ev-key").value);
+    if ($("#ev-res").value) p.set("resource_id", $("#ev-res").value);
+    if ($("#ev-from").value) p.set("from", new Date($("#ev-from").value).toISOString());
+    if (append && cursor) p.set("to", cursor);
+    else if ($("#ev-to").value) p.set("to", new Date($("#ev-to").value).toISOString());
+    try {
+      const rows = await api("/admin/events?" + p);
+      acc = append ? acc.concat(rows) : rows;
+      cursor = rows.length ? rows[rows.length - 1].timestamp : cursor;
+      $("#ev-more").disabled = rows.length < limit;
+      $("#ev-table").innerHTML = objTable(acc, COLS);
+    } catch (e) {
+      $("#ev-table").innerHTML = '<p class="empty">' + esc(e.message) + "</p>";
+    }
+  };
+  $("#ev-go").addEventListener("click", () => run(false));
+  $("#ev-more").addEventListener("click", () => run(true));
+  await run(false);
+}
+
+async function loadSecurity(view) {
+  const rows = await api("/admin/security-events");
+  view.innerHTML = objTable(rows,
+    ["timestamp", "resource_id", "tool_name", "kind", "severity", "details"]);
+}
+
+function buildNav() {
+  const nav = $("#nav");
+  nav.innerHTML = "";
+  for (const [key, tab] of Object.entries(TABS)) {
+    const b = document.createElement("button");
+    b.textContent = tab.label;
+    b.className = key === current ? "active" : "";
+    b.addEventListener("click", () => { current = key; buildNav(); loadCurrent(); });
+    nav.appendChild(b);
+  }
+}
+
+async function loadCurrent() {
+  const view = $("#view");
+  view.innerHTML = '<p class="hint">加载中…</p>';
+  try {
+    await TABS[current].load(view);
+  } catch (e) {
+    view.innerHTML = '<p class="empty">' + esc(e.message) + "</p>";
+  }
+}
+
+async function connect() {
+  const conn = $("#conn");
+  conn.textContent = "连接中…"; conn.className = "";
+  try {
+    const health = await api("/admin/health");
+    conn.textContent = "已连接 · v" + health.version; conn.className = "ok";
+    buildNav();
+    await loadCurrent();
+  } catch (e) {
+    conn.textContent = e.message; conn.className = "err";
+    $("#view").innerHTML = '<p class="hint">' + esc(e.message) + "</p>";
+  }
+}
+
+$("#connect").addEventListener("click", () => {
+  sessionStorage.setItem(TOKEN_KEY, $("#token").value.trim());
+  connect();
+});
+$("#token").addEventListener("keydown", e => { if (e.key === "Enter") $("#connect").click(); });
+
+if (sessionStorage.getItem(TOKEN_KEY)) {
+  $("#token").value = sessionStorage.getItem(TOKEN_KEY);
+  connect();
+}
+</script>
+</body>
+</html>

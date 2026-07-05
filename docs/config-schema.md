@@ -16,6 +16,7 @@ The initial gateway config is YAML. It should be easy to review in git and later
 ```yaml
 schema_version: 1
 defaults: {}
+admin: {}
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -29,6 +30,21 @@ defaults:
 ```
 
 `response_format` 为全局默认响应格式，可被 proxy key 级 `response_format` 与请求级 override 覆盖（见 [Response Rendering](response-rendering.md)）。
+
+## Admin
+
+```yaml
+admin:
+  keys:
+    - id: ops-primary
+      token_ref: secret://env/ASTERLANE_ADMIN_TOKEN
+```
+
+admin key 用于 `/admin/*` API 与 Web 控制台的 Bearer 认证（见 [Admin Console](admin-console.md)）：
+
+- `token_ref` 是 secret ref，启动时解析一次并 fail fast；内存只保留 token 摘要，不留明文。
+- `keys` 为空或缺省时，`/admin/*`（含 `/admin/ui`）整体不挂载，探活使用公开 `/healthz`。
+- admin key 与 `proxy_keys` 物理分离：认证失败返回 `admin.unauthorized`（401），与 gateway key 的 `auth.*` 错误码互不混用。
 
 # API Resources
 
@@ -80,7 +96,23 @@ auth:
 
 Secret references are identifiers only. Implementations must resolve them on the gateway side and must not expose raw values in MCP tool schemas, agent prompts, logs, or responses. 详见 [Architecture – Credential Vault](architecture.md)。
 
-## Security Config
+## Key Pool
+
+`api_resources[]` 可选配置多 key 池。存在时每次调用按策略选 key 并 per-key 解析凭据，`auth` 只提供注入形状（bearer/header），其单 ref 不再使用：
+
+```yaml
+key_pool:
+  strategy: round_robin   # round_robin | random | least_requests | fastest_response | weighted，缺省 round_robin
+  keys:
+    - ref: secret://tavily/key-a
+      weight: 2           # weighted 策略权重，缺省 1
+    - ref: secret://tavily/key-b
+```
+
+- 启动期校验（fail fast）：`keys` 非空、`auth.type` 非 `none`、每个 `ref` 为合法 `secret://` URI（只验格式，值按请求 lazy 解析）。
+- 运行时行为：429/5xx/超时触发该 key 冷却（429/503 优先采用上游 `Retry-After` 秒数，缺省 60s），下次尝试 failover 到其他 key；成功时记录该 key 的 EWMA 延迟供 `fastest_response`。
+- 状态可见性：`/admin/key-pools` 快照（key 以脱敏 `key#000N` 展示，ref 隐藏路径段）。
+- remote MCP server（`mcp_servers[]`）暂不支持 key pool：其鉴权为连接级，per-call 轮换不适用。
 
 `security` 可挂在 `api_resources[]` 与 `mcp_servers[]` 上；缺省时为安全兼容默认值：`integrity_policy: warn`、`defense.enabled: false`、`result_budget_bytes: null`（运行时回退 48KB）。
 

@@ -298,6 +298,9 @@ pub async fn invoke_tool(
     if let Some(limits) = &state.limits {
         executor = executor.with_limits(limits.clone());
     }
+    if let Some(pools) = &state.key_pools {
+        executor = executor.with_key_pools(pools.clone());
+    }
     executor = executor
         .with_quarantined(state.quarantined_tools.clone())
         .with_result_cache(state.result_cache.clone())
@@ -390,6 +393,9 @@ async fn handle_meta_tool_with_proxy(
             }
             if let Some(limits) = &state.limits {
                 executor = executor.with_limits(limits.clone());
+            }
+            if let Some(pools) = &state.key_pools {
+                executor = executor.with_key_pools(pools.clone());
             }
             executor = executor
                 .with_quarantined(state.quarantined_tools.clone())

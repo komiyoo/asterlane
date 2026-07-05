@@ -190,6 +190,27 @@ async fn serve(args: ServeArgs) -> Result<()> {
         ));
     }
 
+    // admin 认证：启动期解析 token secret ref，失败 fail fast；未配置则不挂载 admin API
+    match asterlane::admin::AdminAuth::from_config(&state.config.admin, state.secrets.as_ref())
+        .await
+        .context("failed to resolve admin key secret refs")?
+    {
+        Some(auth) => {
+            state = state.with_admin_auth(Arc::new(auth));
+            info!("admin api enabled");
+        }
+        None => info!("admin api disabled (no admin keys configured)"),
+    }
+
+    // key 池：启动期从配置构建（校验 keys 非空、auth 形状、ref 格式），失败 fail fast
+    if let Some(registry) = asterlane::keys::KeyPoolRegistry::from_config(&state.config)
+        .context("invalid key_pool config")?
+    {
+        let resources: Vec<&str> = registry.iter().map(|(id, _)| id).collect();
+        info!(?resources, "upstream key pools enabled");
+        state = state.with_key_pools(Arc::new(registry));
+    }
+
     let ct = tokio_util::sync::CancellationToken::new();
 
     // 后台周期性刷新上游 MCP server 工具列表 + drift 检测 + 同步 catalog + notify 客户端。
@@ -226,6 +247,9 @@ async fn serve(args: ServeArgs) -> Result<()> {
     println!("listening on {}", args.bind);
     println!("  REST API: http://{}/v1/tools", args.bind);
     println!("  MCP endpoint: http://{}/mcp", args.bind);
+    if state.admin_auth.is_some() {
+        println!("  Admin console: http://{}/admin/ui", args.bind);
+    }
     axum::serve(
         listener,
         asterlane::http::build_app_with_ct(state, ct.clone()),

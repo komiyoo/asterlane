@@ -30,7 +30,7 @@ struct RequestEvent {
     proxy_key_id: String,          // 网关 key 标识
     resource_id: String,           // 上游资源 ID
     tool_name: String,             // wire name，如 search__tavily__web_search
-    upstream_key_ref: String,      // 脱敏标识，如 key:abcd…wxyz
+    upstream_key_ref: String,      // 脱敏标识：单 ref 路径 key:abcd…wxyz；key pool 路径 key#0001（KeyId）
     status: RequestStatus,         // Success / UpstreamError(status) / Timeout / ConnectionFailed / Limited
     latency_ms: u32,
     request_units: u32,            // 上游计量单位（如 token/credits），无则 1
@@ -73,7 +73,7 @@ struct SecurityEvent {
 | `asterlane_queue_hits_total` | counter | `resource_id` | 队列入队次数 |
 | `asterlane_upstream_key_requests_total` | counter | `resource_id`, `upstream_key_ref` | 按 upstream key 的调用计数 |
 
-`upstream_key_ref` 标签必须是脱敏标识（`key:abcd…wxyz`），不得是明文。
+`upstream_key_ref` 标签必须是脱敏标识（单 ref 路径 `key:abcd…wxyz`；key pool 路径为 `KeyId` 形式 `key#0001`），不得是明文。
 
 # 聚合口径
 

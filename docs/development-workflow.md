@@ -150,6 +150,8 @@ The management backend should start small:
 
 The first UI may be static or server-rendered. Avoid committing to a heavy frontend before the data model and admin workflows are stable.
 
+Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](admin-console.md)。
+
 # Crate Policy
 
 Prefer proven crates. 完整选型矩阵与版本核实见 [Crate Selection](crate-selection.md)。

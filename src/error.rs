@@ -77,6 +77,12 @@ pub enum ErrorCode {
     TransformDangerousHeader,
     /// JSON Pointer 路径不合法。
     TransformInvalidPointer,
+
+    // ── admin ──
+    /// admin token 缺失或不匹配。
+    AdminUnauthorized,
+    /// admin 查询参数不合法。
+    AdminInvalidQuery,
 }
 
 impl ErrorCode {
@@ -106,6 +112,8 @@ impl ErrorCode {
             Self::McpUpstreamMcpFailure => "mcp.upstream_mcp_failure",
             Self::TransformDangerousHeader => "transform.dangerous_header",
             Self::TransformInvalidPointer => "transform.invalid_pointer",
+            Self::AdminUnauthorized => "admin.unauthorized",
+            Self::AdminInvalidQuery => "admin.invalid_query",
         }
     }
 
@@ -129,6 +137,7 @@ impl ErrorCode {
             Self::LimitQuotaExceeded | Self::LimitQueueFull | Self::LimitQueueTimeout => "limit",
             Self::McpInvalidToolCall | Self::McpUpstreamMcpFailure => "mcp",
             Self::TransformDangerousHeader | Self::TransformInvalidPointer => "transform",
+            Self::AdminUnauthorized | Self::AdminInvalidQuery => "admin",
         }
     }
 }
@@ -222,7 +231,7 @@ impl AsterlaneError {
     pub fn exit_code(&self) -> i32 {
         match self.error_code().category() {
             "config" => 2,
-            "auth" => 3,
+            "auth" | "admin" => 3,
             "catalog" | "mcp" => 4,
             "store" => 5,
             "proxy" => 6,
@@ -341,6 +350,8 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::LimitQuotaExceeded => 429,
         ErrorCode::LimitQueueFull | ErrorCode::LimitQueueTimeout => 503,
         ErrorCode::TransformDangerousHeader | ErrorCode::TransformInvalidPointer => 500,
+        ErrorCode::AdminUnauthorized => 401,
+        ErrorCode::AdminInvalidQuery => 400,
     }
 }
 
@@ -424,6 +435,8 @@ mod tests {
             ErrorCode::McpUpstreamMcpFailure.as_str(),
             "mcp.upstream_mcp_failure"
         );
+        assert_eq!(ErrorCode::AdminUnauthorized.as_str(), "admin.unauthorized");
+        assert_eq!(ErrorCode::AdminInvalidQuery.as_str(), "admin.invalid_query");
     }
 
     #[test]
@@ -461,6 +474,8 @@ mod tests {
         assert_eq!(ErrorCode::LimitQueueTimeout.category(), "limit");
         assert_eq!(ErrorCode::McpInvalidToolCall.category(), "mcp");
         assert_eq!(ErrorCode::McpUpstreamMcpFailure.category(), "mcp");
+        assert_eq!(ErrorCode::AdminUnauthorized.category(), "admin");
+        assert_eq!(ErrorCode::AdminInvalidQuery.category(), "admin");
     }
 
     #[test]

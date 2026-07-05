@@ -58,6 +58,7 @@ proxy_keys: []
 fn catalog_extends_with_remote_mcp_tools() {
     let config = GatewayConfig {
         defaults: Default::default(),
+        admin: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -286,6 +287,7 @@ async fn http_invoke_dispatches_remote_mcp_tool() {
     let peer = Arc::new(FakeMcpPeer::new());
     let config = GatewayConfig {
         defaults: Default::default(),
+        admin: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -347,6 +349,7 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
     let peer = Arc::new(FakeMcpPeer::new());
     let config = GatewayConfig {
         defaults: Default::default(),
+        admin: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -419,6 +422,7 @@ async fn proxy_executor_limits_remote_mcp_tools() {
     let peer = Arc::new(FakeMcpPeer::new());
     let config = GatewayConfig {
         defaults: Default::default(),
+        admin: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -487,6 +491,7 @@ async fn proxy_executor_records_remote_mcp_request_events() {
     let peer = Arc::new(FakeMcpPeer::new());
     let config = GatewayConfig {
         defaults: Default::default(),
+        admin: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),

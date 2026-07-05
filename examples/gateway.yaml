@@ -1,5 +1,12 @@
 schema_version: 1
 
+# Admin API 与 Web 控制台认证（见 docs/admin-console.md）。
+# 未配置 keys 时 /admin/* 整体不挂载；token 只存 secret ref，不存明文。
+admin:
+  keys:
+    - id: ops-primary
+      token_ref: secret://env/ASTERLANE_ADMIN_TOKEN
+
 api_resources:
   - id: tavily
     domain: search
@@ -9,6 +16,14 @@ api_resources:
     auth:
       type: bearer
       token_ref: secret://tavily/default
+    # 多 key 池（可选）：存在时按策略选 key 并 per-key 解析凭据，
+    # auth 只提供注入形状，其单 ref 不再使用。见 docs/config-schema.md。
+    # key_pool:
+    #   strategy: round_robin   # round_robin | random | least_requests | fastest_response | weighted
+    #   keys:
+    #     - ref: secret://tavily/key-a
+    #       weight: 2
+    #     - ref: secret://tavily/key-b
     endpoints:
       - tool: web_search
         method: POST

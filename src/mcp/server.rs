@@ -196,6 +196,9 @@ impl ServerHandler for AsterlaneToolServer {
             if let Some(lim) = &self.state.limits {
                 executor = executor.with_limits(lim.clone());
             }
+            if let Some(pools) = &self.state.key_pools {
+                executor = executor.with_key_pools(pools.clone());
+            }
             executor = executor
                 .with_quarantined(self.state.quarantined_tools.clone())
                 .with_result_cache(self.state.result_cache.clone())
@@ -312,6 +315,9 @@ async fn invoke_meta_call_tool(
     }
     if let Some(limits) = &state.limits {
         executor = executor.with_limits(limits.clone());
+    }
+    if let Some(pools) = &state.key_pools {
+        executor = executor.with_key_pools(pools.clone());
     }
     executor = executor
         .with_quarantined(state.quarantined_tools.clone())

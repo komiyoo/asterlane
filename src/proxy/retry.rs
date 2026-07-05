@@ -5,11 +5,12 @@ use super::error::ProxyError;
 use super::executor::{InvokeResult, ProxyExecutor};
 use crate::catalog::ParamLocations;
 use crate::config::{HttpMethod, UpstreamAuth};
-use crate::keys::LoadBalanceStrategy;
-use crate::secrets::{SecretStore, SecretString};
+use crate::keys::{KeyGuard, ResourceKeyPool};
+use crate::secrets::{SecretRef, SecretStore, SecretString};
 use crate::store::{RequestEventRepository, SecurityEventRepository};
 use backon::BackoffBuilder;
-use std::time::Duration;
+use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 /// 可重试的上游状态码白名单（见 architecture.md Retry And Failover）。
 const RETRYABLE_STATUSES: &[u16] = &[429, 500, 502, 503, 504];
@@ -34,10 +35,33 @@ impl From<ProxyError> for ExecutionError {
 }
 
 impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyExecutor<S, R> {
+    /// 选取 pool key 并解析其凭据：acquire（按配置策略）→ `KeyId` → secret ref → resolve。
+    ///
+    /// 解析失败视为配置错误直接失败（不冷却、不重试——重试打不到不同结果）。
+    async fn acquire_pool_key(
+        &self,
+        pool: &ResourceKeyPool,
+    ) -> Result<(KeyGuard, SecretString), ProxyError> {
+        let guard = pool.pool().acquire(pool.strategy())?;
+        let ref_str = pool
+            .secret_ref_for(guard.key_id())
+            .ok_or(ProxyError::KeyPool(crate::keys::KeyPoolError::NotFound(
+                guard.key_id(),
+            )))?;
+        let secret_ref = SecretRef::from_str(ref_str).map_err(ProxyError::Secret)?;
+        let secret = self
+            .secrets
+            .resolve(&secret_ref)
+            .await
+            .map_err(ProxyError::Secret)?;
+        Ok((guard, secret))
+    }
+
     /// 重试循环：构造请求 → 发送 → 判定可重试 → 退避 → failover。
     ///
-    /// 第一阶段 failover 基础实现：重试时 mark_cooling 当前 key + acquire 新 key。
-    /// 完整 failover 策略（per-key 凭据映射、权重感知轮换）留后续。
+    /// `pool` 存在时每次尝试按配置策略 acquire key 并 per-key 解析凭据；
+    /// 429/5xx/超时触发该 key 冷却（429/503 优先用上游 `Retry-After`），
+    /// 下次尝试轮换到其他 key；成功时记录该 key 的 EWMA 延迟。
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn execute_with_retry(
         &self,
@@ -47,6 +71,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
         auth: &UpstreamAuth,
         args: &serde_json::Value,
         secret: &Option<SecretString>,
+        pool: Option<&ResourceKeyPool>,
         param_locations: Option<&ParamLocations>,
     ) -> Result<(InvokeResult, u8, String), ExecutionError> {
         let method = http_method.to_reqwest();
@@ -64,29 +89,32 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
         let mut upstream_key_ref = "<none>".to_string();
 
         for attempt in 1..=self.max_attempts {
-            let key_guard = if let Some(pool) = &self.keys {
-                match pool.acquire(LoadBalanceStrategy::RoundRobin) {
-                    Ok(guard) => {
+            let (key_guard, pool_secret) = if let Some(pool) = pool {
+                match self.acquire_pool_key(pool).await {
+                    Ok((guard, secret)) => {
                         upstream_key_ref = guard.key_id().to_string();
-                        Some(guard)
+                        (Some(guard), Some(secret))
                     }
-                    Err(e) => {
+                    Err(proxy_error) => {
                         return Err(ExecutionError {
-                            proxy_error: ProxyError::from(e),
+                            proxy_error,
                             retry_count,
                             upstream_key_ref,
                         });
                     }
                 }
             } else {
-                None
+                (None, None)
             };
+            // pool 存在时用选中 key 的凭据，否则用资源单 ref 凭据
+            let attempt_secret = pool_secret.as_ref().or(secret.as_ref());
 
             let mut builder = self.http.request(method.clone(), &url);
-            builder = apply_auth(auth, secret.as_ref(), builder);
+            builder = apply_auth(auth, attempt_secret, builder);
             builder = apply_params(builder, args, param_locations, is_get);
 
             // 发送（带超时包裹）
+            let attempt_start = Instant::now();
             let send_future = builder.send();
             let send_result = tokio::time::timeout(self.request_timeout, send_future).await;
 
@@ -94,8 +122,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                 Ok(r) => r,
                 Err(_elapsed) => {
                     // tokio::time::timeout 超时
-                    if let (Some(pool), Some(guard)) = (&self.keys, &key_guard) {
-                        pool.mark_cooling(guard.key_id(), None);
+                    if let (Some(p), Some(guard)) = (pool, &key_guard) {
+                        p.pool().mark_cooling(guard.key_id(), None);
                     }
                     drop(key_guard);
                     if attempt < self.max_attempts {
@@ -124,6 +152,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string());
                     let content_length = response.content_length();
+                    let retry_after = parse_retry_after(response.headers());
 
                     let body = match response.bytes().await {
                         Ok(b) => b.to_vec(),
@@ -134,6 +163,11 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                     let _summary = crate::observability::redact_body(status, content_length);
 
                     if (200..300).contains(&status) {
+                        // 成功：记录该 key 的 EWMA 延迟（供 fastest_response 策略）
+                        if let (Some(p), Some(guard)) = (pool, &key_guard) {
+                            p.pool()
+                                .record_latency(guard.key_id(), attempt_start.elapsed());
+                        }
                         return Ok((
                             InvokeResult {
                                 status,
@@ -150,10 +184,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
 
                     // 判定可重试
                     if attempt < self.max_attempts && is_retryable_status(status) {
-                        // failover: mark cooling 当前 key
-                        if let (Some(pool), Some(guard)) = (&self.keys, &key_guard) {
-                            // TODO: 从 response header 解析 Retry-After
-                            pool.mark_cooling(guard.key_id(), None);
+                        // failover: 冷却当前 key（上游 Retry-After 优先，缺省 60s）
+                        if let (Some(p), Some(guard)) = (pool, &key_guard) {
+                            p.pool().mark_cooling(guard.key_id(), retry_after);
                         }
                         drop(key_guard);
                         if let Some(delay) = backoff.next() {
@@ -177,8 +210,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                     });
                 }
                 Err(e) => {
-                    if let (Some(pool), Some(guard)) = (&self.keys, &key_guard) {
-                        pool.mark_cooling(guard.key_id(), None);
+                    if let (Some(p), Some(guard)) = (pool, &key_guard) {
+                        p.pool().mark_cooling(guard.key_id(), None);
                     }
                     drop(key_guard);
                     if e.is_timeout() {
@@ -326,6 +359,19 @@ fn is_retryable_status(status: u16) -> bool {
     RETRYABLE_STATUSES.contains(&status)
 }
 
+/// 解析上游 `Retry-After` header（仅秒数形式；HTTP-date 形式返回 `None`，
+/// 走默认冷却时长）。
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +408,28 @@ mod tests {
         assert!(!is_retryable_status(200));
         assert!(!is_retryable_status(400));
         assert!(!is_retryable_status(404));
+    }
+
+    #[test]
+    fn parse_retry_after_seconds_form() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::RETRY_AFTER, "30".parse().unwrap());
+        assert_eq!(parse_retry_after(&headers), Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn parse_retry_after_http_date_form_falls_back_to_none() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            "Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap(),
+        );
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn parse_retry_after_absent_returns_none() {
+        let headers = reqwest::header::HeaderMap::new();
+        assert_eq!(parse_retry_after(&headers), None);
     }
 }

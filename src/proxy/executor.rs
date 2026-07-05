@@ -14,7 +14,7 @@ use crate::WrappedTool;
 use crate::catalog::ToolCatalog;
 use crate::config::{GatewayConfig, ProxyKey, SecurityConfig, UpstreamAuth};
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
-use crate::keys::KeyPool;
+use crate::keys::KeyPoolRegistry;
 use crate::limits::{ApiId, LimiterKey, RateLimits};
 use crate::mcp::McpServerRegistry;
 use crate::naming::ToolName;
@@ -72,8 +72,8 @@ pub struct InvokeResult {
 /// proxy 执行器：编排 catalog、config、secrets、key pool、limits 与 reqwest，
 /// 完成上游 HTTP 调用。
 ///
-/// 持有 `Arc` 共享的配置与依赖，可通过 [`with_keys`](Self::with_keys) /
-/// [`with_limits`](Self::with_limits) 可选注入 key pool 与限流器。
+/// 持有 `Arc` 共享的配置与依赖，可通过 [`with_key_pools`](Self::with_key_pools) /
+/// [`with_limits`](Self::with_limits) 可选注入 key 池注册表与限流器。
 /// 无则跳过对应环节。
 ///
 /// `R` 同时实现 `RequestEventRepository` 与 `SecurityEventRepository`，
@@ -88,7 +88,7 @@ pub struct ProxyExecutor<S: SecretStore, R: RequestEventRepository + SecurityEve
     pub(super) event_repo: Option<Arc<R>>,
     pub(super) http: reqwest::Client,
     pub(super) mcp_registry: Option<Arc<McpServerRegistry>>,
-    pub(super) keys: Option<Arc<KeyPool>>,
+    pub(super) key_pools: Option<Arc<KeyPoolRegistry>>,
     pub(super) limits: Option<Arc<RateLimits>>,
     pub(super) quarantined: Option<QuarantinedTools>,
     pub(super) result_cache: Option<Arc<ResultCache>>,
@@ -114,7 +114,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> std::f
                 "mcp_registry",
                 &self.mcp_registry.as_ref().map(|_| "<McpServerRegistry>"),
             )
-            .field("keys", &self.keys)
+            .field("key_pools", &self.key_pools)
             .field("limits", &self.limits)
             .field(
                 "quarantined",
@@ -146,7 +146,7 @@ impl<S: SecretStore> ProxyExecutor<S> {
             event_repo: None,
             http,
             mcp_registry: None,
-            keys: None,
+            key_pools: None,
             limits: None,
             quarantined: None,
             result_cache: None,
@@ -158,9 +158,10 @@ impl<S: SecretStore> ProxyExecutor<S> {
 }
 
 impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyExecutor<S, R> {
-    /// 注入上游 key 池（可选）。注入后启用 key 选取、冷却与 failover。
-    pub fn with_keys(mut self, keys: Arc<KeyPool>) -> Self {
-        self.keys = Some(keys);
+    /// 注入 key 池注册表（可选）。注入后配置了 `key_pool` 的资源启用
+    /// per-key 凭据解析、按策略选 key、冷却与 failover。
+    pub fn with_key_pools(mut self, key_pools: Arc<KeyPoolRegistry>) -> Self {
+        self.key_pools = Some(key_pools);
         self
     }
 
@@ -224,7 +225,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             event_repo: Some(event_repo),
             http: self.http,
             mcp_registry: self.mcp_registry,
-            keys: self.keys,
+            key_pools: self.key_pools,
             limits: self.limits,
             quarantined: self.quarantined,
             result_cache: self.result_cache,
@@ -378,8 +379,17 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
             return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
         }
 
-        // 7. resolve secret
-        let secret = resolve_auth_secret(&resource.auth, &*self.secrets).await?;
+        // 7. resolve secret：有 key pool 的资源在重试循环内 per-key 解析，
+        //    此处跳过单 ref 解析（auth 中的单 ref 不再使用）
+        let resource_pool = self
+            .key_pools
+            .as_ref()
+            .and_then(|pools| pools.get(&resource.id));
+        let secret = if resource_pool.is_some() {
+            None
+        } else {
+            resolve_auth_secret(&resource.auth, &*self.secrets).await?
+        };
 
         // 8. (可选) limits check
         if let Some(limits) = &self.limits {
@@ -400,6 +410,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository> ProxyE
                 &resource.auth,
                 &args,
                 &secret,
+                resource_pool,
                 tool.param_locations.as_ref(),
             )
             .await;
@@ -493,7 +504,6 @@ mod tests {
         ApiResource, HttpMethod, McpServerConfig, ProxyKey, SecurityConfig, ToolEndpoint,
         UpstreamAuth,
     };
-    use crate::keys::{KeyId, KeyPoolBuilder};
     use crate::mcp::model::ToolContent;
     use crate::mcp::{McpError, McpServerRegistry, RemoteMcpPeer};
     use crate::observability::{RequestEvent, SecurityEvent};
@@ -663,6 +673,7 @@ mod tests {
     fn tavily_config() -> GatewayConfig {
         GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: vec![ApiResource {
                 id: "tavily".to_string(),
                 domain: "search".to_string(),
@@ -678,6 +689,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "Search web".to_string(),
                 }],
+                key_pool: None,
                 discovery: None,
                 security: SecurityConfig::default(),
             }],
@@ -697,6 +709,7 @@ mod tests {
     fn exa_config() -> GatewayConfig {
         GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: vec![ApiResource {
                 id: "exa".to_string(),
                 domain: "search".to_string(),
@@ -713,6 +726,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "Neural search".to_string(),
                 }],
+                key_pool: None,
                 discovery: None,
                 security: SecurityConfig::default(),
             }],
@@ -797,6 +811,7 @@ mod tests {
         let catalog = Arc::new(ToolCatalog::from_config(&config_with_tavily).unwrap());
         let empty_config = Arc::new(GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: vec![],
             mcp_servers: Vec::new(),
             proxy_keys: config_with_tavily.proxy_keys.clone(),
@@ -882,6 +897,7 @@ mod tests {
     fn mock_config(base_url: String) -> GatewayConfig {
         GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -895,6 +911,7 @@ mod tests {
                     path: "/search".to_string(),
                     description: "mock search".to_string(),
                 }],
+                key_pool: None,
                 discovery: None,
                 security: SecurityConfig::default(),
             }],
@@ -939,6 +956,7 @@ mod tests {
     async fn remote_mcp_shaping_preserves_tool_call_error_result() {
         let config = GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -996,6 +1014,7 @@ mod tests {
     async fn remote_mcp_shaping_replaces_all_content_with_single_shaped_text() {
         let config = GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1101,18 +1120,29 @@ mod tests {
 
     #[tokio::test]
     async fn invoke_with_key_pool_acquires_and_succeeds() {
+        use crate::keys::{KeyPoolRegistry, LoadBalanceStrategy, ResourceKeyPool};
+
         let mock_body = br#"{"ok":true}"#.to_vec();
         let addr = start_mock_upstream(200, mock_body.clone()).await;
         let config = mock_config(format!("http://{addr}"));
 
-        let secrets = Arc::new(MockSecretStore::default());
-        let pool = Arc::new(
-            KeyPoolBuilder::new()
-                .key(KeyId::new(1), 1)
-                .key(KeyId::new(2), 1)
-                .build(),
+        let secrets = Arc::new(
+            MockSecretStore::default()
+                .insert("secret://mock/key-a", "value-a")
+                .insert("secret://mock/key-b", "value-b"),
         );
-        let exec = executor(config, secrets).with_keys(pool);
+        let mut registry = KeyPoolRegistry::default();
+        registry.insert(
+            "mock",
+            ResourceKeyPool::new(
+                LoadBalanceStrategy::RoundRobin,
+                &[
+                    ("secret://mock/key-a".to_string(), 1),
+                    ("secret://mock/key-b".to_string(), 1),
+                ],
+            ),
+        );
+        let exec = executor(config, secrets).with_key_pools(Arc::new(registry));
         let key = proxy_key(&exec.config, "agent-test").clone();
 
         let result = exec
@@ -1339,6 +1369,7 @@ mod tests {
         // ErrorMcpPeer 返回 is_error=true；yaml 格式下内容必须原样保留
         let config = GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1391,6 +1422,7 @@ mod tests {
     async fn render_remote_mcp_json_text_content_to_yaml() {
         let config = GatewayConfig {
             defaults: Default::default(),
+            admin: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),

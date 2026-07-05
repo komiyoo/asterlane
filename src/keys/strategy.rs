@@ -3,14 +3,19 @@
 use rand::Rng;
 use rand::distr::Distribution;
 use rand::distr::weighted::WeightedIndex;
+use serde::{Deserialize, Serialize};
 
 /// 负载均衡策略。
 ///
 /// `select` 在候选 `KeyCandidate` 列表上选取一个。`cursor` 由调用方
 /// （`KeyPool`）持有并传入，用于 `RoundRobin` 的游标推进。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// serde 形态为 snake_case 字符串（配置 `key_pool.strategy` 直接反序列化）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LoadBalanceStrategy {
     /// 轮询：按 cursor 顺序循环选取。
+    #[default]
     RoundRobin,
     /// 随机：真随机选取。
     Random,
