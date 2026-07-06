@@ -9,12 +9,13 @@
 
 pub mod auth;
 mod crud;
+mod defaults;
 
 pub use auth::{AdminAuth, AdminKeyId};
 
 use axum::extract::{Query, State};
 use axum::response::Html;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -46,6 +47,15 @@ pub fn router(state: &AppState) -> Router<AppState> {
         )
         .route("/config/validate", get(crud::validate_config))
         .route("/tools", get(tools))
+        .route("/tool-defaults", get(defaults::list_defaults))
+        .route(
+            "/tools/{name}/defaults",
+            get(defaults::get_default)
+                .put(defaults::put_default)
+                .delete(defaults::delete_default),
+        )
+        .route("/tools/{name}/invoke", post(defaults::invoke_tool_debug))
+        .route("/mcp-presets", get(mcp_presets))
         .route("/events", get(events))
         .route("/security-events", get(security_events))
         .route("/stats", get(stats))
@@ -126,6 +136,30 @@ async fn tools(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// `GET /admin/mcp-presets` — 内置 MCP preset 目录与启用状态。
+///
+/// `enabled` = 该 id 出现在配置快照的 `mcp_servers`（serve 时 preset 已展开
+/// 进该列表）或 `builtin_mcp` 中（见 docs/tool-debugging-and-cli.md）。
+async fn mcp_presets(State(state): State<AppState>) -> Json<Value> {
+    let config = state.config_snapshot().await;
+    let list: Vec<Value> = crate::presets::builtin_presets()
+        .iter()
+        .map(|p| {
+            let enabled =
+                config.mcp_server(p.id).is_some() || config.builtin_mcp.iter().any(|id| id == p.id);
+            json!({
+                "id": p.id,
+                "domain": p.domain,
+                "provider": p.provider,
+                "url": p.url,
+                "description": p.description,
+                "enabled": enabled,
+            })
+        })
+        .collect();
+    Json(json!(list))
+}
+
 // ── query params ──
 
 #[derive(Deserialize)]
@@ -133,6 +167,8 @@ struct EventsQuery {
     limit: Option<u32>,
     proxy_key_id: Option<String>,
     resource_id: Option<String>,
+    /// 按 wire name 精确过滤（配合负载捕获排障，见 docs/observability.md）。
+    tool_name: Option<String>,
     /// 时间范围起始（含，RFC3339）。
     from: Option<String>,
     /// 时间范围结束（不含，RFC3339）。也用作时间游标：
@@ -186,6 +222,7 @@ async fn events(
     let filter = RequestEventFilter {
         proxy_key_id: q.proxy_key_id,
         resource_id: q.resource_id,
+        tool_name: q.tool_name,
         from,
         to,
     };
@@ -321,4 +358,94 @@ async fn stats(State(state): State<AppState>) -> Result<Json<Value>, AsterlaneEr
         },
     };
     Ok(Json(serde_json::to_value(stats).unwrap_or_default()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::GatewayConfig;
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    /// 从 YAML 构建带 admin auth 的 AppState（config 不经 expand，按需在用例内调用）。
+    fn admin_state(yaml: &str) -> AppState {
+        let config: GatewayConfig = serde_norway::from_str(yaml).expect("valid test yaml");
+        let catalog = crate::ToolCatalog::from_config(&config).expect("catalog");
+        AppState::new(config, catalog).with_admin_auth(Arc::new(AdminAuth::from_plain(&[(
+            "ops",
+            "test-admin-token",
+        )])))
+    }
+
+    async fn get_presets(state: AppState) -> (StatusCode, Value) {
+        let app = crate::http::build_app(state);
+        let response = app
+            .oneshot(
+                Request::get("/admin/mcp-presets")
+                    .header("authorization", "Bearer test-admin-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    fn preset_entry<'a>(list: &'a Value, id: &str) -> &'a Value {
+        list.as_array()
+            .expect("array response")
+            .iter()
+            .find(|p| p["id"] == id)
+            .expect("preset present")
+    }
+
+    #[tokio::test]
+    async fn mcp_presets_requires_admin_token() {
+        let app = crate::http::build_app(admin_state("api_resources: []"));
+        let response = app
+            .oneshot(
+                Request::get("/admin/mcp-presets")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn mcp_presets_reports_enabled_from_builtin_list() {
+        let (status, list) = get_presets(admin_state("builtin_mcp: [exa]")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            list.as_array().map(Vec::len),
+            Some(crate::presets::builtin_presets().len())
+        );
+        assert_eq!(preset_entry(&list, "exa")["enabled"], true);
+        assert_eq!(preset_entry(&list, "context7")["enabled"], false);
+        let exa = preset_entry(&list, "exa");
+        assert_eq!(exa["domain"], "search");
+        assert_eq!(exa["url"], "https://mcp.exa.ai/mcp");
+        assert!(exa["description"].as_str().is_some_and(|d| !d.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn mcp_presets_reports_enabled_from_explicit_mcp_servers() {
+        // 显式 mcp_servers 条目与 preset 同 id 时同样视为 enabled（serve 展开后即此形态）
+        let yaml = r#"
+mcp_servers:
+  - id: deepwiki
+    domain: docs
+    provider: deepwiki
+    url: https://mcp.deepwiki.com/mcp
+"#;
+        let (status, list) = get_presets(admin_state(yaml)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(preset_entry(&list, "deepwiki")["enabled"], true);
+        assert_eq!(preset_entry(&list, "exa")["enabled"], false);
+    }
 }

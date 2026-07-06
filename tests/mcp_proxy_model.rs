@@ -60,6 +60,8 @@ fn catalog_extends_with_remote_mcp_tools() {
         defaults: Default::default(),
         admin: Default::default(),
         semantic_search: None,
+        observability: Default::default(),
+        builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -304,6 +306,8 @@ async fn http_invoke_dispatches_remote_mcp_tool() {
         defaults: Default::default(),
         admin: Default::default(),
         semantic_search: None,
+        observability: Default::default(),
+        builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -367,6 +371,8 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
         defaults: Default::default(),
         admin: Default::default(),
         semantic_search: None,
+        observability: Default::default(),
+        builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -441,6 +447,8 @@ async fn proxy_executor_limits_remote_mcp_tools() {
         defaults: Default::default(),
         admin: Default::default(),
         semantic_search: None,
+        observability: Default::default(),
+        builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -511,6 +519,8 @@ async fn proxy_executor_records_remote_mcp_request_events() {
         defaults: Default::default(),
         admin: Default::default(),
         semantic_search: None,
+        observability: Default::default(),
+        builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "rollinggo-flight".to_string(),

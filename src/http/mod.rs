@@ -5,6 +5,8 @@ mod routes;
 mod state;
 
 pub use state::{AppState, ToolListChangedPeers};
+// 供 admin 调试调用复用 `/v1/tools/{name}/invoke` 的执行管线。
+pub(crate) use routes::execute_invoke;
 // 从 integrity 模块直接再导出，供外部调用方从 http 入口获取。
 pub use crate::integrity::QuarantinedTools;
 
@@ -116,6 +118,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),
@@ -215,6 +219,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -254,6 +260,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1120,6 +1128,9 @@ mod tests {
             retry_count: 0,
             rate_limited: false,
             queued_ms: 0,
+            request_args: Some(r#"{"query":"rust"}"#.to_string()),
+            response_preview: Some(r#"{"results":[]}"#.to_string()),
+            upstream_latency_ms: Some(90),
         };
         repo.insert_event(&event("req-1", RequestStatus::Success))
             .await

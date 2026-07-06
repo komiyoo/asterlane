@@ -1,12 +1,13 @@
-//! 后处理管线：观测记录、content defense、响应渲染、result shaping。
+//! 后处理管线：观测记录、负载捕获、content defense、响应渲染、result shaping。
 
+use super::error::ProxyError;
 use super::executor::{InvokeResult, ProxyExecutor};
 use crate::config::SecurityConfig;
 use crate::defense;
 use crate::mcp::model::{ToolCallResult, ToolContent};
 use crate::observability::{
     BucketGranularity, RequestEvent, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
-    UsageBucket, bucket_start, record_request_event,
+    UsageBucket, bucket_start, capture_bytes, capture_text, record_request_event,
 };
 use crate::render::{self, ResponseFormat};
 use crate::secrets::SecretStore;
@@ -18,7 +19,40 @@ use tracing::warn;
 impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + UsageBucketRepository>
     ProxyExecutor<S, R>
 {
+    /// 捕获工具调用参数：JSON 序列化 → 截断 → 脱敏。
+    /// `capture_payloads: false` 时返回 None。
+    pub(super) fn capture_args(&self, args: &serde_json::Value) -> Option<String> {
+        let obs = &self.config.observability;
+        obs.capture_payloads
+            .then(|| capture_text(&args.to_string(), obs.capture_max_bytes))
+    }
+
+    /// 捕获响应体前缀预览：截断 → 脱敏；非 UTF-8 体记占位符。
+    /// `capture_payloads: false` 时返回 None。
+    pub(super) fn capture_body_preview(&self, body: &[u8]) -> Option<String> {
+        let obs = &self.config.observability;
+        obs.capture_payloads
+            .then(|| capture_bytes(body, obs.capture_max_bytes))
+    }
+
+    /// 捕获 remote MCP `ToolCallResult`：序列化后截断 + 脱敏作预览。
+    /// `capture_payloads: false` 时返回 None（不做无谓序列化）。
+    pub(super) fn capture_tool_result(&self, result: &ToolCallResult) -> Option<String> {
+        if !self.config.observability.capture_payloads {
+            return None;
+        }
+        let bytes = serde_json::to_vec(result).unwrap_or_default();
+        Some(capture_bytes(
+            &bytes,
+            self.config.observability.capture_max_bytes,
+        ))
+    }
+
     /// 记录 `RequestEvent`（metrics facade，未设导出器时为 no-op）。
+    ///
+    /// `request_args`/`response_preview` 由调用方经 capture helper
+    /// 截断 + 脱敏后传入；捕获开启时同步在请求 span 内输出 `info!`
+    /// tracing 事件，保证日志与 DB 口径一致。
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn record_event(
         &self,
@@ -30,6 +64,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         status: RequestStatus,
         latency_ms: u32,
         retry_count: u8,
+        request_args: Option<String>,
+        response_preview: Option<String>,
+        upstream_latency_ms: Option<u32>,
     ) {
         let event = RequestEvent {
             timestamp: Utc::now(),
@@ -44,8 +81,20 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             retry_count,
             rate_limited: false,
             queued_ms: 0,
+            request_args,
+            response_preview,
+            upstream_latency_ms,
         };
         record_request_event(&event);
+        // 捕获开启时在请求 span 内输出与 DB 同口径的负载字段；关闭时不输出
+        if event.request_args.is_some() || event.response_preview.is_some() {
+            tracing::info!(
+                request_args = event.request_args.as_deref().unwrap_or(""),
+                response_preview = event.response_preview.as_deref().unwrap_or(""),
+                upstream_latency_ms = event.upstream_latency_ms,
+                "request payload captured"
+            );
+        }
         if let Some(repo) = &self.event_repo {
             if let Err(e) = repo.insert_event(&event).await {
                 warn!(error = %e, request_id, "failed to persist request event");
@@ -261,5 +310,18 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         }
 
         result
+    }
+}
+
+/// 从 `ProxyError` 推导 `RequestStatus`（用于记录 `RequestEvent`）。
+pub(super) fn request_status_from_proxy_error(err: &ProxyError) -> RequestStatus {
+    match err {
+        ProxyError::UpstreamTimeout { .. } => RequestStatus::Timeout,
+        ProxyError::ConnectionFailed => RequestStatus::ConnectionFailed,
+        ProxyError::UpstreamError(status) => RequestStatus::UpstreamError(*status),
+        ProxyError::RetryExhausted { .. } => RequestStatus::UpstreamError(0),
+        ProxyError::Mcp(_) => RequestStatus::UpstreamError(0),
+        ProxyError::Limit(_) => RequestStatus::Limited,
+        _ => RequestStatus::ConnectionFailed,
     }
 }

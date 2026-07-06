@@ -12,7 +12,7 @@
 
 use crate::WrappedTool;
 use crate::catalog::ToolCatalog;
-use crate::config::{GatewayConfig, ProxyKey, SecurityConfig, UpstreamAuth};
+use crate::config::{GatewayConfig, ProxyKey, SecurityConfig};
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
 use crate::limits::{ApiId, LimiterKey, RateLimits};
@@ -21,7 +21,7 @@ use crate::naming::ToolName;
 use crate::observability::RequestStatus;
 use crate::policy;
 use crate::render::ResponseFormat;
-use crate::secrets::{SecretRef, SecretStore, SecretString};
+use crate::secrets::SecretStore;
 use crate::shaping::ResultCache;
 use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
 use std::str::FromStr;
@@ -29,7 +29,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use super::auth::resolve_auth_secret;
 use super::error::ProxyError;
+use super::post::request_status_from_proxy_error;
 
 /// 默认最大尝试次数（含首次调用）。
 const DEFAULT_MAX_ATTEMPTS: u32 = 3;
@@ -281,6 +283,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
         tracing::Span::current().record("resource_id", tool.resource_id.as_str());
 
+        // 负载捕获：调用参数只序列化一次（截断 + 脱敏；capture_payloads=false 时 None）
+        let captured_args = self.capture_args(&args);
+
         // 3. Integrity 隔离检查：被隔离（Quarantine/Block）的 tool 拒绝调用。
         //    Warn 策略不隔离，不在此拦截。检查发生在 catalog 查找之后、
         //    上游分流之前（MCP 与 HTTP API 共用同一隔离集合）。
@@ -329,6 +334,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
             match result {
                 Ok(tool_result) => {
+                    // registry 调用计时即上游服务端耗时（单次尝试，无排队/重试）
+                    let response_preview = self.capture_tool_result(&tool_result);
                     self.record_event(
                         &request_id,
                         &proxy_key.id,
@@ -338,6 +345,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         RequestStatus::Success,
                         latency_ms,
                         0,
+                        captured_args,
+                        response_preview,
+                        Some(latency_ms),
                     )
                     .await;
                     // Defense 扫描 + shaping：per-resource security 配置
@@ -368,6 +378,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         request_status,
                         latency_ms,
                         0,
+                        captured_args,
+                        None,
+                        None,
                     )
                     .await;
                     return Err(err);
@@ -426,7 +439,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         let latency_ms = elapsed.as_millis().min(u32::MAX as u128) as u32;
 
         match outcome {
-            Ok((result, retry_count, upstream_key_ref)) => {
+            Ok((result, retry_count, upstream_key_ref, upstream_ms)) => {
+                let response_preview = self.capture_body_preview(&result.body);
                 self.record_event(
                     &request_id,
                     &proxy_key.id,
@@ -436,6 +450,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     RequestStatus::Success,
                     latency_ms,
                     retry_count,
+                    captured_args,
+                    response_preview,
+                    Some(upstream_ms),
                 )
                 .await;
                 // Defense 扫描 + shaping：per-resource security 配置
@@ -461,45 +478,13 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     request_status,
                     latency_ms,
                     exec_err.retry_count,
+                    captured_args,
+                    None,
+                    exec_err.upstream_latency_ms,
                 )
                 .await;
                 Err(exec_err.proxy_error)
             }
-        }
-    }
-}
-
-/// 从 `ProxyError` 推导 `RequestStatus`（用于记录 `RequestEvent`）。
-fn request_status_from_proxy_error(err: &ProxyError) -> RequestStatus {
-    match err {
-        ProxyError::UpstreamTimeout { .. } => RequestStatus::Timeout,
-        ProxyError::ConnectionFailed => RequestStatus::ConnectionFailed,
-        ProxyError::UpstreamError(status) => RequestStatus::UpstreamError(*status),
-        ProxyError::RetryExhausted { .. } => RequestStatus::UpstreamError(0),
-        ProxyError::Mcp(_) => RequestStatus::UpstreamError(0),
-        ProxyError::Limit(_) => RequestStatus::Limited,
-        _ => RequestStatus::ConnectionFailed,
-    }
-}
-
-/// resolve 上游凭据：从 `UpstreamAuth` 的 secret ref 解析为 `SecretString`。
-///
-/// 明文只在返回后由 `apply_auth` 在 header 注入瞬间 `expose_secret`。
-async fn resolve_auth_secret<S: SecretStore>(
-    auth: &UpstreamAuth,
-    secrets: &S,
-) -> Result<Option<SecretString>, ProxyError> {
-    match auth {
-        UpstreamAuth::None => Ok(None),
-        UpstreamAuth::Bearer { token_ref } => {
-            let secret_ref = SecretRef::from_str(token_ref)?;
-            let secret = secrets.resolve(&secret_ref).await?;
-            Ok(Some(secret))
-        }
-        UpstreamAuth::Header { value_ref, .. } => {
-            let secret_ref = SecretRef::from_str(value_ref)?;
-            let secret = secrets.resolve(&secret_ref).await?;
-            Ok(Some(secret))
         }
     }
 }
@@ -701,6 +686,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: vec![ApiResource {
                 id: "tavily".to_string(),
                 domain: "search".to_string(),
@@ -738,6 +725,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: vec![ApiResource {
                 id: "exa".to_string(),
                 domain: "search".to_string(),
@@ -841,6 +830,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: vec![],
             mcp_servers: Vec::new(),
             proxy_keys: config_with_tavily.proxy_keys.clone(),
@@ -928,6 +919,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -988,6 +981,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1047,6 +1042,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1216,6 +1213,151 @@ mod tests {
         assert_eq!(buckets[0].tool_name, "search__mock__search");
         assert_eq!(buckets[0].request_count, 1);
         assert!(buckets[0].bucket_start.contains(":00:00"), "hour-aligned");
+    }
+
+    // ── 负载捕获（见 docs/tool-debugging-and-cli.md 第 2 节）──
+
+    #[tokio::test]
+    async fn invoke_captures_args_and_redacted_response_preview() {
+        let mock_body = br#"{"ok":true,"token":"sk-1234567890abcdefwxyz"}"#.to_vec();
+        let addr = start_mock_upstream(200, mock_body).await;
+        let config = mock_config(format!("http://{addr}"));
+
+        let repo = Arc::new(CapturingEventRepository::default());
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_event_repository(repo.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        exec.invoke(
+            "search__mock__search",
+            serde_json::json!({"query": "rust"}),
+            &key,
+        )
+        .await
+        .expect("invoke should succeed");
+
+        let events = repo.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].request_args.as_deref(),
+            Some(r#"{"query":"rust"}"#)
+        );
+        let preview = events[0]
+            .response_preview
+            .as_deref()
+            .expect("preview captured by default");
+        assert!(preview.contains("key:1234…wxyz"), "preview: {preview}");
+        assert!(!preview.contains("sk-1234567890abcdefwxyz"));
+        assert!(events[0].upstream_latency_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn invoke_capture_disabled_leaves_payload_fields_none() {
+        let mock_body = br#"{"ok":true}"#.to_vec();
+        let addr = start_mock_upstream(200, mock_body).await;
+        let mut config = mock_config(format!("http://{addr}"));
+        config.observability.capture_payloads = false;
+
+        let repo = Arc::new(CapturingEventRepository::default());
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_event_repository(repo.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        exec.invoke("search__mock__search", serde_json::json!({"q": 1}), &key)
+            .await
+            .expect("invoke should succeed");
+
+        let events = repo.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_args, None);
+        assert_eq!(events[0].response_preview, None);
+        // 上游耗时与捕获开关无关，照记
+        assert!(events[0].upstream_latency_ms.is_some());
+    }
+
+    #[tokio::test]
+    async fn invoke_capture_truncates_preview_to_max_bytes() {
+        let mock_body = vec![b'a'; 8192];
+        let addr = start_mock_upstream(200, mock_body).await;
+        let mut config = mock_config(format!("http://{addr}"));
+        config.observability.capture_max_bytes = 16;
+
+        let repo = Arc::new(CapturingEventRepository::default());
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_event_repository(repo.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        exec.invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .expect("invoke should succeed");
+
+        let events = repo.events.lock().unwrap();
+        let preview = events[0].response_preview.as_deref().expect("preview");
+        assert_eq!(preview, "a".repeat(16));
+    }
+
+    #[tokio::test]
+    async fn remote_mcp_invoke_records_event_with_captured_payload() {
+        let config = GatewayConfig {
+            defaults: Default::default(),
+            admin: Default::default(),
+            semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
+            api_resources: Vec::new(),
+            mcp_servers: vec![McpServerConfig {
+                id: "remote".to_string(),
+                domain: "tools".to_string(),
+                provider: "remote".to_string(),
+                url: "https://mcp.example.test".to_string(),
+                description: "remote MCP".to_string(),
+                auth: UpstreamAuth::None,
+                security: SecurityConfig::default(),
+            }],
+            proxy_keys: vec![ProxyKey {
+                id: "agent-test".to_string(),
+                display_name: "Test Agent".to_string(),
+                allowed_tools: vec![r"^tools:.*".to_string()],
+                denied_tools: vec![],
+                default_tool_page_size: 20,
+                discovery_mode: None,
+                response_format: None,
+            }],
+        };
+        let registry = Arc::new(
+            McpServerRegistry::from_peers(&config.mcp_servers, vec![Arc::new(JsonContentMcpPeer)])
+                .await
+                .unwrap(),
+        );
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
+        let repo = Arc::new(CapturingEventRepository::default());
+        let exec = ProxyExecutor::new(
+            Arc::new(config),
+            Arc::new(catalog),
+            Arc::new(MockSecretStore::default()),
+            no_proxy_client(),
+        )
+        .with_mcp_registry(registry)
+        .with_event_repository(repo.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        exec.invoke(
+            "tools__remote__jsontool",
+            serde_json::json!({"input": "x"}),
+            &key,
+        )
+        .await
+        .expect("remote MCP invoke should succeed");
+
+        let events = repo.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].resource_id, "remote");
+        assert_eq!(events[0].tool_name, "tools__remote__jsontool");
+        assert_eq!(events[0].request_args.as_deref(), Some(r#"{"input":"x"}"#));
+        let preview = events[0].response_preview.as_deref().expect("preview");
+        assert!(preview.contains("answer"), "preview: {preview}");
+        assert!(events[0].upstream_latency_ms.is_some());
     }
 
     // ── 纯函数测试 ──
@@ -1411,6 +1553,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1465,6 +1609,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),

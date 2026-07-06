@@ -167,6 +167,9 @@ mod tests {
             retry_count: 0,
             rate_limited: false,
             queued_ms: 50,
+            request_args: None,
+            response_preview: None,
+            upstream_latency_ms: None,
         }
     }
 

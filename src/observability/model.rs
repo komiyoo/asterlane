@@ -74,6 +74,16 @@ pub struct RequestEvent {
     pub rate_limited: bool,
     /// 排队等待时长（毫秒）。
     pub queued_ms: u32,
+    /// 捕获的工具调用参数 JSON（截断 + 脱敏后；`capture_payloads: false` 时 None）。
+    #[serde(default)]
+    pub request_args: Option<String>,
+    /// 响应体前缀预览（截断 + 脱敏后；`capture_payloads: false` 时 None）。
+    #[serde(default)]
+    pub response_preview: Option<String>,
+    /// 最后一次上游尝试的服务端响应耗时（毫秒，发出请求到响应完成）。
+    /// 与 `latency_ms`（网关端到端，含排队/重试）区分；传输失败未拿到响应为 None。
+    #[serde(default)]
+    pub upstream_latency_ms: Option<u32>,
 }
 
 impl RequestEvent {
@@ -104,10 +114,23 @@ mod tests {
             retry_count: 0,
             rate_limited: false,
             queued_ms: 0,
+            request_args: Some(r#"{"query":"rust"}"#.to_string()),
+            response_preview: Some(r#"{"results":[]}"#.to_string()),
+            upstream_latency_ms: Some(120),
         };
         let json = serde_json::to_string(&event).unwrap();
         let back: RequestEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(event, back);
+    }
+
+    #[test]
+    fn request_event_deserializes_without_capture_fields() {
+        // 旧版本事件 JSON（无捕获/上游耗时字段）应能反序列化，新字段取 None
+        let json = r#"{"timestamp":"2026-07-03T12:00:00Z","request_id":"r","proxy_key_id":"k","resource_id":"res","tool_name":"t","upstream_key_ref":"key:x","status":{"kind":"Success"},"latency_ms":1,"request_units":1,"retry_count":0,"rate_limited":false,"queued_ms":0}"#;
+        let event: RequestEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.request_args, None);
+        assert_eq!(event.response_preview, None);
+        assert_eq!(event.upstream_latency_ms, None);
     }
 
     #[test]

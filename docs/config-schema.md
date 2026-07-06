@@ -194,6 +194,30 @@ mcp_servers:
 
 gateway 启动时连接每个 remote MCP server，调用上游 `tools/list`，并把返回工具合并进 catalog。上游工具包装为 `{domain}__{provider}__{normalizedOriginalTool}`；例如 RollingGo 的 `searchAirports` 暴露为 `travel__rollinggo__searchairports`，同时 catalog 保存原始 upstream tool name。invoke 时 gateway 识别该 wire name，再以保存的原始 upstream tool name 调用 remote MCP server。
 
+## Builtin MCP Presets
+
+平台内置若干免鉴权 hosted MCP server preset，顶层 `builtin_mcp`（字符串列表，缺省空）一行启用（设计契约见 [内置 MCP、调试调用与配套 CLI](tool-debugging-and-cli.md)）：
+
+```yaml
+builtin_mcp: [exa, deepwiki]
+```
+
+配置加载后 `GatewayConfig::expand_builtin_mcp()` 把每个 id 展开为等价的 `McpServerConfig`（`auth: none`、默认 `security`）追加进 `mcp_servers`，其后行为与手写条目完全一致（启动时连接、`tools/list` 合并、wire name 包装）。展开语义：
+
+- 显式 `mcp_servers` 中已有同 id 条目时该 preset 跳过——显式配置优先，可用于覆盖 `security` 等字段；
+- `builtin_mcp` 列表内重复 id 只展开一次；
+- 未知 preset id 启动报错 fail fast（`config.unknown_resource`），错误信息列出可用 preset id。
+
+内置 preset 表（`src/presets.rs`）：
+
+| id | domain | provider | url |
+| --- | --- | --- | --- |
+| `exa` | search | exa | `https://mcp.exa.ai/mcp` |
+| `deepwiki` | docs | deepwiki | `https://mcp.deepwiki.com/mcp` |
+| `context7` | docs | context7 | `https://mcp.context7.com/mcp` |
+
+`GET /admin/mcp-presets`（Bearer admin 认证）返回 preset 目录与启用状态：`[{id, domain, provider, url, description, enabled}]`，`enabled` = 该 id 出现在 `mcp_servers`（serve 时 preset 已展开进该列表）或 `builtin_mcp` 中。
+
 # Proxy Keys
 
 Proxy keys represent agent-facing identities. Each key has its own tool scope.

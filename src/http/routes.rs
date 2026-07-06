@@ -13,7 +13,7 @@ use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::state::AppState;
 use crate::limits::{ApiId, LimiterKey, PrincipalId};
 use crate::mcp::model::{ToolCallResult, ToolContent};
-use crate::proxy::ProxyExecutor;
+use crate::proxy::{InvokeResult, ProxyExecutor};
 use crate::render::{self, ResponseFormat};
 use crate::shaping::ShapingConfig;
 use axum::Json;
@@ -228,6 +228,52 @@ pub async fn list_tools(
     Ok(json_response(body))
 }
 
+/// 装配完整执行管线并调用工具。
+///
+/// `/v1/tools/{name}/invoke`、meta-tool `asterlane__call_tool` 透传与
+/// admin 调试调用（`POST /admin/tools/{name}/invoke`）共用此路径，
+/// 保证 limits / key pool / 隔离 / content defense / shaping / 事件记录口径一致
+/// （见 docs/tool-debugging-and-cli.md 第 3 节）。
+pub(crate) async fn execute_invoke(
+    state: &AppState,
+    config: Arc<GatewayConfig>,
+    wire_name: &str,
+    args: serde_json::Value,
+    proxy_key: &ProxyKey,
+    format: ResponseFormat,
+) -> Result<InvokeResult, AsterlaneError> {
+    let mut executor = ProxyExecutor::new(
+        config,
+        Arc::new(state.catalog.read().await.clone()),
+        state.secrets.clone(),
+        state.http_client.clone(),
+    );
+    if let Some(registry) = &state.mcp_registry {
+        executor = executor.with_mcp_registry(registry.clone());
+    }
+    if let Some(limits) = &state.limits {
+        executor = executor.with_limits(limits.clone());
+    }
+    if let Some(pools) = &state.key_pools {
+        executor = executor.with_key_pools(pools.clone());
+    }
+    let executor = executor
+        .with_quarantined(state.quarantined_tools.clone())
+        .with_result_cache(state.result_cache.clone())
+        .with_response_format(format);
+
+    match &state.event_repo {
+        Some(repo) => {
+            executor
+                .with_event_repository(repo.clone())
+                .invoke(wire_name, args, proxy_key)
+                .await
+        }
+        None => executor.invoke(wire_name, args, proxy_key).await,
+    }
+    .map_err(AsterlaneError::from)
+}
+
 /// 构造 200 JSON response（避免 `expect` 和 `unwrap`）。
 fn json_response(body: Vec<u8>) -> Response {
     (
@@ -288,35 +334,7 @@ pub async fn invoke_tool(
         return Ok(response);
     }
 
-    let mut executor = ProxyExecutor::new(
-        config.clone(),
-        Arc::new(state.catalog.read().await.clone()),
-        state.secrets.clone(),
-        state.http_client.clone(),
-    );
-    if let Some(registry) = &state.mcp_registry {
-        executor = executor.with_mcp_registry(registry.clone());
-    }
-    if let Some(limits) = &state.limits {
-        executor = executor.with_limits(limits.clone());
-    }
-    if let Some(pools) = &state.key_pools {
-        executor = executor.with_key_pools(pools.clone());
-    }
-    executor = executor
-        .with_quarantined(state.quarantined_tools.clone())
-        .with_result_cache(state.result_cache.clone())
-        .with_response_format(format);
-
-    let result = if let Some(repo) = &state.event_repo {
-        executor
-            .with_event_repository(repo.clone())
-            .invoke(&name, args, &proxy_key)
-            .await
-    } else {
-        executor.invoke(&name, args, &proxy_key).await
-    }
-    .map_err(AsterlaneError::from)?;
+    let result = execute_invoke(&state, config, &name, args, &proxy_key, format).await?;
 
     let mut response = (
         StatusCode::from_u16(result.status).unwrap_or(StatusCode::BAD_GATEWAY),
@@ -385,34 +403,15 @@ async fn handle_meta_tool_with_proxy(
                 .is_some_and(|registry| registry.contains_tool(tool_name));
 
             // Proxy to real upstream
-            let mut executor = ProxyExecutor::new(
+            let invoke_result = execute_invoke(
+                state,
                 config.clone(),
-                Arc::new(state.catalog.read().await.clone()),
-                state.secrets.clone(),
-                state.http_client.clone(),
-            );
-            if let Some(registry) = &state.mcp_registry {
-                executor = executor.with_mcp_registry(registry.clone());
-            }
-            if let Some(limits) = &state.limits {
-                executor = executor.with_limits(limits.clone());
-            }
-            if let Some(pools) = &state.key_pools {
-                executor = executor.with_key_pools(pools.clone());
-            }
-            executor = executor
-                .with_quarantined(state.quarantined_tools.clone())
-                .with_result_cache(state.result_cache.clone())
-                .with_response_format(format);
-            let invoke_result = if let Some(repo) = &state.event_repo {
-                executor
-                    .with_event_repository(repo.clone())
-                    .invoke(tool_name, tool_args, proxy_key)
-                    .await
-            } else {
-                executor.invoke(tool_name, tool_args, proxy_key).await
-            }
-            .map_err(AsterlaneError::from)?;
+                tool_name,
+                tool_args,
+                proxy_key,
+                format,
+            )
+            .await?;
 
             if inner_is_remote_mcp
                 && let Ok(mut parsed) =

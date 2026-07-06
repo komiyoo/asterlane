@@ -29,6 +29,8 @@ enum Command {
     Plan,
     ListTools(#[clap(flatten)] Box<ListToolsArgs>),
     Serve(#[clap(flatten)] Box<ServeArgs>),
+    /// Admin API 客户端子命令组（实现见 src/cli.rs）
+    Admin(#[clap(flatten)] Box<asterlane::cli::AdminArgs>),
 }
 
 #[derive(Debug, clap::Args)]
@@ -99,14 +101,21 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Serve(args) => serve(*args).await,
+        // run_admin 自行输出结果/错误并给出退出码（映射见 docs/error-model.md）
+        Command::Admin(args) => std::process::exit(asterlane::cli::run_admin(*args).await),
     }
 }
 
 fn load_config(path: &PathBuf) -> Result<GatewayConfig> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read config {}", path.display()))?;
-    serde_norway::from_str(&raw)
-        .with_context(|| format!("failed to parse config {}", path.display()))
+    let mut config: GatewayConfig = serde_norway::from_str(&raw)
+        .with_context(|| format!("failed to parse config {}", path.display()))?;
+    // 内置 MCP preset 展开：未知 id fail fast（见 docs/tool-debugging-and-cli.md）
+    config
+        .expand_builtin_mcp()
+        .with_context(|| format!("invalid builtin_mcp in config {}", path.display()))?;
+    Ok(config)
 }
 
 /// Initialize tracing subscriber (fmt layer, optionally OTLP layer).
@@ -367,6 +376,32 @@ mod tests {
                 assert_eq!(args.database_url.as_deref(), Some("sqlite::memory:"));
             }
             _ => panic!("expected serve command"),
+        }
+    }
+
+    #[test]
+    fn admin_cli_parses_through_top_level() {
+        let cli = Cli::try_parse_from([
+            "asterlane",
+            "admin",
+            "--server",
+            "http://127.0.0.1:3000",
+            "invoke",
+            "search__exa__web_search_exa",
+            "--use-defaults",
+            "--save-defaults",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::Admin(args) => {
+                assert_eq!(args.server.as_deref(), Some("http://127.0.0.1:3000"));
+                assert!(matches!(
+                    args.command,
+                    asterlane::cli::AdminCommand::Invoke { .. }
+                ));
+            }
+            _ => panic!("expected admin command"),
         }
     }
 }

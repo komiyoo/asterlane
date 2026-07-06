@@ -1,10 +1,10 @@
 ---
 type: Architecture Decision
 title: 可观测性设计
-description: 定义请求事件、指标、脱敏、聚合口径与导出方式，覆盖 NyaProxy 可借鉴的观测字段。
+description: 定义请求事件、负载捕获、指标、脱敏、聚合口径与导出方式，覆盖 NyaProxy 可借鉴的观测字段。
 resource: docs/observability.md
-tags: [observability, metrics, tracing, security]
-timestamp: 2026-07-03T00:00:00Z
+tags: [observability, metrics, tracing, security, capture]
+timestamp: 2026-07-05T00:00:00Z
 ---
 
 # 背景
@@ -32,15 +32,29 @@ struct RequestEvent {
     tool_name: String,             // wire name，如 search__tavily__web_search
     upstream_key_ref: String,      // 脱敏标识：单 ref 路径 key:abcd…wxyz；key pool 路径 key#0001（KeyId）
     status: RequestStatus,         // Success / UpstreamError(status) / Timeout / ConnectionFailed / Limited
-    latency_ms: u32,
+    latency_ms: u32,               // 网关端到端耗时（含排队/重试）
     request_units: u32,            // 上游计量单位（如 token/credits），无则 1
     retry_count: u8,
     rate_limited: bool,
     queued_ms: u32,                // 排队等待时长
+    request_args: Option<String>,      // 捕获的调用参数 JSON（截断 + 脱敏）
+    response_preview: Option<String>,  // 响应体前缀预览（截断 + 脱敏）
+    upstream_latency_ms: Option<u32>,  // 最后一次上游尝试的服务端耗时；传输失败为 None
 }
 ```
 
-落库表 `request_events`（见 [Development Workflow – Store Strategy](development-workflow.md)），同时作为 tracing 事件输出。
+落库表 `request_events`（见 [Development Workflow – Store Strategy](development-workflow.md)），同时作为 tracing 事件输出。`RequestEventFilter` 支持按 proxy key、resource、tool wire name 与时间范围过滤。
+
+**status 口径（2026-07-06 决策）**：`status` 记录的是网络/传输层结果，不是业务层结果。remote MCP 工具返回 `ToolCallResult.is_error = true` 时传输本身成功，事件仍记 `Success`；业务级错误内容体现在 `response_preview`（is_error 字段随预览可见）。HTTP 上游的 4xx/5xx 属传输层可观测状态，照旧记 `UpstreamError(status)`。
+
+## 请求负载捕获
+
+负载捕获是网关的原生观测能力（设计契约见 [Tool Debugging And CLI](tool-debugging-and-cli.md) 第 2 节）：全部工具调用流量都经过网关，因此默认对所有请求捕获调用参数与结果预览，`observability.capture_payloads: false` 开关仅保留给极端合规场景。
+
+- 采集点：`ProxyExecutor` 执行管线，HTTP API 上游与 remote MCP（`McpServerRegistry` 转发）两条路径共用；REST `/v1/tools/{name}/invoke` 与 MCP `tools/call`（含 lazy discovery `asterlane__call_tool`）两个入口全部覆盖。
+- 顺序固定：先 UTF-8 安全截断到 `observability.capture_max_bytes`（默认 4096），再经 `src/observability/capture.rs` 的模式脱敏（复用 redaction helper）；非 UTF-8 响应体记 `<non-utf8 N bytes>` 占位。remote MCP 路径以 `ToolCallResult` 序列化结果作预览。
+- 捕获开启时，落库同时在请求 span 内输出 `info!` 事件（字段 `request_args`、`response_preview`、`upstream_latency_ms`），日志与 DB 口径一致；关闭时不输出。
+- `upstream_latency_ms` 与捕获开关无关：只要拿到上游响应就记录（复用 key pool EWMA 反馈路径的 per-attempt 计时，不重复计时）。
 
 # 安全事件模型
 
@@ -61,17 +75,18 @@ struct SecurityEvent {
 
 # 指标族
 
-借鉴 NyaProxy `services/metrics.py:79-121` 的七个指标，按 Asterlane 命名：
+前七项借鉴 NyaProxy `services/metrics.py:79-121` 按 Asterlane 命名，第八项为上游服务端耗时：
 
 | 指标 | 类型 | 标签 | 说明 |
 | --- | --- | --- | --- |
 | `asterlane_requests_total` | counter | `proxy_key_id`, `resource_id`, `domain`, `tool`, `method` | 请求总数 |
 | `asterlane_responses_total` | counter | `proxy_key_id`, `resource_id`, `status` | 响应总数，`status=0` 为传输失败哨兵 |
-| `asterlane_request_duration_seconds` | histogram | `resource_id`, `tool` | 延迟分布，桶 0.05–30s |
+| `asterlane_request_duration_seconds` | histogram | `resource_id`, `tool` | 端到端延迟分布（含排队/重试），桶 0.05–30s |
 | `asterlane_active_requests` | gauge | `resource_id` | 当前活跃请求数 |
 | `asterlane_rate_limit_hits_total` | counter | `resource_id`, `dimension` | 限流命中（每请求一次） |
 | `asterlane_queue_hits_total` | counter | `resource_id` | 队列入队次数 |
 | `asterlane_upstream_key_requests_total` | counter | `resource_id`, `upstream_key_ref` | 按 upstream key 的调用计数 |
+| `asterlane_upstream_duration_seconds` | histogram | `resource_id`, `tool` | 上游服务端耗时分布（最后一次尝试；传输失败无值不记录） |
 
 `upstream_key_ref` 标签必须是脱敏标识（单 ref 路径 `key:abcd…wxyz`；key pool 路径为 `KeyId` 形式 `key#0001`），不得是明文。
 
@@ -89,11 +104,11 @@ struct SecurityEvent {
 - status
 - 时间桶（分钟/小时/天）
 
-`usage_buckets` 表存储预聚合计数器，避免每次查询扫全量 `request_events`。写入路径：`ProxyExecutor::record_event` 在落 `request_events` 的同时 upsert 对应 hour 粒度桶（冲突累加；minute/day 粒度待控制台缩放需求出现再扩）。读取路径：`AggregationRepository::series_by_bucket` 按 `bucket_start` 汇总升序返回，暴露为 `/admin/usage?group_by=bucket`。
+`usage_buckets` 表存储预聚合计数器，避免每次查询扫全量 `request_events`。写入路径：`ProxyExecutor::record_event` 在落 `request_events` 的同时 upsert 对应 hour 粒度桶（冲突累加；minute/day 粒度待控制台缩放需求出现再扩）。读取路径：`AggregationRepository::series_by_bucket` 按 `bucket_start` 汇总升序返回，暴露为 `/admin/usage?group_by=bucket`。聚合口径不变：`usage_buckets` 暂不加上游耗时（`upstream_latency_ms`）维度，控制台出现聚合需求时再扩。
 
 # 脱敏规则
 
-`src/observability/redaction.rs` 提供统一 helper：
+`src/observability/redaction.rs` 提供单值 helper，`src/observability/capture.rs` 的 `redact_text` 对自由文本按相同模式扫描脱敏（复用单值 helper 做替换）：
 
 | 输入 | 脱敏输出 | 规则 |
 | --- | --- | --- |
@@ -101,9 +116,9 @@ struct SecurityEvent {
 | `secret://tavily/default` | `secret://tavily/` | 暴露 provider，隐藏具体路径段 |
 | `Bearer abc123...` | `<redacted>` | 整体替换 |
 | `x-api-key: abc123` | `<redacted>` | 整体替换 |
-| 上游响应体 | 不记录 | 仅记录 status code 与 content-length |
+| 上游响应体 | 截断预览 | 默认记录截断预览（`capture_max_bytes`，UTF-8 安全截断）并经上述模式脱敏；`observability.capture_payloads: false` 全局关闭（见 [Tool Debugging And CLI](tool-debugging-and-cli.md)） |
 
-脱敏在写入 tracing 字段或 store 之前应用；模块内部错误携带引用类型（`KeyId`、`SecretRef`），其 `Display` 实现输出脱敏形式，避免脱敏遗漏。
+预览仍不含 Authorization header，密钥模式一律脱敏。脱敏在写入 tracing 字段或 store 之前应用；模块内部错误携带引用类型（`KeyId`、`SecretRef`），其 `Display` 实现输出脱敏形式，避免脱敏遗漏。
 
 # 导出方式
 
@@ -139,3 +154,4 @@ MCP 语义约定已有社区草案（`gen_ai.tool.name`、`mcp.method.name`、`m
 - [3] [MCP semantic conventions (draft)](https://opentelemetry.io/docs/specs/semconv/)
 - [4] [metrics crate](https://docs.rs/metrics)
 - [5] [Error Model – tracing 字段映射](error-model.md)
+- [6] [Tool Debugging And CLI – 请求负载捕获与上游观测](tool-debugging-and-cli.md)

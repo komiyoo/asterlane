@@ -16,6 +16,12 @@ admin:
 #   api_key_ref: secret://env/OPENAI_API_KEY   # 本地 Ollama 等无鉴权端点可省略
 #   timeout_secs: 15
 
+# 平台内置 MCP preset（可选）：一行启用免鉴权 hosted MCP server。
+# 可用 preset：exa（search）、deepwiki（docs）、context7（docs），
+# 展开语义与 preset 表见 docs/config-schema.md「Builtin MCP Presets」。
+# 注意：启用后网关启动时会连接对应外部 MCP server。
+# builtin_mcp: [exa]
+
 api_resources:
   - id: tavily
     domain: search

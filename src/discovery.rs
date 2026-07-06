@@ -255,6 +255,8 @@ mod tests {
             defaults: Default::default(),
             admin: Default::default(),
             semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),

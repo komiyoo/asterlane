@@ -29,6 +29,8 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | `admin` 节（admin key 认证） | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `/admin/*` 整体不挂载 |
 | `api_resources[].key_pool` | 新增（2026-07-05） | `#[serde(default)]`，不配置时走单 ref 凭据路径；配置后 `auth` 单 ref 不再使用（只提供注入形状） |
 | `semantic_search` 节 | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `asterlane__search_tools` 走关键词打分；配置后端点故障运行期回退关键词 |
+| `builtin_mcp` 列表 | 新增（2026-07-05） | `#[serde(default)]`，不配置行为不变；加载后展开进 `mcp_servers`，显式同 id 条目优先（见 [Tool Debugging & CLI](tool-debugging-and-cli.md)） |
+| `observability` 节（负载捕获） | 新增（2026-07-05） | `#[serde(default)]`；缺省 `capture_payloads: true` 为**观测口径变更**——`request_events` 增三列（additive migration，旧库自动迁移）并默认记录参数与响应预览（截断 + 脱敏），合规场景 `capture_payloads: false` 关闭 |
 
 ## 配置版本字段
 

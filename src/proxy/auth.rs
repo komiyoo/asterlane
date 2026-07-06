@@ -49,6 +49,31 @@ pub(crate) fn apply_auth(
     }
 }
 
+/// resolve 上游凭据：从 `UpstreamAuth` 的 secret ref 解析为 `SecretString`。
+///
+/// 明文只在返回后由 [`apply_auth`] 在 header 注入瞬间 `expose_secret`。
+pub(super) async fn resolve_auth_secret<S: crate::secrets::SecretStore>(
+    auth: &UpstreamAuth,
+    secrets: &S,
+) -> Result<Option<SecretString>, super::error::ProxyError> {
+    use crate::secrets::SecretRef;
+    use std::str::FromStr;
+
+    match auth {
+        UpstreamAuth::None => Ok(None),
+        UpstreamAuth::Bearer { token_ref } => {
+            let secret_ref = SecretRef::from_str(token_ref)?;
+            let secret = secrets.resolve(&secret_ref).await?;
+            Ok(Some(secret))
+        }
+        UpstreamAuth::Header { value_ref, .. } => {
+            let secret_ref = SecretRef::from_str(value_ref)?;
+            let secret = secrets.resolve(&secret_ref).await?;
+            Ok(Some(secret))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

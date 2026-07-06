@@ -21,6 +21,8 @@ pub mod metric_names {
     pub const QUEUE_HITS_TOTAL: &str = "asterlane_queue_hits_total";
     /// 按 upstream key 的调用计数。
     pub const UPSTREAM_KEY_REQUESTS_TOTAL: &str = "asterlane_upstream_key_requests_total";
+    /// 上游服务端耗时分布（秒，最后一次尝试；传输失败无值不记录）。
+    pub const UPSTREAM_DURATION_SECONDS: &str = "asterlane_upstream_duration_seconds";
 }
 
 /// 延迟直方图桶边界（秒），对应 observability.md 中 0.05–30s 范围。
@@ -104,6 +106,17 @@ pub fn record_request_event(event: &RequestEvent) {
         "upstream_key_ref" => event.upstream_key_ref.clone(),
     )
     .increment(1);
+
+    // 8. asterlane_upstream_duration_seconds — 上游服务端耗时
+    //    （与端到端 asterlane_request_duration_seconds 区分；传输失败无值不记录）
+    if let Some(upstream_ms) = event.upstream_latency_ms {
+        histogram!(
+            metric_names::UPSTREAM_DURATION_SECONDS,
+            "resource_id" => event.resource_id.clone(),
+            "tool" => event.tool_name.clone(),
+        )
+        .record(f64::from(upstream_ms) / 1000.0);
+    }
 }
 
 /// 活跃请求 gauge 增 1。
@@ -150,6 +163,9 @@ mod tests {
             retry_count: 0,
             rate_limited,
             queued_ms,
+            request_args: None,
+            response_preview: None,
+            upstream_latency_ms: Some(200),
         }
     }
 

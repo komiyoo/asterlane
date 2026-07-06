@@ -7,11 +7,13 @@
 ## 能力
 
 - **统一上游接入**：HTTP API（Tavily、Jina、Exa、内部 REST 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（env / Vault / Infisical），永不下发给代理。
+- **内置 MCP preset**：平台预集成免费 MCP server（exa / deepwiki / context7），配置 `builtin_mcp: [exa]` 一行启用；显式 `mcp_servers` 同 id 条目可覆盖。
 - **工具命名与范围**：稳定三段 wire name `domain__provider__tool`；每个 proxy key 有 allow/deny 正则 scope，请求级过滤只能收窄、不能扩权。
 - **渐进式发现**：`tools/list` 支持 domain/provider/tool 正则过滤、limit、cursor 分页；亦可从 OpenAPI spec 自动发现生成工具。
 - **执行管线**：upstream key pool 负载均衡、限流与队列准入、失败重试、声明式请求变换、content defense 扫描、结果预算裁剪、json/yaml/markdown 结果渲染。
 - **MCP 代理安全**：上游工具指纹 baseline 与 drift 检测，按策略 warn/quarantine/block，变更时推送 `tools/list_changed`。
-- **观测**：request/security 事件落 SQLite（sqlx），Prometheus `/metrics`，admin API，OTLP 导出（feature `otlp`）。
+- **观测**：request/security 事件落 SQLite（sqlx），请求负载原生捕获（参数 / 响应预览 / 上游服务端耗时，截断 + 脱敏，默认开），Prometheus `/metrics`，admin API，OTLP 导出（feature `otlp`）。
+- **调试与运维**：控制台按工具发起调试调用、每工具默认调用参数（可从实际请求一键保存），配套 `asterlane admin` CLI 覆盖全部管理接口（token 只走环境变量）。
 
 ## 快速开始
 
@@ -23,6 +25,10 @@ cargo run -- list-tools --config examples/gateway.yaml \
 # 启动网关（REST + MCP + admin）
 cargo run -- serve --config examples/gateway.yaml \
   --bind 127.0.0.1:3000 --database-url sqlite::memory:
+
+# 配套 CLI 操作运行中的网关（admin token 从 ASTERLANE_ADMIN_TOKEN 读取）
+cargo run -- admin stats
+cargo run -- admin invoke search__exa__web_search_exa --use-defaults --save-defaults
 ```
 
 代理侧把网关当作一个 MCP server 接入：`http://127.0.0.1:3000/mcp`（Streamable HTTP）。

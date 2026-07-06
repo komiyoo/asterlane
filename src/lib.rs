@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod catalog;
+pub mod cli;
 pub mod config;
 pub mod defense;
 pub mod discovery;
@@ -13,6 +14,7 @@ pub mod naming;
 pub mod observability;
 pub mod openapi;
 pub mod policy;
+pub mod presets;
 pub mod proxy;
 pub mod render;
 pub mod secrets;

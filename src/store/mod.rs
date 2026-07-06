@@ -7,6 +7,7 @@
 pub mod error;
 pub mod repository;
 pub mod sqlite;
+pub mod tool_defaults;
 
 pub use error::StoreError;
 pub use repository::{
@@ -16,6 +17,7 @@ pub use repository::{
     UsageBucket, UsageBucketFilter, UsageBucketRepository, UsageSummary,
 };
 pub use sqlite::SqliteRequestEventRepository;
+pub use tool_defaults::{ToolDefaultRecord, ToolDefaultsRepository};
 
 use sqlx::sqlite::SqlitePool;
 
@@ -67,6 +69,9 @@ mod tests {
             retry_count: 0,
             rate_limited: false,
             queued_ms: 0,
+            request_args: None,
+            response_preview: None,
+            upstream_latency_ms: None,
         }
     }
 
@@ -250,6 +255,73 @@ mod tests {
             let found = events.iter().find(|e| &e.request_id == id).unwrap();
             assert_eq!(&found.status, expected_status, "status mismatch for {id}");
         }
+    }
+
+    #[tokio::test]
+    async fn insert_and_list_roundtrips_capture_fields() {
+        let repo = setup_repo().await;
+        let mut event = sample_event("req_cap", "key-a", "res-1", RequestStatus::Success);
+        event.request_args = Some(r#"{"query":"rust"}"#.to_string());
+        event.response_preview = Some(r#"{"results":[]}"#.to_string());
+        event.upstream_latency_ms = Some(87);
+
+        repo.insert_event(&event).await.unwrap();
+
+        let events = repo
+            .list_events(&RequestEventFilter::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].request_args.as_deref(),
+            Some(r#"{"query":"rust"}"#)
+        );
+        assert_eq!(
+            events[0].response_preview.as_deref(),
+            Some(r#"{"results":[]}"#)
+        );
+        assert_eq!(events[0].upstream_latency_ms, Some(87));
+    }
+
+    #[tokio::test]
+    async fn capture_fields_default_to_null() {
+        let repo = setup_repo().await;
+        let event = sample_event("req_off", "key-a", "res-1", RequestStatus::Success);
+        repo.insert_event(&event).await.unwrap();
+
+        let events = repo
+            .list_events(&RequestEventFilter::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(events[0].request_args, None);
+        assert_eq!(events[0].response_preview, None);
+        assert_eq!(events[0].upstream_latency_ms, None);
+    }
+
+    #[tokio::test]
+    async fn list_events_filters_by_tool_name() {
+        let repo = setup_repo().await;
+
+        let e1 = sample_event("req_001", "key-a", "res-1", RequestStatus::Success);
+        let mut e2 = sample_event("req_002", "key-a", "res-1", RequestStatus::Success);
+        e2.tool_name = "search__exa__neural_search".to_string();
+
+        repo.insert_event(&e1).await.unwrap();
+        repo.insert_event(&e2).await.unwrap();
+
+        let filter = RequestEventFilter {
+            tool_name: Some("search__exa__neural_search".to_string()),
+            ..Default::default()
+        };
+        let events = repo.list_events(&filter, 10).await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].request_id, "req_002");
+
+        let filter = RequestEventFilter {
+            tool_name: Some("no__such__tool".to_string()),
+            ..Default::default()
+        };
+        assert!(repo.list_events(&filter, 10).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -772,6 +844,9 @@ mod tests {
             retry_count: 0,
             rate_limited: false,
             queued_ms: 0,
+            request_args: None,
+            response_preview: None,
+            upstream_latency_ms: None,
         }
     }
 

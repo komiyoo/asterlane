@@ -13,6 +13,7 @@
 - [Compatibility Policy](compatibility-policy.md) - 配置、工具名、错误码、公共 API 的兼容边界。
 - [Response Rendering](response-rendering.md) - 结果再呈现层：JSON 结果转 markdown/yaml 的格式协商、转换边界与管线位置。
 - [Admin Console](admin-console.md) - Web 管理控制台：形态决策、页面地图、admin API 缺口与分阶段路线。
+- [Tool Debugging & CLI](tool-debugging-and-cli.md) - 内置 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用与 `asterlane admin` CLI 的设计契约。
 - [Product Requirements](product-requirements.md) - 原始产品意图与 agent-native 要求。
 - [Configuration Schema](config-schema.md) - YAML 配置形态。
 - [Development Workflow](development-workflow.md) - 模块边界、crate 策略、子代理任务模式、验证规则。

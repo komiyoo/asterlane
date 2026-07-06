@@ -28,6 +28,12 @@ impl SqliteRequestEventRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    /// 连接池访问器，供同 crate 内其他 repository impl 使用
+    /// （如 `store::tool_defaults`）。
+    pub(crate) fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
 }
 
 /// 将 `RequestStatus` 编码为 DB 列 `(status_kind, status_code)`。
@@ -94,6 +100,12 @@ fn row_to_event(row: SqliteRow) -> Result<RequestEvent, StoreError> {
         queued_ms: row
             .try_get::<i64, _>("queued_ms")
             .map_err(StoreError::from)? as u32,
+        request_args: row.try_get("request_args").map_err(StoreError::from)?,
+        response_preview: row.try_get("response_preview").map_err(StoreError::from)?,
+        upstream_latency_ms: row
+            .try_get::<Option<i64>, _>("upstream_latency_ms")
+            .map_err(StoreError::from)?
+            .map(|v| v as u32),
     })
 }
 
@@ -107,8 +119,9 @@ impl RequestEventRepository for SqliteRequestEventRepository {
             INSERT INTO request_events
                 (timestamp, request_id, proxy_key_id, resource_id, tool_name,
                  upstream_key_ref, status_kind, status_code, latency_ms,
-                 request_units, retry_count, rate_limited, queued_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 request_units, retry_count, rate_limited, queued_ms,
+                 request_args, response_preview, upstream_latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&timestamp)
@@ -124,6 +137,9 @@ impl RequestEventRepository for SqliteRequestEventRepository {
         .bind(i64::from(event.retry_count))
         .bind(i64::from(event.rate_limited))
         .bind(i64::from(event.queued_ms))
+        .bind(&event.request_args)
+        .bind(&event.response_preview)
+        .bind(event.upstream_latency_ms.map(i64::from))
         .execute(&self.pool)
         .await
         .map_err(StoreError::from)?;
@@ -140,7 +156,8 @@ impl RequestEventRepository for SqliteRequestEventRepository {
             r#"
             SELECT timestamp, request_id, proxy_key_id, resource_id, tool_name,
                    upstream_key_ref, status_kind, status_code, latency_ms,
-                   request_units, retry_count, rate_limited, queued_ms
+                   request_units, retry_count, rate_limited, queued_ms,
+                   request_args, response_preview, upstream_latency_ms
             FROM request_events
             WHERE 1=1
             "#,
@@ -151,6 +168,9 @@ impl RequestEventRepository for SqliteRequestEventRepository {
         }
         if filter.resource_id.is_some() {
             sql.push_str(" AND resource_id = ?");
+        }
+        if filter.tool_name.is_some() {
+            sql.push_str(" AND tool_name = ?");
         }
         if filter.from.is_some() {
             sql.push_str(" AND timestamp >= ?");
@@ -169,6 +189,9 @@ impl RequestEventRepository for SqliteRequestEventRepository {
         }
         if let Some(ref resource_id) = filter.resource_id {
             query = query.bind(resource_id);
+        }
+        if let Some(ref tool_name) = filter.tool_name {
+            query = query.bind(tool_name);
         }
         if let Some(from) = filter.from {
             query = query.bind(from.to_rfc3339());

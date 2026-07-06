@@ -57,13 +57,14 @@ admin:
 | --- | --- | --- | --- |
 | Overview | 健康、版本、请求总量/错误数/平均延迟/限流命中/活跃工具/key/资源 | `/admin/health`、`/admin/stats` | 已上线（C1，卡片随 C2 stats 扩展） |
 | Resources | 上游资源清单（id、domain、provider、base_url、endpoint 数） | `/admin/resources` | 已上线（C1） |
-| Tools | wrapped tool 目录（name、description，客户端过滤） | `/admin/tools` | 已上线（C1）；catalog 大时改服务端过滤，复用 `catalog` 的过滤/分页 |
+| Tools | wrapped tool 目录（name、description，客户端过滤）；每行「调试」展开面板 = 参数 textarea（预填已存默认）+ 调用 + 存为默认 + 结果/耗时/request_id 显示 | `/admin/tools`、`GET/PUT/DELETE /admin/tools/{name}/defaults`、`POST /admin/tools/{name}/invoke` | 已上线（C1，调试面板随 C4）；catalog 大时改服务端过滤，复用 `catalog` 的过滤/分页 |
 | Proxy Keys | key scope 一览（allow/deny 正则、分页大小） | `/admin/proxy-keys` | 已上线（C1） |
 | Key Pools | upstream key 池状态：available/cooling/leased、冷却剩余、权重、EWMA 延迟、LB 策略 | `/admin/key-pools` | 已上线（C2）：key 以脱敏 `key#000N` 展示，ref 隐藏路径段；配置形态见 [Configuration Schema – Key Pool](config-schema.md) |
-| Events | 请求事件查询（key/resource/时间范围过滤，时间游标分页） | `/admin/events` | 已上线（C2）：`from`/`to` 为 RFC3339；`to` 不含边界，兼作游标——下一页传上一页末行 `timestamp`（同一时间戳的并发行可能被跳过，微秒精度下可接受） |
+| Events | 请求事件查询（key/resource/tool/时间范围过滤，时间游标分页）；行「详情」展示负载捕获字段 `request_args`/`response_preview`/`upstream_latency_ms`，含 `request_args` 的行提供「存为默认参数」（前端 PUT 到该 tool 的 defaults） | `/admin/events`（`?tool_name=` 精确过滤） | 已上线（C2，行详情随 C4）：`from`/`to` 为 RFC3339；`to` 不含边界，兼作游标——下一页传上一页末行 `timestamp`（同一时间戳的并发行可能被跳过，微秒精度下可接受） |
 | Security Events | integrity drift、content defense 事件 | `/admin/security-events` | 已上线（C1） |
 | Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中） | `/admin/usage?group_by=&from=&to=` | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
 | Config | 配置校验报告、资源与 key 的 CRUD | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3） |
+| （跨页面）Tool Defaults | 工具默认调用参数全量列表（Tools 调试面板与 CLI 消费） | `GET /admin/tool-defaults` | 已上线（C4） |
 
 除 Key Pools（依赖尚未接线的运行时能力）外，覆盖 [Architecture – Admin Console](architecture.md) 第一阶段最小集。
 
@@ -73,6 +74,13 @@ admin:
 - **C1 只读控制台（已交付 2026-07-05）**：单文件 `src/admin/console.html`（`GET /admin/ui`，`include_str!` 嵌入），页面 = Overview / Resources / Tools / Proxy Keys / Events / Security Events。表格 + 过滤输入框，无图表，零新依赖。Key Pools 页推迟至 C2（见上表）。
 - **C2 用量聚合（已交付 2026-07-05）**：`/admin/usage` 暴露 `store::AggregationRepository::summarize_by`（五个维度）；`/admin/events` 补 `from`/`to` 时间过滤与时间游标分页；`/admin/stats` 升级为 SQL 聚合（`overall_stats`，返回字段扩展为含 `unique_resources`/`avg_latency_ms`/`total_rate_limit_hits`）；控制台新增「用量」页（CSS 条形图 + 表格，错误占比着色）；key pool 接入请求路径后补齐 `/admin/key-pools` 与 Key Pools 页。时间桶趋势随 `usage_buckets` 写入路径接通交付：`group_by=bucket` 返回 hour 粒度升序序列（默认 168 桶/一周，上限 744），用量页「按小时（趋势）」维度渲染。
 - **C3 配置管理（已交付 2026-07-05）**：resources / proxy keys CRUD（`POST/PUT/DELETE`）、`/admin/config/validate` 配置校验报告、热更新（`Arc<RwLock<Arc<GatewayConfig>>>` 原子替换 + catalog 重建）。所有写操作落审计事件（`SecurityEventKind::AdminAudit`）。admin middleware 注入 `AdminKeyId`，audit 记录含 admin_key_id/action/target。控制台「配置管理」页含 Create/Delete + 校验按钮，单文件仍可承受。
+- **C4 调试调用与默认参数（已交付 2026-07-05）**：设计契约见 [Tool Debugging And CLI](tool-debugging-and-cli.md) 第 3 节。五个新端点（`src/admin/defaults.rs`，store 层 `ToolDefaultsRepository` 于 `src/store/tool_defaults.rs`，表 `tool_defaults`）：
+  - `GET /admin/tool-defaults` — 全量列表 `[{tool_name, args, source, updated_by, updated_at}]`；
+  - `GET /admin/tools/{name}/defaults` — 单条，不存在 404 `admin.not_found`；
+  - `PUT /admin/tools/{name}/defaults` — body 为裸 JSON object（非 object 报 400 `admin.invalid_query`），upsert `source=manual`，`updated_by` = admin key id；
+  - `DELETE /admin/tools/{name}/defaults` — 不存在 404；
+  - `POST /admin/tools/{name}/invoke?use_defaults=&save=` — 调试调用，args 优先级 = body 非空 > body 空且 `use_defaults=true` 用存储默认 > `{}`；`save=true` 且调用成功时把实际使用的 args 存为默认（`source=captured`）并记审计；响应 `{request_id, status, latency_ms, result}`。
+  - 调试调用复用 `/v1/tools/{name}/invoke` 执行管线（`http::execute_invoke`：limits、key pool、隔离、content defense、shaping、事件记录与负载捕获全部生效）；事件 `proxy_key_id` 记 `admin:{admin_key_id}`，通过合成 ProxyKey（allow `.*`）绕过 proxy key scope，合成 key 不写入配置。defaults 写操作（set/delete/capture）均落 `AdminAudit`。未配置 store 时写路径报 503 `store.unavailable`。控制台新增 Tools 行内调试面板与事件行详情（见页面地图）。
 - **远期（不排期）**：多管理员 RBAC、SSE live tail、SSO。
 
 每阶段独立可交付：C0/C1 合起来就是可用的最小控制台，C2/C3 按需求节奏推进。
@@ -93,3 +101,4 @@ admin:
 - [4] [Error Model](error-model.md)
 - [5] [Observability](observability.md)
 - [6] [Configuration Schema](config-schema.md)
+- [7] [Tool Debugging And CLI](tool-debugging-and-cli.md)

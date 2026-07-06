@@ -8,6 +8,7 @@
 //! - **限流命中去重**：每个等待请求只记一次限流命中。
 
 pub mod aggregation;
+pub mod capture;
 pub mod metrics;
 pub mod model;
 #[cfg(feature = "otlp")]
@@ -16,6 +17,7 @@ pub mod redaction;
 pub mod security;
 
 pub use aggregation::{AggregateDimension, BucketGranularity, UsageBucket, bucket_start};
+pub use capture::{capture_bytes, capture_text, redact_text, truncate_utf8};
 pub use metrics::{decrement_active_requests, increment_active_requests, record_request_event};
 pub use model::{RequestEvent, RequestStatus};
 pub use redaction::{

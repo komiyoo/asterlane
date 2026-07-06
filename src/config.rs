@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::error::{AsterlaneError, ErrorCode};
 use crate::integrity::IntegrityPolicy;
 use crate::render::ResponseFormat;
 
@@ -13,12 +14,50 @@ pub struct GatewayConfig {
     /// `asterlane__search_tools` 走关键词打分（见 docs/api-discovery.md）。
     #[serde(default)]
     pub semantic_search: Option<SemanticSearchConfig>,
+    /// 观测配置：请求负载捕获开关与截断预算（见 docs/tool-debugging-and-cli.md）。
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
+    /// 平台内置 MCP preset 启用列表，加载后展开进 `mcp_servers`
+    /// （展开语义见 docs/tool-debugging-and-cli.md）。
+    #[serde(default)]
+    pub builtin_mcp: Vec<String>,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
     #[serde(default)]
     pub proxy_keys: Vec<ProxyKey>,
+}
+
+/// 观测配置（见 docs/observability.md）。
+///
+/// 缺省启用负载捕获：请求参数与响应预览经截断 + 脱敏后写入
+/// `request_events` 与 tracing 日志；`capture_payloads: false` 全局关闭。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObservabilityConfig {
+    /// 是否捕获请求参数与结果预览（默认 true）。
+    #[serde(default = "default_capture_payloads")]
+    pub capture_payloads: bool,
+    /// 捕获内容单侧截断预算字节数（默认 4096，UTF-8 安全截断）。
+    #[serde(default = "default_capture_max_bytes")]
+    pub capture_max_bytes: usize,
+}
+
+impl Default for ObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            capture_payloads: default_capture_payloads(),
+            capture_max_bytes: default_capture_max_bytes(),
+        }
+    }
+}
+
+fn default_capture_payloads() -> bool {
+    true
+}
+
+fn default_capture_max_bytes() -> usize {
+    4096
 }
 
 /// Admin API 认证配置（见 docs/admin-console.md）。
@@ -82,6 +121,50 @@ impl GatewayConfig {
     /// 按 id 查找 remote MCP server 配置。
     pub fn mcp_server(&self, id: &str) -> Option<&McpServerConfig> {
         self.mcp_servers.iter().find(|server| server.id == id)
+    }
+
+    /// 把 `builtin_mcp` 中的 preset 展开为 [`McpServerConfig`] 追加进 `mcp_servers`。
+    ///
+    /// 配置加载后调用（`main.rs` 的 `load_config`）。展开语义
+    /// （见 docs/tool-debugging-and-cli.md「内置 MCP Presets」）：
+    ///
+    /// - 显式 `mcp_servers` 已有同 id 条目时跳过该 preset（显式配置优先，
+    ///   可用于覆盖 security 等字段）；`builtin_mcp` 列表内重复 id 只展开一次；
+    /// - 未知 preset id 返回 `config.unknown_resource` 错误 fail fast，
+    ///   错误信息列出可用 preset id。
+    pub fn expand_builtin_mcp(&mut self) -> Result<(), AsterlaneError> {
+        for id in &self.builtin_mcp {
+            let preset = crate::presets::builtin_presets()
+                .iter()
+                .find(|p| p.id == id)
+                .ok_or_else(|| {
+                    let available: Vec<&str> = crate::presets::builtin_presets()
+                        .iter()
+                        .map(|p| p.id)
+                        .collect();
+                    AsterlaneError::internal(
+                        ErrorCode::ConfigUnknownResource,
+                        format!(
+                            "unknown builtin_mcp preset: {id} (available: {})",
+                            available.join(", ")
+                        ),
+                    )
+                })?;
+            // 显式同 id 条目优先；首次展开后 id 已入列，天然去重列表内重复
+            if self.mcp_servers.iter().any(|s| s.id == preset.id) {
+                continue;
+            }
+            self.mcp_servers.push(McpServerConfig {
+                id: preset.id.to_string(),
+                domain: preset.domain.to_string(),
+                provider: preset.provider.to_string(),
+                url: preset.url.to_string(),
+                description: preset.description.to_string(),
+                auth: UpstreamAuth::None,
+                security: SecurityConfig::default(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -312,4 +395,76 @@ pub struct DefenseConfig {
     /// 是否启用 content defense 扫描。
     #[serde(default)]
     pub enabled: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(yaml: &str) -> GatewayConfig {
+        serde_norway::from_str(yaml).expect("valid test yaml")
+    }
+
+    #[test]
+    fn builtin_mcp_defaults_to_empty() {
+        let config = parse("api_resources: []");
+        assert!(config.builtin_mcp.is_empty());
+    }
+
+    #[test]
+    fn expands_builtin_presets_into_mcp_servers() {
+        let mut config = parse("builtin_mcp: [exa, deepwiki]");
+        config.expand_builtin_mcp().expect("expand");
+        assert_eq!(config.mcp_servers.len(), 2);
+        let exa = config.mcp_server("exa").expect("exa expanded");
+        assert_eq!(exa.domain, "search");
+        assert_eq!(exa.provider, "exa");
+        assert_eq!(exa.url, "https://mcp.exa.ai/mcp");
+        assert!(exa.auth.is_none());
+        assert_eq!(exa.security, SecurityConfig::default());
+        assert!(config.mcp_server("deepwiki").is_some());
+    }
+
+    #[test]
+    fn explicit_mcp_server_with_same_id_wins() {
+        let mut config = parse(
+            r#"
+builtin_mcp: [exa]
+mcp_servers:
+  - id: exa
+    domain: custom
+    provider: exa
+    url: https://example.test/mcp
+"#,
+        );
+        config.expand_builtin_mcp().expect("expand");
+        assert_eq!(config.mcp_servers.len(), 1);
+        let exa = config.mcp_server("exa").expect("exa kept");
+        assert_eq!(exa.domain, "custom");
+        assert_eq!(exa.url, "https://example.test/mcp");
+    }
+
+    #[test]
+    fn duplicate_ids_in_builtin_list_expand_once() {
+        let mut config = parse("builtin_mcp: [context7, context7]");
+        config.expand_builtin_mcp().expect("expand");
+        assert_eq!(config.mcp_servers.len(), 1);
+    }
+
+    #[test]
+    fn unknown_preset_id_fails_with_config_code() {
+        let mut config = parse("builtin_mcp: [nope]");
+        let err = config.expand_builtin_mcp().expect_err("must fail");
+        match err {
+            AsterlaneError::Internal { code, message, .. } => {
+                assert_eq!(code, ErrorCode::ConfigUnknownResource);
+                assert!(message.contains("nope"));
+                // 错误信息列出可用 preset id
+                assert!(message.contains("exa"));
+                assert!(message.contains("deepwiki"));
+                assert!(message.contains("context7"));
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+    }
 }

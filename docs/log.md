@@ -1,5 +1,22 @@
 # Documentation Update Log
 
+## 2026-07-05（Phase 9 交付：内置 MCP / 负载捕获 / 默认参数与调试调用 / CLI）
+
+按 `docs/tool-debugging-and-cli.md` 契约，四个 subagent 分两个 wave 交付，主代理集成：
+
+- **内置 MCP presets**：`src/presets.rs` 静态表（exa/deepwiki/context7，免鉴权）+ `GatewayConfig::expand_builtin_mcp()`（`builtin_mcp: [exa]` 一行启用；显式同 id 优先、未知 id 报 `config.unknown_resource` fail fast）+ `GET /admin/mcp-presets`（enabled 状态）。config-schema.md 增「Builtin MCP Presets」节。
+- **请求负载捕获与上游观测**（原生默认开）：`RequestEvent` 增 `request_args`/`response_preview`（`observability/capture.rs` 先 UTF-8 安全截断后脱敏）与 `upstream_latency_ms`（复用 EWMA 计时点，区分端到端 `latency_ms`）；四个 `record_event` 站点 + remote MCP 转发分支全接线；捕获开启时请求 span 内 `info!` 同口径输出；第八项指标族 `asterlane_upstream_duration_seconds`；migration `20260705000001` 三列 additive；`/admin/events?tool_name=` 过滤。observability.md 更新（「上游响应体不记录」口径废止）。
+- **工具默认参数与调试调用**：`tool_defaults` 表 + `ToolDefaultsRepository`（`store/tool_defaults.rs`）；`GET/PUT/DELETE /admin/tools/{name}/defaults` + `GET /admin/tool-defaults`（写操作审计）；`POST /admin/tools/{name}/invoke`（args 优先级 body＞use_defaults＞`{}`，`save=true` 成功后存 `source=captured`，合成 ProxyKey scope bypass，事件 `proxy_key_id=admin:{admin_key_id}`）；routes.rs 抽 `execute_invoke()`——/v1、meta-tool、admin 调试三方同管线。控制台 Tools 调试面板 + 事件详情/`tool_name` 过滤 + 「存为默认参数」。admin-console.md 增 C4 条目。
+- **配套 CLI**：`asterlane admin` 子命令组（`src/cli.rs` + `src/cli/client.rs`）——stats/resources/proxy-keys/key-pools/presets/tools/events/security-events/usage/validate/defaults(list/get/set/rm)/invoke；token 只从 env 读（`SecretString`，无 `--token` 参数）；退出码按错误码类别映射；`defaults set --from-last-event` 从捕获参数存默认。SKILL.md 增「Operate The Gateway With The CLI」段并修正三段命名；agent-skill.md 同步。
+- **登记**：compatibility-policy.md 增 `builtin_mcp` 与 `observability` 两行（后者标注观测口径变更）。
+- **验证**：mini 上 fmt/clippy(-D warnings)/test 全绿（549 lib + 2 bin + 全部集成套件）；OKF 检查通过；真机冒烟见 task.md T5 清单。
+- **已知待决**：debug invoke 响应 `request_id` 从事件表回读（并发歧义已留 ponytail 注释）；`store/sqlite.rs` ~950 行先在债务。remote MCP `is_error=true` 记 `Success` 于 2026-07-06 确认为正式口径（`status` 为网络/传输层结果，业务级错误见 `response_preview`，observability.md 已记）。
+
+## 2026-07-05（内置 MCP / 调试调用 / CLI 规划）
+
+- **新增 `tool-debugging-and-cli.md`**（Design）：内置免费 MCP preset（`builtin_mcp` 配置 + `src/presets.rs` 静态表 + `GET /admin/mcp-presets`）、请求负载捕获（`observability.capture_payloads`，`RequestEvent` 增 `request_args`/`response_preview`，日志与事件同口径）、工具默认调用参数（`tool_defaults` 表 + defaults CRUD + `POST /admin/tools/{name}/invoke` 调试调用）、配套 CLI（`asterlane admin` 子命令组 + skill 同步）四项契约。
+- **任务拆解**：根目录 `task.md` 记录 T0–T4 分工、write 范围与验证清单，按两个 wave 由 subagent 执行。
+
 ## 2026-07-05（C3 配置管理写路径）
 
 - **Admin CRUD API**：`POST/PUT/DELETE /admin/resources` 与 `POST/PUT/DELETE /admin/proxy-keys`——请求体为简化 `ResourceInput`/`ProxyKeyInput` DTO；写操作先校验（ID 重复 409、不存在 404）、持久化到 store、原子替换内存配置 + 重建 catalog、记录审计事件。新错误码 `admin.not_found`(404)、`admin.conflict`(409)。

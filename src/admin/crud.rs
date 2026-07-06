@@ -398,7 +398,8 @@ async fn update_proxy_key_db(state: &AppState, key: &ProxyKey) {
     }
 }
 
-async fn record_audit(
+/// 落一条 `AdminAudit` 审计事件（admin 写操作统一入口，defaults 模块复用）。
+pub(super) async fn record_audit(
     state: &AppState,
     admin_key_id: &str,
     action: &str,

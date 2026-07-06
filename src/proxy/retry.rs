@@ -22,6 +22,8 @@ pub(super) struct ExecutionError {
     pub(super) proxy_error: ProxyError,
     pub(super) retry_count: u8,
     pub(super) upstream_key_ref: String,
+    /// 最后一次上游尝试的服务端耗时（毫秒）；传输失败未拿到响应为 None。
+    pub(super) upstream_latency_ms: Option<u32>,
 }
 
 impl From<ProxyError> for ExecutionError {
@@ -30,8 +32,14 @@ impl From<ProxyError> for ExecutionError {
             proxy_error: e,
             retry_count: 0,
             upstream_key_ref: "<none>".to_string(),
+            upstream_latency_ms: None,
         }
     }
+}
+
+/// `Duration` → 毫秒 u32（饱和截断）。
+fn duration_ms(d: Duration) -> u32 {
+    d.as_millis().min(u32::MAX as u128) as u32
 }
 
 impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + UsageBucketRepository>
@@ -75,7 +83,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         secret: &Option<SecretString>,
         pool: Option<&ResourceKeyPool>,
         param_locations: Option<&ParamLocations>,
-    ) -> Result<(InvokeResult, u8, String), ExecutionError> {
+    ) -> Result<(InvokeResult, u8, String, u32), ExecutionError> {
         let method = http_method.to_reqwest();
         let url = build_url(base_url, upstream_path, args, param_locations);
         let is_get = http_method == HttpMethod::Get;
@@ -102,6 +110,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                             proxy_error,
                             retry_count,
                             upstream_key_ref,
+                            upstream_latency_ms: None,
                         });
                     }
                 }
@@ -141,6 +150,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         },
                         retry_count,
                         upstream_key_ref,
+                        upstream_latency_ms: None,
                     });
                 }
             };
@@ -160,6 +170,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         Ok(b) => b.to_vec(),
                         Err(_) => Vec::new(),
                     };
+                    // 本次尝试的服务端耗时（发出请求到响应体读取完成），
+                    // 同时供 EWMA 反馈与 RequestEvent 的 upstream_latency_ms。
+                    let attempt_elapsed = attempt_start.elapsed();
 
                     // 日志用脱敏摘要（不记录响应体内容）
                     let _summary = crate::observability::redact_body(status, content_length);
@@ -167,8 +180,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     if (200..300).contains(&status) {
                         // 成功：记录该 key 的 EWMA 延迟（供 fastest_response 策略）
                         if let (Some(p), Some(guard)) = (pool, &key_guard) {
-                            p.pool()
-                                .record_latency(guard.key_id(), attempt_start.elapsed());
+                            p.pool().record_latency(guard.key_id(), attempt_elapsed);
                         }
                         return Ok((
                             InvokeResult {
@@ -181,6 +193,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                             },
                             retry_count,
                             upstream_key_ref,
+                            duration_ms(attempt_elapsed),
                         ));
                     }
 
@@ -209,6 +222,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         proxy_error,
                         retry_count,
                         upstream_key_ref,
+                        upstream_latency_ms: Some(duration_ms(attempt_elapsed)),
                     });
                 }
                 Err(e) => {
@@ -230,6 +244,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                             },
                             retry_count,
                             upstream_key_ref,
+                            upstream_latency_ms: None,
                         });
                     }
                     // 连接失败（DNS/TCP/TLS）或其他请求错误
@@ -244,6 +259,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         proxy_error: ProxyError::ConnectionFailed,
                         retry_count,
                         upstream_key_ref,
+                        upstream_latency_ms: None,
                     });
                 }
             }
@@ -256,6 +272,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             },
             retry_count,
             upstream_key_ref,
+            upstream_latency_ms: None,
         })
     }
 }
