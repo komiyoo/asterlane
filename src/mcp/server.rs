@@ -499,6 +499,7 @@ mod tests {
     fn shaped_remote_mcp_invoke_result_preserves_error_result() {
         let tool_result = ToolCallResult::text_error("truncated error payload");
         let result = InvokeResult {
+            request_id: String::new(),
             status: 200,
             body: serde_json::to_vec(&tool_result).unwrap(),
             content_type: Some("application/json".to_string()),

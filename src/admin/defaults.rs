@@ -15,13 +15,11 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use tracing::warn;
 
 use crate::config::ProxyKey;
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
 use crate::render;
-use crate::store::repository::{RequestEventFilter, RequestEventRepository};
 use crate::store::{SqliteRequestEventRepository, ToolDefaultRecord, ToolDefaultsRepository};
 
 use super::auth::AdminKeyId;
@@ -218,40 +216,17 @@ pub(super) async fn invoke_tool_debug(
         record_audit(&state, &admin.0, "capture", "tool_default", &name).await;
     }
 
-    // ponytail: request_id 从事件表回读（executor 不外露 request_id）；
-    // 同一 admin 并发调试时可能取到相邻调用的 id，调试场景可接受
-    let request_id = latest_request_id(&state, &synthetic_key.id, &name).await;
-
     let result_value = serde_json::from_slice::<Value>(&result.body)
         .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&result.body).into_owned()));
 
     Ok(Json(json!({
-        "request_id": request_id,
+        "request_id": result.request_id,
         "status": result.status,
         "latency_ms": latency_ms,
         "result": result_value,
     })))
 }
 
-async fn latest_request_id(
-    state: &AppState,
-    proxy_key_id: &str,
-    tool_name: &str,
-) -> Option<String> {
-    let repo = state.event_repo.as_ref()?;
-    let filter = RequestEventFilter {
-        proxy_key_id: Some(proxy_key_id.to_string()),
-        tool_name: Some(tool_name.to_string()),
-        ..Default::default()
-    };
-    match repo.list_events(&filter, 1).await {
-        Ok(events) => events.into_iter().next().map(|e| e.request_id),
-        Err(e) => {
-            warn!(%e, "failed to read back debug invoke request_id");
-            None
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -260,7 +235,9 @@ mod tests {
     use crate::admin::auth::AdminAuth;
     use crate::catalog::ToolCatalog;
     use crate::observability::SecurityEventKind;
-    use crate::store::repository::{SecurityEventFilter, SecurityEventRepository};
+    use crate::store::repository::{
+        RequestEventFilter, RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
+    };
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
     use std::net::SocketAddr;

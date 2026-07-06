@@ -56,6 +56,8 @@ fn next_request_id() -> String {
 /// `body` 透传给 agent（代理语义），日志脱敏由 `redact_body` 处理。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvokeResult {
+    /// 本次调用的 request_id（executor 内部生成的进程内唯一标识）。
+    pub request_id: String,
     /// 上游 HTTP 状态码。
     pub status: u16,
     /// 上游响应体（透传给 agent；可能经 shaping 截断）。
@@ -360,7 +362,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         .mcp_server(&tool.resource_id)
                         .map(|s| s.security.clone())
                         .unwrap_or_default();
-                    let result = self
+                    let mut result = self
                         .shape_remote_mcp_result(
                             tool_result,
                             &tool.resource_id,
@@ -369,6 +371,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                             &security,
                         )
                         .await;
+                    result.request_id = request_id;
                     return Ok(result);
                 }
                 Err(err) => {
@@ -460,7 +463,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                 )
                 .await;
                 // Defense 扫描 + shaping：per-resource security 配置
-                let result = self
+                let mut result = self
                     .apply_defense_and_shaping(
                         result,
                         &resource.id,
@@ -469,6 +472,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         &resource.security,
                     )
                     .await;
+                result.request_id = request_id;
                 Ok(result)
             }
             Err(exec_err) => {

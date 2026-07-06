@@ -9,6 +9,8 @@ pub mod error;
 pub mod mcp_servers;
 pub mod repository;
 pub mod sqlite;
+mod sqlite_aggregation;
+mod sqlite_crud;
 pub mod tool_defaults;
 pub mod tool_metadata;
 

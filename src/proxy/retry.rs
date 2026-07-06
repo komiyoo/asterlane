@@ -184,6 +184,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         }
                         return Ok((
                             InvokeResult {
+                                request_id: String::new(),
                                 status,
                                 body,
                                 content_type,

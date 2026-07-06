@@ -220,6 +220,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         }
 
         InvokeResult {
+            request_id: String::new(),
             status: 200,
             body: serde_json::to_vec(&tool_result).unwrap_or_default(),
             content_type: Some("application/json".to_string()),
