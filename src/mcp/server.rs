@@ -12,7 +12,8 @@ use serde_json::json;
 use tracing::{debug, instrument, warn};
 
 use crate::catalog::{ToolListQuery, WrappedTool};
-use crate::config::ProxyKey;
+use crate::config::{GatewayConfig, ProxyKey};
+use crate::gateway_auth::GatewayKeyId;
 use crate::http::AppState;
 use crate::http::ToolListChangedPeers;
 use crate::mcp::model::{ToolCallResult, ToolContent};
@@ -23,8 +24,8 @@ use crate::shaping::{ResultCache, ShapingConfig};
 /// 默认分页大小。
 const DEFAULT_PAGE_SIZE: usize = 50;
 
-// ponytail: MCP 协议端不做 proxy key scope，用全放行 key 访问 catalog。
-// 实际 scope 由网关配置 + HTTP 层 proxy key 控制。
+// 开放模式（无任何 key 配置 token）的全放行 key，维持历史行为；
+// required 模式下由认证 middleware 绑定真实 ProxyKey（见 resolve_proxy_key）。
 fn mcp_default_key() -> ProxyKey {
     ProxyKey {
         id: "mcp-default".to_string(),
@@ -34,6 +35,12 @@ fn mcp_default_key() -> ProxyKey {
         default_tool_page_size: DEFAULT_PAGE_SIZE,
         discovery_mode: None,
         response_format: None,
+        allowed_servers: Vec::new(),
+        allowed_tool_names: Vec::new(),
+        limits: None,
+        token_ref: None,
+        token_digest: None,
+        expires_at: None,
     }
 }
 
@@ -46,6 +53,46 @@ pub struct AsterlaneToolServer {
 impl AsterlaneToolServer {
     pub fn new(state: AppState) -> Self {
         Self { state }
+    }
+
+    /// 从 request context 解析本次会话绑定的 proxy key。
+    ///
+    /// `/mcp` 认证 middleware（`gateway_auth::require_mcp_auth`）在 required 模式
+    /// 把 [`GatewayKeyId`] 写入 http request extensions；rmcp streamable http
+    /// service 将 `http::request::Parts` 注入 `RequestContext.extensions`
+    /// （rmcp 2.1.0 `streamable_http_server/tower.rs`「inject request part to
+    /// extensions」），此处逐层读出并按 id 取真实 ProxyKey（scope/限额/
+    /// response_format 随之生效）。
+    ///
+    /// 开放模式（无 key 配置 token）无绑定 → 返回全放行 mcp_default_key，
+    /// 维持向后兼容；required 模式下缺绑定为防御分支（middleware 必已拦截）。
+    async fn resolve_proxy_key(
+        &self,
+        config: &GatewayConfig,
+        context: &RequestContext<RoleServer>,
+    ) -> Result<ProxyKey, ErrorData> {
+        let bound_key_id = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<GatewayKeyId>());
+        match bound_key_id {
+            Some(id) => config.proxy_key(&id.0).cloned().ok_or_else(|| {
+                // 防御：认证表命中但配置快照已无此 key（如运行期被删除）
+                ErrorData::new(
+                    rmcp::model::ErrorCode::INVALID_REQUEST,
+                    "invalid gateway key",
+                    None,
+                )
+            }),
+            None if self.state.gateway_auth.read().await.mcp_auth_required() => {
+                Err(ErrorData::new(
+                    rmcp::model::ErrorCode::INVALID_REQUEST,
+                    "missing gateway key",
+                    None,
+                ))
+            }
+            None => Ok(mcp_default_key()),
+        }
     }
 }
 
@@ -81,15 +128,18 @@ impl ServerHandler for AsterlaneToolServer {
             .and_then(|c| c.parse::<usize>().ok())
             .unwrap_or(0);
 
+        // 认证绑定的真实 key（开放模式为全放行 mcp_default_key）；scope 随之生效
+        let config = self.state.config_snapshot().await;
+        let key = self.resolve_proxy_key(&config, &context).await?;
+
         let meta = request.as_ref().and_then(|r| r.meta.as_ref());
-        let key = mcp_default_key();
         let query = ToolListQuery {
             domain_regex: meta_str(meta, "domain_regex"),
             provider_regex: meta_str(meta, "provider_regex"),
             tool_regex: meta_str(meta, "tool_regex"),
             include_regex: meta_str(meta, "include"),
             exclude_regex: meta_str(meta, "exclude"),
-            limit: Some(DEFAULT_PAGE_SIZE),
+            limit: Some(key.default_tool_page_size),
             cursor: Some(offset),
         };
         let page = self
@@ -130,20 +180,22 @@ impl ServerHandler for AsterlaneToolServer {
 
         let config = self.state.config_snapshot().await;
 
+        // 认证绑定的真实 key（开放模式为全放行 mcp_default_key）；
+        // scope / per-key 限额 / response_format 随之生效
+        let key = self.resolve_proxy_key(&config, &context).await?;
+
         // 响应格式：`_meta["asterlane.dev/format"]` 请求级 override（见
         // docs/response-rendering.md），未知值按 INVALID_PARAMS fail fast。
         let format_override = meta_str(request.meta.as_ref(), "asterlane.dev/format");
-        let key_for_format = mcp_default_key();
         let format = render::resolve_format(
             format_override.as_deref(),
-            key_for_format.response_format,
+            key.response_format,
             config.defaults.response_format,
         )
         .map_err(|e| ErrorData::new(rmcp::model::ErrorCode::INVALID_PARAMS, e.to_string(), None))?;
 
         // Meta-tool 路径
         if crate::discovery::is_meta_tool(wire_name) {
-            let key = mcp_default_key();
             if wire_name == "asterlane__call_tool" {
                 return match invoke_meta_call_tool(arguments, &self.state, &key, format).await {
                     Ok(result) => Ok(result),
@@ -197,7 +249,6 @@ impl ServerHandler for AsterlaneToolServer {
         // 先读锁检查存在性，再 clone catalog 构造 executor（不持锁跨 await）。
         let catalog_snapshot = self.state.catalog.read().await.clone();
         if catalog_snapshot.find_by_wire_name(wire_name).is_some() {
-            let key = mcp_default_key();
             let is_remote_mcp = self
                 .state
                 .mcp_registry
@@ -212,9 +263,7 @@ impl ServerHandler for AsterlaneToolServer {
             if let Some(reg) = &self.state.mcp_registry {
                 executor = executor.with_mcp_registry(reg.clone());
             }
-            if let Some(lim) = &self.state.limits {
-                executor = executor.with_limits(lim.clone());
-            }
+            executor = executor.with_limits(self.state.limit_registry_snapshot().await);
             if let Some(pools) = &self.state.key_pools {
                 executor = executor.with_key_pools(pools.clone());
             }
@@ -333,9 +382,7 @@ async fn invoke_meta_call_tool(
     if let Some(registry) = &state.mcp_registry {
         executor = executor.with_mcp_registry(registry.clone());
     }
-    if let Some(limits) = &state.limits {
-        executor = executor.with_limits(limits.clone());
-    }
+    executor = executor.with_limits(state.limit_registry_snapshot().await);
     if let Some(pools) = &state.key_pools {
         executor = executor.with_key_pools(pools.clone());
     }

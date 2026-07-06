@@ -6,9 +6,10 @@ use std::sync::Arc;
 use crate::admin::AdminAuth;
 use crate::catalog::ToolCatalog;
 use crate::config::GatewayConfig;
+use crate::gateway_auth::GatewayAuth;
 use crate::integrity::{IntegrityBaseline, IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
-use crate::limits::RateLimits;
+use crate::limits::LimitRegistry;
 use crate::mcp::McpServerRegistry;
 use crate::secrets::DefaultSecretStore;
 use crate::semantic::SemanticIndex;
@@ -45,8 +46,10 @@ pub struct AppState {
     pub secrets: Arc<DefaultSecretStore>,
     /// Shared HTTP client for upstream calls.
     pub http_client: reqwest::Client,
-    /// Optional shared limiter for control-plane endpoints.
-    pub limits: Option<Arc<RateLimits>>,
+    /// 限额注册表（按实体独立 quota，见 docs/mcp-governance-and-key-limits.md §3）。
+    /// `RwLock<Arc<>>` 与 `config` 同模式：CRUD 重建后原子替换，
+    /// 读路径克隆 `Arc<LimitRegistry>` 后立即释放锁。缺省为空注册表（全放行）。
+    pub limit_registry: Arc<RwLock<Arc<LimitRegistry>>>,
     /// Optional event repository for persistent request logs.
     pub event_repo: Option<Arc<SqliteRequestEventRepository>>,
     /// Optional remote MCP registry for proxied MCP servers.
@@ -69,6 +72,11 @@ pub struct AppState {
     pub key_pools: Option<Arc<KeyPoolRegistry>>,
     /// 语义索引；`None` 时 `asterlane__search_tools` 走关键词打分。
     pub semantic: Option<Arc<SemanticIndex>>,
+    /// gateway key 认证状态（Bearer 摘要表 + legacy 集合，见 gateway_auth 模块）。
+    /// `RwLock` 供 wave 2 签发/吊销路径原子更新（set_token/clear_token）。
+    /// 缺省由 `new()` 从配置同步构建（token_ref 未解析，deny by default）；
+    /// serve() 用 `GatewayAuth::from_config` 的完整解析结果替换。
+    pub gateway_auth: Arc<RwLock<GatewayAuth>>,
 }
 
 // ponytail: manual Debug because PrometheusHandle doesn't impl Debug
@@ -76,7 +84,7 @@ impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
             .field("config", &"<rwlock>")
-            .field("limits", &self.limits)
+            .field("limit_registry", &"<rwlock>")
             .field("event_repo", &self.event_repo)
             .field(
                 "metrics_handle",
@@ -88,12 +96,14 @@ impl std::fmt::Debug for AppState {
 
 impl AppState {
     pub fn new(config: GatewayConfig, catalog: ToolCatalog) -> Self {
+        let gateway_auth = GatewayAuth::from_config_unresolved(&config);
         Self {
+            gateway_auth: Arc::new(RwLock::new(gateway_auth)),
             config: Arc::new(tokio::sync::RwLock::new(Arc::new(config))),
             catalog: Arc::new(RwLock::new(catalog)),
             secrets: Arc::new(DefaultSecretStore::with_backends()),
             http_client: reqwest::Client::new(),
-            limits: None,
+            limit_registry: Arc::new(RwLock::new(Arc::new(LimitRegistry::default()))),
             event_repo: None,
             mcp_registry: None,
             result_cache: Arc::new(ResultCache::new()),
@@ -119,14 +129,21 @@ impl AppState {
         self
     }
 
+    /// 注入完整解析的 gateway key 认证状态（main.rs 启动时解析 token_ref 后注入）。
+    pub fn with_gateway_auth(mut self, gateway_auth: GatewayAuth) -> Self {
+        self.gateway_auth = Arc::new(RwLock::new(gateway_auth));
+        self
+    }
+
     /// 注入语义索引（main.rs 启动时解析 embedding 端点配置后注入）。
     pub fn with_semantic(mut self, semantic: Arc<SemanticIndex>) -> Self {
         self.semantic = Some(semantic);
         self
     }
 
-    pub fn with_limits(mut self, limits: Arc<RateLimits>) -> Self {
-        self.limits = Some(limits);
+    /// 注入限额注册表（main.rs 启动时从配置构建 + 回填计数后注入）。
+    pub fn with_limit_registry(mut self, registry: Arc<LimitRegistry>) -> Self {
+        self.limit_registry = Arc::new(RwLock::new(registry));
         self
     }
 
@@ -170,5 +187,10 @@ impl AppState {
     /// 获取配置快照（读锁瞬间释放），下游代码直接使用 `Arc<GatewayConfig>`。
     pub async fn config_snapshot(&self) -> Arc<GatewayConfig> {
         self.config.read().await.clone()
+    }
+
+    /// 获取限额注册表快照（读锁瞬间释放）。
+    pub async fn limit_registry_snapshot(&self) -> Arc<LimitRegistry> {
+        self.limit_registry.read().await.clone()
     }
 }

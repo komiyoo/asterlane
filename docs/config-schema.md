@@ -127,6 +127,29 @@ key_pool:
 - 状态可见性：`/admin/key-pools` 快照（key 以脱敏 `key#000N` 展示，ref 隐藏路径段）。
 - remote MCP server（`mcp_servers[]`）暂不支持 key pool：其鉴权为连接级，per-call 轮换不适用。
 
+## Upstream Limits
+
+`api_resources[]` 与 `mcp_servers[]` 可选 `limits` 节，配置该上游的频率与并发限制（语义与执行顺序见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §3）：
+
+```yaml
+limits:
+  rps: 10                  # 每秒请求数（GCRA），可选
+  rpm: 300                 # 每分钟请求数，可选
+  max_concurrent: 4        # 并发上限（队列准入），可选
+  queue_timeout_secs: 10   # 排队超时，缺省 10
+```
+
+数值必须 > 0，非法值在构建限流器时报 `config.*` 错误 fail fast。缺省不限。
+
+## MCP Health Check
+
+`mcp_servers[]` 可选 `health_check` 节（见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §4）：
+
+```yaml
+health_check:
+  enabled: true   # 缺省 true；false 时不参与周期探测（状态 disabled），按需 probe 仍可用
+```
+
 `security` 可挂在 `api_resources[]` 与 `mcp_servers[]` 上；缺省时为安全兼容默认值：`integrity_policy: warn`、`defense.enabled: false`、`result_budget_bytes: null`（运行时回退 48KB）。
 
 ```yaml
@@ -230,11 +253,26 @@ proxy_keys:
       - '^search:tavily:.*$'        # 配置中可继续用冒号形式，policy 层翻译为 wire name 匹配
       - '^reader:jina:reader$'
     denied_tools: []
+    allowed_servers: [exa]          # 结构化范围：resource/mcp server id 白名单（可选）
+    allowed_tool_names:             # 结构化范围：精确 wire name 白名单（可选）
+      - search__exa__web_search_exa
+    limits:                         # per-key 限额（可选，缺省不限）
+      rps: 5
+      rpm: 60
+      max_calls: 10000              # 累计调用配额
+      max_calls_per_day: 1000       # 当日调用配额（UTC 零点重置）
+    token_ref: secret://env/AGENT_TOKEN   # gateway key token（方式一：YAML 管理）
+    # token_digest: "e3b0c442..."         # 方式二：签发路径写入的 SHA-256 hex（互斥）
+    expires_at: 2027-01-01T00:00:00Z      # token 过期时间（可选，UTC）
     default_tool_page_size: 5
     response_format: yaml           # 渠道级响应格式，缺省继承 defaults.response_format
 ```
 
+凭据语义（见 [Proxy Key 凭据化与配置持久化](key-credentials-and-persistence.md) K1）：配置了 token 的 key 必须以 `Authorization: Bearer alk_*` 认证，`?key=<id>` 仅对无 token 的 key 保留（legacy/dev 模式）；`token_ref` 与 `token_digest` 互斥，摘要必须 64 位小写 hex，非法配置启动 fail fast。
+
 Rules use Rust regex syntax. 配置中的正则可使用冒号形式（`^search:tavily:`）或 wire name 形式（`^search__tavily__`），policy 层统一翻译为 wire name 匹配。`denied_tools` override `allowed_tools`。
+
+范围判定（见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §2）：`denied_tools` 命中即拒绝；否则允许 = 正则命中 ∨ 工具所属上游 id ∈ `allowed_servers` ∨ wire name ∈ `allowed_tool_names`；三个允许列表全空 → 全拒绝。`limits.max_calls` 为累计配额：配置 store 时从事件计数回填、跨重启累计，未配 store 时仅内存计数。
 
 # Tool Discovery Query
 

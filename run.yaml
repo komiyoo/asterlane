@@ -1,0 +1,33 @@
+schema_version: 1
+
+admin:
+  keys:
+    - id: ops
+      token_ref: secret://env/ASTERLANE_ADMIN_TOKEN
+
+api_resources:
+  - id: httpbin
+    domain: test
+    provider: httpbin
+    base_url: https://httpbin.org
+    description: HTTPBin test endpoints
+    endpoints:
+      - tool: get_ip
+        method: GET
+        path: /ip
+        description: Returns origin IP.
+      - tool: get_headers
+        method: GET
+        path: /headers
+        description: Returns request headers.
+      - tool: post_anything
+        method: POST
+        path: /anything
+        description: Returns anything passed to it.
+
+proxy_keys:
+  - id: demo
+    display_name: Demo agent
+    allowed_tools:
+      - ".*"
+    default_tool_page_size: 50

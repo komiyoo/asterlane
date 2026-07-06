@@ -156,6 +156,7 @@ mod tests {
                 discovery: None,
                 security: Default::default(),
                 key_pool: pool,
+                limits: None,
             }],
             mcp_servers: Vec::new(),
             proxy_keys: Vec::new(),

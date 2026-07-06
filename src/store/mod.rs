@@ -4,12 +4,17 @@
 //! 模块边界：handler 不直接写 SQL，所有操作走 repository trait。
 //! 当前提供 SQLite 实现，后续可加 Postgres。
 
+pub mod config_merge;
 pub mod error;
+pub mod mcp_servers;
 pub mod repository;
 pub mod sqlite;
 pub mod tool_defaults;
+pub mod tool_metadata;
 
+pub use config_merge::{MergeReport, load_db_entries, merge_db_config, merge_db_into_config};
 pub use error::StoreError;
+pub use mcp_servers::{McpServerRecord, McpServerRepository};
 pub use repository::{
     AggregationDimension, AggregationFilter, AggregationRepository, OverallStats, ProxyKeyRecord,
     ProxyKeyRepository, RequestEventFilter, RequestEventRepository, Resource, ResourceRepository,
@@ -18,6 +23,7 @@ pub use repository::{
 };
 pub use sqlite::SqliteRequestEventRepository;
 pub use tool_defaults::{ToolDefaultRecord, ToolDefaultsRepository};
+pub use tool_metadata::{ToolMetadataEntry, ToolMetadataRepository};
 
 use sqlx::sqlite::SqlitePool;
 

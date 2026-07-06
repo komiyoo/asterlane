@@ -27,6 +27,18 @@ pub enum LimitError {
     /// 排队超时。
     #[error("request exceeded queue wait limit")]
     QueueTimeout,
+
+    /// Per-key 累计调用配额（`max_calls`）耗尽，需管理员调高配额。
+    ///
+    /// 消息不含内部计数细节（见 docs/mcp-governance-and-key-limits.md 安全红线）。
+    #[error("cumulative call quota exhausted for this key")]
+    CallsExhausted,
+
+    /// Per-key 当日调用配额（`max_calls_per_day`）耗尽，UTC 零点重置。
+    ///
+    /// `reset_after` 为距下个 UTC 零点的时长（HTTP 边界转 Retry-After）。
+    #[error("daily call quota exhausted for this key")]
+    DailyCallsExhausted { reset_after: Duration },
 }
 
 /// 把 `LimitError` 映射为顶层 `AsterlaneError`。
@@ -50,6 +62,18 @@ impl From<LimitError> for AsterlaneError {
             }
             LimitError::QueueTimeout => {
                 AsterlaneError::internal(ErrorCode::LimitQueueTimeout, err.to_string())
+            }
+            // 无 Retry-After：等待无济于事，需管理员调高配额
+            LimitError::CallsExhausted => {
+                AsterlaneError::internal(ErrorCode::LimitCallsExhausted, err.to_string())
+            }
+            // Retry-After = 距下个 UTC 零点（沿用 QuotaExceeded 的传递机制）
+            LimitError::DailyCallsExhausted { reset_after } => {
+                AsterlaneError::internal_with_retry_after(
+                    ErrorCode::LimitDailyCallsExhausted,
+                    err.to_string(),
+                    Some(*reset_after),
+                )
             }
         }
     }
@@ -81,6 +105,33 @@ mod tests {
         let err = AsterlaneError::from(LimitError::QueueTimeout);
         assert_eq!(err.error_code(), ErrorCode::LimitQueueTimeout);
         assert_eq!(err.exit_code(), 7);
+    }
+
+    #[test]
+    fn calls_exhausted_maps_to_429_without_retry_after() {
+        let err = AsterlaneError::from(LimitError::CallsExhausted);
+        assert_eq!(err.error_code(), ErrorCode::LimitCallsExhausted);
+        assert_eq!(err.exit_code(), 7);
+        let view = err.http_response();
+        assert_eq!(view.status, 429);
+        assert!(view.retry_after.is_none());
+        // 消息可安全示人，不含内部计数
+        assert!(!view.message.contains('0'));
+    }
+
+    #[test]
+    fn daily_calls_exhausted_maps_to_429_with_retry_after() {
+        let err = AsterlaneError::from(LimitError::DailyCallsExhausted {
+            reset_after: Duration::from_secs(7200),
+        });
+        assert_eq!(err.error_code(), ErrorCode::LimitDailyCallsExhausted);
+        assert_eq!(err.exit_code(), 7);
+        let view = err.http_response();
+        assert_eq!(view.status, 429);
+        // HTTP 边界据此输出 Retry-After（距下个 UTC 零点）
+        assert_eq!(view.retry_after, Some(Duration::from_secs(7200)));
+        // 消息可安全示人，不含内部计数
+        assert!(!view.message.contains("7200"));
     }
 
     #[test]

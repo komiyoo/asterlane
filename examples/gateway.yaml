@@ -39,6 +39,13 @@ api_resources:
     #     - ref: secret://tavily/key-a
     #       weight: 2
     #     - ref: secret://tavily/key-b
+    # 上游限额（可选，缺省不限；数值必须 > 0，0 值启动/CRUD 期报错。
+    # mcp_servers 条目同样支持。见 docs/mcp-governance-and-key-limits.md §3）：
+    # limits:
+    #   rps: 10                  # 每秒请求数（GCRA）
+    #   rpm: 300                 # 每分钟请求数
+    #   max_concurrent: 4        # 并发上限（队列准入，调用期间持有槽位）
+    #   queue_timeout_secs: 10   # 排队超时秒数，缺省 10
     endpoints:
       - tool: web_search
         method: POST
@@ -92,3 +99,12 @@ proxy_keys:
       - '^reader:.*$'                     # 冒号形式，翻译为 ^reader__.*$
     denied_tools: []
     default_tool_page_size: 2
+    # 结构化范围（可选，与 allowed_tools 正则取并集；denied_tools 仍最高优先；
+    # 三个允许列表全空 = 全拒绝。见 docs/mcp-governance-and-key-limits.md §2）：
+    # allowed_servers: [tavily, exa]                      # resource/mcp server id 白名单，命中即放行该上游全部工具
+    # allowed_tool_names: [search__exa__neural_search]    # 精确 wire name 白名单
+    # Per-key 限额（可选，缺省不限；数值必须 > 0。见 §3）：
+    # limits:
+    #   rps: 5
+    #   rpm: 60
+    #   max_calls: 10000   # 累计调用配额；配置 store 时跨重启累计，否则重启归零

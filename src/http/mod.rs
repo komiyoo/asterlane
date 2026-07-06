@@ -43,6 +43,11 @@ pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
             Arc::new(LocalSessionManager::default()),
             StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
         );
+    // /mcp gateway key 认证：required 模式（任一 key 配 token）校验 Bearer 并注入
+    // GatewayKeyId extension；开放模式放行（见 docs/key-credentials-and-persistence.md K1）
+    let mcp_router = Router::new().nest_service("/mcp", mcp_service).layer(
+        axum::middleware::from_fn_with_state(state.clone(), crate::gateway_auth::require_mcp_auth),
+    );
 
     let mut router = Router::new()
         .route("/healthz", get(routes::healthz))
@@ -51,7 +56,7 @@ pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
         .route("/config", get(routes::get_config))
         .route("/v1/tools", get(routes::list_tools))
         .route("/v1/tools/{name}/invoke", post(routes::invoke_tool))
-        .nest_service("/mcp", mcp_service);
+        .merge(mcp_router);
     // admin API 仅在配置了 admin key 时挂载（见 docs/admin-console.md C0）
     if state.admin_auth.is_some() {
         router = router.nest("/admin", crate::admin::router(&state));
@@ -77,7 +82,6 @@ mod tests {
     use serde_json::Value;
     use std::future::Future;
     use std::net::SocketAddr;
-    use std::num::NonZeroU32;
     use std::pin::Pin;
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -139,6 +143,7 @@ mod tests {
                     key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
+                    limits: None,
                 },
                 ApiResource {
                     id: "exa".to_string(),
@@ -159,6 +164,7 @@ mod tests {
                     key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
+                    limits: None,
                 },
             ],
             mcp_servers: Vec::new(),
@@ -170,6 +176,12 @@ mod tests {
                 default_tool_page_size: 10,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         }
     }
@@ -237,6 +249,7 @@ mod tests {
                 key_pool: None,
                 discovery: None,
                 security,
+                limits: None,
             }],
             mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
@@ -247,6 +260,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         };
         let catalog = ToolCatalog::from_config(&config).unwrap();
@@ -275,6 +294,8 @@ mod tests {
                     result_budget_bytes: Some(16),
                     ..SecurityConfig::default()
                 },
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
             }],
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
@@ -284,6 +305,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         };
         let registry = Arc::new(
@@ -435,9 +462,17 @@ mod tests {
 
     #[tokio::test]
     async fn config_uses_injected_limiter() {
-        let state = test_state().with_limits(Arc::new(crate::limits::RateLimits::per_second(
-            NonZeroU32::new(1).unwrap(),
-        )));
+        // per-key rps=1：/config 控制面与 invoke 共享 principal 维度限额
+        let mut config = test_config();
+        config.proxy_keys[0].limits = Some(crate::config::KeyLimits {
+            rps: Some(1),
+            rpm: None,
+            max_calls: None,
+            max_calls_per_day: None,
+        });
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let registry = crate::limits::LimitRegistry::from_config(&config).unwrap();
+        let state = AppState::new(config, catalog).with_limit_registry(Arc::new(registry));
         let app = build_app(state);
 
         let first = app

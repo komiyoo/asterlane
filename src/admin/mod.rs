@@ -10,11 +10,15 @@
 pub mod auth;
 mod crud;
 mod defaults;
+mod mcp;
+mod metadata;
+mod tokens;
 
 pub use auth::{AdminAuth, AdminKeyId};
 
 use axum::extract::{Query, State};
-use axum::response::Html;
+use axum::http::header;
+use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
@@ -23,6 +27,8 @@ use serde_json::{Value, json};
 
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
+use crate::limits::KeyUsage;
+use crate::observability::SecurityEventKind;
 use crate::store::repository::{
     AggregationDimension, AggregationFilter, AggregationRepository, OverallStats,
     RequestEventFilter, RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
@@ -45,7 +51,12 @@ pub fn router(state: &AppState) -> Router<AppState> {
             "/proxy-keys/{id}",
             put(crud::update_proxy_key).delete(crud::delete_proxy_key),
         )
+        .route(
+            "/proxy-keys/{id}/token",
+            post(tokens::issue_token).delete(tokens::revoke_token),
+        )
         .route("/config/validate", get(crud::validate_config))
+        .route("/config/export", get(config_export))
         .route("/tools", get(tools))
         .route("/tool-defaults", get(defaults::list_defaults))
         .route(
@@ -55,6 +66,24 @@ pub fn router(state: &AppState) -> Router<AppState> {
                 .delete(defaults::delete_default),
         )
         .route("/tools/{name}/invoke", post(defaults::invoke_tool_debug))
+        .route("/tool-metadata", get(metadata::list_metadata))
+        .route(
+            "/tools/{name}/metadata",
+            get(metadata::get_metadata)
+                .put(metadata::put_metadata)
+                .delete(metadata::delete_metadata),
+        )
+        .route(
+            "/mcp-servers",
+            get(mcp::list_servers).post(mcp::create_server),
+        )
+        .route(
+            "/mcp-servers/{id}",
+            get(mcp::get_server)
+                .put(mcp::update_server)
+                .delete(mcp::delete_server),
+        )
+        .route("/mcp-servers/{id}/probe", post(mcp::probe_server))
         .route("/mcp-presets", get(mcp_presets))
         .route("/events", get(events))
         .route("/security-events", get(security_events))
@@ -100,17 +129,40 @@ async fn resources(State(state): State<AppState>) -> Json<Value> {
     Json(json!(list))
 }
 
+/// `GET /admin/proxy-keys` — key 清单（契约 §K1/K3）。
+///
+/// 凭据只暴露 `auth_mode` 形态标记与 `expires_at`，绝不含
+/// token_ref/token_digest（安全红线）；`usage` 恒输出
+/// （无计数的 key 为全 0/null，控制台据此渲染进度条）。
 async fn proxy_keys(State(state): State<AppState>) -> Json<Value> {
     let config = state.config_snapshot().await;
+    let registry = state.limit_registry_snapshot().await;
     let list: Vec<Value> = config
         .proxy_keys
         .iter()
         .map(|k| {
+            let usage = registry.key_usage(&k.id).unwrap_or(KeyUsage {
+                calls_total: 0,
+                calls_today: 0,
+                max_calls: None,
+                max_calls_per_day: None,
+            });
+            let auth_mode = if k.token_ref.is_some() || k.token_digest.is_some() {
+                "token"
+            } else {
+                "legacy"
+            };
             json!({
                 "id": k.id,
                 "display_name": k.display_name,
+                "auth_mode": auth_mode,
+                "expires_at": k.expires_at,
+                "usage": usage,
                 "allowed_tools": k.allowed_tools,
                 "denied_tools": k.denied_tools,
+                "allowed_servers": k.allowed_servers,
+                "allowed_tool_names": k.allowed_tool_names,
+                "limits": k.limits,
                 "default_tool_page_size": k.default_tool_page_size,
             })
         })
@@ -118,15 +170,47 @@ async fn proxy_keys(State(state): State<AppState>) -> Json<Value> {
     Json(json!(list))
 }
 
+/// `GET /admin/config/export` — 当前合并快照的 YAML 导出（契约 §K2）。
+///
+/// 内容与 `/config` 同口径脱敏：凭据只以 secret ref 与 SHA-256 摘要出现，
+/// 无明文密钥，供在线改动固化回 git。
+async fn config_export(State(state): State<AppState>) -> Result<impl IntoResponse, AsterlaneError> {
+    let config = state.config_snapshot().await;
+    let yaml = serde_norway::to_string(config.as_ref()).map_err(|e| {
+        AsterlaneError::internal(
+            ErrorCode::ConfigInvalidYaml,
+            format!("config export serialization failed: {e}"),
+        )
+    })?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/yaml"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"gateway-export.yaml\"",
+            ),
+        ],
+        yaml,
+    ))
+}
+
+/// `GET /admin/tools` — 工具目录。
+///
+/// 行形状（契约 §6）：`{name, resource_id, description, description_override}`，
+/// `description` = 上游原始描述（catalog 内为有效描述，原始经 overlay 侧表还原），
+/// `description_override` 可空；agent 可见路径的有效描述 = override ?? 原始。
 async fn tools(State(state): State<AppState>) -> Json<Value> {
     let catalog = state.catalog.read().await;
     let all = catalog.all_tools();
     let entries: Vec<Value> = all
         .iter()
         .map(|t| {
+            let wire_name = t.name.to_wire_name();
             json!({
-                "name": t.name.to_wire_name(),
-                "description": t.description,
+                "resource_id": t.resource_id,
+                "description": catalog.original_description(&wire_name).unwrap_or(&t.description),
+                "description_override": catalog.description_override(&wire_name),
+                "name": wire_name,
             })
         })
         .collect();
@@ -180,6 +264,9 @@ struct EventsQuery {
 struct SecurityEventsQuery {
     limit: Option<u32>,
     resource_id: Option<String>,
+    /// 按事件分类过滤（`SecurityEventKind` 的 snake_case 值，如 `admin_audit`；
+    /// 非法值 400 `admin.invalid_query`，见契约 §K4）。
+    kind: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -278,19 +365,31 @@ async fn usage(
 async fn security_events(
     State(state): State<AppState>,
     Query(q): Query<SecurityEventsQuery>,
-) -> Json<Value> {
+) -> Result<Json<Value>, AsterlaneError> {
+    let kind = q.kind.as_deref().map(parse_event_kind).transpose()?;
     let Some(repo) = &state.event_repo else {
-        return Json(json!([]));
+        return Ok(Json(json!([])));
     };
     let limit = q.limit.unwrap_or(50).min(200);
     let filter = SecurityEventFilter {
         resource_id: q.resource_id,
+        kind,
         ..Default::default()
     };
     match repo.list_security_events(&filter, limit).await {
-        Ok(events) => Json(serde_json::to_value(events).unwrap_or_default()),
-        Err(_) => Json(json!([])),
+        Ok(events) => Ok(Json(serde_json::to_value(events).unwrap_or_default())),
+        Err(_) => Ok(Json(json!([]))),
     }
+}
+
+/// `?kind=` → [`SecurityEventKind`]（serde snake_case 表示是唯一事实来源）。
+fn parse_event_kind(raw: &str) -> Result<SecurityEventKind, AsterlaneError> {
+    serde_json::from_value(Value::String(raw.to_string())).map_err(|_| {
+        AsterlaneError::internal(
+            ErrorCode::AdminInvalidQuery,
+            format!("invalid kind: {raw} (expected a security event kind like admin_audit)"),
+        )
+    })
 }
 
 /// `GET /admin/key-pools` — key 池状态快照。

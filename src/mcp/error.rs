@@ -10,6 +10,7 @@
 //! - `Secret` → `auth.missing_upstream_secret`
 //! - `UpstreamNotImplemented` / `UpstreamFailure` → `mcp.upstream_mcp_failure`
 //!   → tool result `isError: true`
+//! - `UnknownServer` → `admin.not_found`（治理路径 404，不进 JSON-RPC 边界）
 
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::secrets::SecretError;
@@ -50,6 +51,14 @@ pub enum McpError {
     /// secret 解析失败（复用 `SecretError` → `auth.missing_upstream_secret`）。
     #[error(transparent)]
     Secret(#[from] SecretError),
+
+    /// probe/update 指向的 MCP server id 未登记。
+    ///
+    /// 映射到 `admin.not_found`（404）：该错误只出现在治理路径
+    /// （registry `probe`/`update_server` 的调用方是 wave 2 admin 端点），
+    /// 不出现在 MCP JSON-RPC 边界。
+    #[error("unknown MCP server: {server_id}")]
+    UnknownServer { server_id: String },
 }
 
 impl McpError {
@@ -74,6 +83,12 @@ impl McpError {
     pub fn upstream_failure(detail: impl Into<String>) -> Self {
         Self::UpstreamFailure {
             detail: detail.into(),
+        }
+    }
+
+    pub fn unknown_server(server_id: impl Into<String>) -> Self {
+        Self::UnknownServer {
+            server_id: server_id.into(),
         }
     }
 }
@@ -104,6 +119,10 @@ impl From<McpError> for AsterlaneError {
                 format!("upstream MCP server error: {detail}"),
             ),
             McpError::Secret(err) => return err.into(),
+            McpError::UnknownServer { server_id } => (
+                ErrorCode::AdminNotFound,
+                format!("unknown MCP server: {server_id}"),
+            ),
         };
         AsterlaneError::internal(code, message)
     }
@@ -140,6 +159,13 @@ mod tests {
     fn upstream_failure_maps_to_mcp_upstream_failure() {
         let err = AsterlaneError::from(McpError::upstream_failure("connection refused"));
         assert_eq!(err.error_code(), ErrorCode::McpUpstreamMcpFailure);
+    }
+
+    #[test]
+    fn unknown_server_maps_to_admin_not_found() {
+        let err = AsterlaneError::from(McpError::unknown_server("srv-missing"));
+        assert_eq!(err.error_code(), ErrorCode::AdminNotFound);
+        assert_eq!(err.http_response().status, 404);
     }
 
     #[test]

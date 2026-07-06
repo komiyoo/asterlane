@@ -15,10 +15,12 @@ use crate::catalog::ToolCatalog;
 use crate::config::{GatewayConfig, ProxyKey, SecurityConfig};
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
-use crate::limits::{ApiId, LimiterKey, RateLimits};
+use crate::limits::{LimitRegistry, QueuePermit};
 use crate::mcp::McpServerRegistry;
 use crate::naming::ToolName;
-use crate::observability::RequestStatus;
+use crate::observability::{
+    BucketGranularity, RequestEvent, RequestStatus, UsageBucket, bucket_start, record_request_event,
+};
 use crate::policy;
 use crate::render::ResponseFormat;
 use crate::secrets::SecretStore;
@@ -94,7 +96,7 @@ pub struct ProxyExecutor<
     pub(super) http: reqwest::Client,
     pub(super) mcp_registry: Option<Arc<McpServerRegistry>>,
     pub(super) key_pools: Option<Arc<KeyPoolRegistry>>,
-    pub(super) limits: Option<Arc<RateLimits>>,
+    pub(super) limits: Option<Arc<LimitRegistry>>,
     pub(super) quarantined: Option<QuarantinedTools>,
     pub(super) result_cache: Option<Arc<ResultCache>>,
     pub(super) response_format: ResponseFormat,
@@ -179,8 +181,10 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         self
     }
 
-    /// 注入限流器（可选）。注入后对每次调用按 `Endpoint` 维度检查配额。
-    pub fn with_limits(mut self, limits: Arc<RateLimits>) -> Self {
+    /// 注入限额注册表（可选）。注入后每次调用经统一准入管线：
+    /// key rps → rpm → max_calls → 上游 rps → rpm → 并发队列
+    /// （见 docs/mcp-governance-and-key-limits.md §3）。
+    pub fn with_limits(mut self, limits: Arc<LimitRegistry>) -> Self {
         self.limits = Some(limits);
         self
     }
@@ -251,8 +255,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
     /// 2. catalog 查找工具
     /// 3. config 查找 resource
     /// 4. policy 校验 scope
-    /// 5. resolve secret
-    /// 6. (可选) limits check / keys acquire
+    /// 5. (可选) 统一限额准入（key rps/rpm/max_calls → 上游 rps/rpm → 并发队列）
+    /// 6. resolve secret / keys acquire
     /// 7. 构造 reqwest 请求
     /// 8. 发送 + 重试（429/5xx，指数退避 + jitter）
     /// 9. (可选) failover：重试时 mark_cooling + acquire 新 key
@@ -313,14 +317,14 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         if let Some(registry) = &self.mcp_registry
             && registry.contains_tool(wire_name)
         {
-            if !policy::key_can_use_tool(proxy_key, &tool_name)? {
+            if !policy::key_can_use_tool(proxy_key, &tool_name, &tool.resource_id)? {
                 return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
             }
 
-            if let Some(limits) = &self.limits {
-                let limiter_key = LimiterKey::Endpoint(ApiId::new(&tool.resource_id));
-                limits.check(&limiter_key).await?;
-            }
+            // 统一准入管线；permit（若有）在上游调用期间持有
+            let _permit = self
+                .admit_or_record(proxy_key, &tool.resource_id, wire_name, &captured_args)
+                .await?;
 
             let request_id = next_request_id();
             tracing::Span::current().record("request_id", request_id.as_str());
@@ -395,11 +399,17 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             .ok_or_else(|| ProxyError::UnknownResource(tool.resource_id.clone()))?;
 
         // 6. policy 校验 scope
-        if !policy::key_can_use_tool(proxy_key, &tool_name)? {
+        if !policy::key_can_use_tool(proxy_key, &tool_name, &tool.resource_id)? {
             return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
         }
 
-        // 7. resolve secret：有 key pool 的资源在重试循环内 per-key 解析，
+        // 7. 统一准入管线（scope 之后、secret 解析之前：被限流的请求不触碰
+        //    secret backend）；permit 在上游调用期间持有
+        let _permit = self
+            .admit_or_record(proxy_key, &resource.id, wire_name, &captured_args)
+            .await?;
+
+        // 8. resolve secret：有 key pool 的资源在重试循环内 per-key 解析，
         //    此处跳过单 ref 解析（auth 中的单 ref 不再使用）
         let resource_pool = self
             .key_pools
@@ -410,12 +420,6 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         } else {
             resolve_auth_secret(&resource.auth, &*self.secrets).await?
         };
-
-        // 8. (可选) limits check
-        if let Some(limits) = &self.limits {
-            let limiter_key = LimiterKey::Endpoint(ApiId::new(&resource.id));
-            limits.check(&limiter_key).await?;
-        }
 
         // 7-10. 构造请求 + 重试 + failover + 记录
         let request_id = next_request_id();
@@ -484,6 +488,73 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                 )
                 .await;
                 Err(exec_err.proxy_error)
+            }
+        }
+    }
+
+    /// 统一准入 choke point（REST invoke / MCP tools/call / admin 调试共用）。
+    ///
+    /// 未注入注册表时放行；被拒时按既有 rate-limited 口径落 request event
+    /// （status `Limited`、`rate_limited: true`）与 metrics 后返回 `ProxyError::Limit`。
+    /// 被拒事件带 `rate_limited: true` 标记，启动回填 `max_calls` 时据此从
+    /// 行数中扣除（见 docs/mcp-governance-and-key-limits.md §3 计数口径）。
+    async fn admit_or_record(
+        &self,
+        proxy_key: &ProxyKey,
+        resource_id: &str,
+        wire_name: &str,
+        captured_args: &Option<String>,
+    ) -> Result<Option<QueuePermit>, ProxyError> {
+        let Some(limits) = &self.limits else {
+            return Ok(None);
+        };
+        match limits.admit(&proxy_key.id, resource_id).await {
+            Ok(permit) => Ok(permit),
+            Err(err) => {
+                let request_id = next_request_id();
+                tracing::Span::current().record("request_id", request_id.as_str());
+                tracing::warn!(
+                    proxy_key_id = %proxy_key.id,
+                    resource_id,
+                    tool_name = wire_name,
+                    error.message = %err,
+                    "request rejected by limit admission"
+                );
+                // record_event 固定 rate_limited=false，被拒事件在此内联构造
+                // （proxy/post.rs 归其他切片，不改其签名）
+                let event = RequestEvent {
+                    timestamp: chrono::Utc::now(),
+                    request_id: request_id.clone(),
+                    proxy_key_id: proxy_key.id.clone(),
+                    resource_id: resource_id.to_string(),
+                    tool_name: wire_name.to_string(),
+                    upstream_key_ref: "<limited>".to_string(),
+                    status: RequestStatus::Limited,
+                    latency_ms: 0,
+                    request_units: 1,
+                    retry_count: 0,
+                    rate_limited: true,
+                    queued_ms: 0,
+                    request_args: captured_args.clone(),
+                    response_preview: None,
+                    upstream_latency_ms: None,
+                };
+                record_request_event(&event);
+                if let Some(repo) = &self.event_repo {
+                    if let Err(e) = repo.insert_event(&event).await {
+                        tracing::warn!(error = %e, request_id, "failed to persist limited event");
+                    }
+                    let granularity = BucketGranularity::Hour;
+                    let bucket = UsageBucket::from_event(
+                        bucket_start(event.timestamp, granularity),
+                        granularity,
+                        &event,
+                    );
+                    if let Err(e) = repo.upsert_bucket(&(&bucket).into()).await {
+                        tracing::warn!(error = %e, request_id, "failed to upsert limited bucket");
+                    }
+                }
+                Err(ProxyError::Limit(err))
             }
         }
     }
@@ -706,6 +777,7 @@ mod tests {
                 key_pool: None,
                 discovery: None,
                 security: SecurityConfig::default(),
+                limits: None,
             }],
             mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
@@ -716,6 +788,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         }
     }
@@ -746,6 +824,7 @@ mod tests {
                 key_pool: None,
                 discovery: None,
                 security: SecurityConfig::default(),
+                limits: None,
             }],
             mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
@@ -756,6 +835,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         }
     }
@@ -937,6 +1022,7 @@ mod tests {
                 key_pool: None,
                 discovery: None,
                 security: SecurityConfig::default(),
+                limits: None,
             }],
             mcp_servers: Vec::new(),
             proxy_keys: vec![ProxyKey {
@@ -947,6 +1033,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         }
     }
@@ -996,6 +1088,8 @@ mod tests {
                     result_budget_bytes: Some(16),
                     ..SecurityConfig::default()
                 },
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
             }],
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
@@ -1005,6 +1099,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         };
         let registry = Arc::new(
@@ -1057,6 +1157,8 @@ mod tests {
                     result_budget_bytes: Some(16),
                     ..SecurityConfig::default()
                 },
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
             }],
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
@@ -1066,6 +1168,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         };
         let registry = Arc::new(
@@ -1313,6 +1421,8 @@ mod tests {
                 description: "remote MCP".to_string(),
                 auth: UpstreamAuth::None,
                 security: SecurityConfig::default(),
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
             }],
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
@@ -1322,6 +1432,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         };
         let registry = Arc::new(
@@ -1564,6 +1680,8 @@ mod tests {
                 description: "remote MCP".to_string(),
                 auth: UpstreamAuth::None,
                 security: SecurityConfig::default(),
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
             }],
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
@@ -1573,6 +1691,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         };
         let registry = Arc::new(
@@ -1620,6 +1744,8 @@ mod tests {
                 description: "remote MCP".to_string(),
                 auth: UpstreamAuth::None,
                 security: SecurityConfig::default(),
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
             }],
             proxy_keys: vec![ProxyKey {
                 id: "agent-test".to_string(),
@@ -1629,6 +1755,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         };
         let registry = Arc::new(

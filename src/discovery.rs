@@ -276,6 +276,7 @@ mod tests {
                     key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
+                    limits: None,
                 },
                 ApiResource {
                     id: "exa".to_string(),
@@ -296,6 +297,7 @@ mod tests {
                     key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
+                    limits: None,
                 },
             ],
             mcp_servers: Vec::new(),
@@ -307,6 +309,12 @@ mod tests {
                 default_tool_page_size: 20,
                 discovery_mode: Some("lazy".to_string()),
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         }
     }

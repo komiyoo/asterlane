@@ -7,12 +7,12 @@
 <style>
 :root {
   --bg: #f6f7f9; --fg: #1c2128; --muted: #6a737d; --card: #ffffff;
-  --border: #d8dde3; --accent: #3b5bdb; --ok: #2b8a3e; --err: #c92a2a;
+  --border: #d8dde3; --accent: #3b5bdb; --ok: #2b8a3e; --err: #c92a2a; --warn: #d9480f;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14171b; --fg: #dbe1e8; --muted: #8b949e; --card: #1d2126;
-    --border: #30363d; --accent: #748ffc; --ok: #69b979; --err: #f08080;
+    --border: #30363d; --accent: #748ffc; --ok: #69b979; --err: #f08080; --warn: #ffa94d;
   }
 }
 * { box-sizing: border-box; }
@@ -65,6 +65,23 @@ td.err { color: var(--err); }
 .bar-track { background: var(--bg); border-radius: 4px; height: 14px; overflow: hidden; }
 .bar-fill { background: var(--accent); height: 100%; border-radius: 4px; display: flex; justify-content: flex-end; min-width: 2px; }
 .bar-err { background: var(--err); height: 100%; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); }
+.dot.unreachable { background: var(--err); }
+.dot.disabled { background: var(--border); }
+.badge {
+  display: inline-block; font: 11px/1.4 system-ui, sans-serif; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; margin-left: 6px;
+  vertical-align: middle; white-space: nowrap;
+}
+select[multiple] { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.q-wrap { display: grid; gap: 2px; min-width: 150px; }
+.q-row { display: grid; grid-template-columns: 14px minmax(60px, 1fr) auto; gap: 6px; align-items: center; font-size: 11px; }
+.q-track { display: block; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; height: 8px; overflow: hidden; }
+.q-fill { display: block; height: 100%; }
+.q-num { color: var(--muted); white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+dialog { background: var(--card); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; max-width: min(92vw, 640px); }
+dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 </style>
 </head>
 <body>
@@ -78,6 +95,7 @@ td.err { color: var(--err); }
 </header>
 <nav id="nav"></nav>
 <main id="view"><p class="hint">输入 admin token 并点击「连接」</p></main>
+<dialog id="tok-dialog"></dialog>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -103,7 +121,8 @@ async function apiWrite(method, path, body) {
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
   if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error?.message || "HTTP " + res.status); }
-  return res.json();
+  if (res.status === 204) return {}; // DELETE /admin/mcp-servers/{id} 等无响应体
+  return res.json().catch(() => ({}));
 }
 
 function fmtCell(key, v) {
@@ -141,11 +160,13 @@ const TABS = {
   overview: { label: "总览", load: loadOverview },
   usage: { label: "用量", load: loadUsage },
   resources: { label: "资源", load: loadResources },
+  mcp: { label: "MCP Servers", load: loadMcpServers },
   tools: { label: "工具", load: loadTools },
   keys: { label: "Proxy Keys", load: loadProxyKeys },
   keypools: { label: "Key Pools", load: loadKeyPools },
   events: { label: "事件", load: loadEvents },
   security: { label: "安全事件", load: loadSecurity },
+  audit: { label: "审计", load: loadAudit },
   config: { label: "配置管理", load: loadConfig },
 };
 let current = "overview";
@@ -222,22 +243,27 @@ async function loadTools(view) {
   const data = await api("/admin/tools");
   const render = filter => {
     const f = filter.trim().toLowerCase();
-    const rows = data.tools.filter(t =>
-      !f || t.name.toLowerCase().includes(f) || (t.description || "").toLowerCase().includes(f));
-    let h = '<div class="tablewrap"><table><thead><tr><th>name</th><th>description</th><th></th></tr></thead><tbody>';
+    const rows = data.tools.filter(t => !f
+      || [t.name, t.resource_id, t.description, t.description_override]
+        .some(v => (v || "").toLowerCase().includes(f)));
+    let h = '<div class="tablewrap"><table><thead><tr><th>name</th><th>resource_id</th><th>description</th><th></th></tr></thead><tbody>';
     rows.forEach((t, i) => {
-      h += '<tr><td>' + esc(t.name) + '</td><td>' + esc(t.description || "") + '</td>'
+      // 有效描述 = override ?? 上游原始；override 徽标悬浮可见原始描述
+      const badge = t.description_override
+        ? '<span class="badge" title="原始描述: ' + esc(t.description || "（无）") + '">override</span>' : "";
+      h += '<tr><td>' + esc(t.name) + '</td><td>' + esc(t.resource_id || "") + '</td>'
+        + '<td>' + esc(t.description_override || t.description || "") + badge + '</td>'
         + '<td><button class="tool-debug" data-name="' + esc(t.name) + '" data-i="' + i + '">调试</button></td></tr>'
-        + '<tr id="dbg-' + i + '" style="display:none"><td colspan="3"></td></tr>';
+        + '<tr id="dbg-' + i + '" style="display:none"><td colspan="4"></td></tr>';
     });
-    if (!rows.length) h += '<tr><td colspan="3" class="empty">无数据</td></tr>';
+    if (!rows.length) h += '<tr><td colspan="4" class="empty">无数据</td></tr>';
     h += '</tbody></table></div>';
     $("#tools-table").innerHTML = h;
     $("#tools-count").textContent = rows.length + " / " + data.total_count;
     $("#tools-table").querySelectorAll(".tool-debug").forEach(b =>
       b.addEventListener("click", () => toggleDebugPanel(b.dataset.name, $("#dbg-" + b.dataset.i))));
   };
-  view.innerHTML = '<div class="toolbar"><input id="tools-filter" placeholder="按名称/描述过滤" size="32">'
+  view.innerHTML = '<div class="toolbar"><input id="tools-filter" placeholder="按名称/资源/描述过滤" size="32">'
     + '<span id="tools-count" class="hint" style="padding:6px"></span></div><div id="tools-table"></div>';
   $("#tools-filter").addEventListener("input", e => render(e.target.value));
   render("");
@@ -286,10 +312,252 @@ async function toggleDebugPanel(name, rowEl) {
   });
 }
 
+// ── MCP Servers 页 ──
+
+// 健康状态灯：ok 绿 / unreachable 红 / unknown 灰 / disabled 暗
+function healthDot(h, id) {
+  const s = ["ok", "unreachable", "unknown", "disabled"].includes(h?.status) ? h.status : "unknown";
+  return '<span class="dot ' + s + '"' + (id ? ' id="' + id + '"' : "") + ' title="' + s + '"></span>';
+}
+
+// 工具介绍 override 面板：保存 = PUT metadata，清除 = DELETE（恢复上游原始描述）
+function toggleMetaPanel(tool, rowEl, onSaved) {
+  if (rowEl.style.display !== "none") { rowEl.style.display = "none"; return; }
+  rowEl.style.display = "";
+  const cell = rowEl.querySelector("td");
+  cell.innerHTML = '<div class="card" style="margin:4px 0;min-width:0">'
+    + '<div class="hint" style="padding:0 0 6px;text-align:left">介绍 override（覆盖上游 description）· 原始: '
+    + esc(tool.description || "（无）") + '</div>'
+    + '<textarea class="mt-text" rows="3" spellcheck="false" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px">'
+    + esc(tool.description_override || "") + '</textarea>'
+    + '<div class="toolbar" style="margin:8px 0 0"><button class="mt-save">保存</button>'
+    + '<button class="mt-clear">清除 override</button>'
+    + '<span class="mt-status hint" style="padding:6px;text-align:left"></span></div></div>';
+  const st = cell.querySelector(".mt-status");
+  cell.querySelector(".mt-save").addEventListener("click", async () => {
+    const text = cell.querySelector(".mt-text").value.trim();
+    if (!text) { alert("介绍不能为空；恢复原始描述请用「清除 override」"); return; }
+    try {
+      await apiWrite("PUT", "/admin/tools/" + encodeURIComponent(tool.wire_name) + "/metadata", { description: text });
+      st.textContent = "已保存";
+      if (onSaved) await onSaved();
+    } catch (e) { st.textContent = "保存失败：" + e.message; }
+  });
+  cell.querySelector(".mt-clear").addEventListener("click", async () => {
+    try {
+      await apiWrite("DELETE", "/admin/tools/" + encodeURIComponent(tool.wire_name) + "/metadata");
+      st.textContent = "已清除";
+      if (onSaved) await onSaved();
+    } catch (e) { st.textContent = "清除失败：" + e.message; }
+  });
+}
+
+async function loadMcpServers(view) {
+  view.innerHTML = '<div class="toolbar"><button id="ms-new">+ 添加 MCP Server</button>'
+    + '<span class="hint" style="padding:6px;text-align:left">行点击展开详情</span></div>'
+    + '<div id="ms-form"></div><div id="ms-list"></div>';
+  let servers = [];
+
+  const refresh = async () => {
+    try {
+      const rows = await api("/admin/mcp-servers");
+      servers = Array.isArray(rows) ? rows : [];
+      renderList();
+    } catch (e) {
+      $("#ms-list").innerHTML = '<p class="empty">' + esc(e.message) + '（/admin/mcp-servers 端点未就绪或无权限）</p>';
+    }
+  };
+
+  const renderList = () => {
+    let h = '<div class="tablewrap"><table><thead><tr><th>状态</th><th>id</th><th>domain / provider</th>'
+      + '<th>url</th><th>需要 key</th><th>工具数</th><th></th></tr></thead><tbody>';
+    servers.forEach((s, i) => {
+      h += '<tr class="ms-row" data-i="' + i + '" style="cursor:pointer">'
+        + '<td>' + healthDot(s.health, "ms-dot-" + i) + '</td>'
+        + '<td>' + esc(s.id) + (s.builtin ? '<span class="badge">builtin</span>' : "") + '</td>'
+        + '<td>' + esc(s.domain || "") + " / " + esc(s.provider || "") + '</td>'
+        + '<td>' + esc(s.url || "") + '</td>'
+        + '<td>' + (s.requires_key ? "是（" + esc(s.auth_type || "?") + "）" : "否") + '</td>'
+        + '<td>' + esc(s.tool_count ?? "") + '</td>'
+        + '<td><button class="ms-probe" data-i="' + i + '">探测</button> '
+        + '<button class="ms-edit" data-i="' + i + '">编辑</button> '
+        + '<button class="ms-del" data-i="' + i + '">删除</button></td></tr>'
+        + '<tr id="ms-detail-' + i + '" style="display:none"><td colspan="7"></td></tr>';
+    });
+    if (!servers.length) h += '<tr><td colspan="7" class="empty">无 MCP server</td></tr>';
+    h += '</tbody></table></div>';
+    $("#ms-list").innerHTML = h;
+    $("#ms-list").querySelectorAll(".ms-row").forEach(tr =>
+      tr.addEventListener("click", e => {
+        if (e.target.closest("button")) return;
+        toggleDetail(+tr.dataset.i);
+      }));
+    $("#ms-list").querySelectorAll(".ms-probe").forEach(b =>
+      b.addEventListener("click", () => probe(+b.dataset.i, b)));
+    $("#ms-list").querySelectorAll(".ms-edit").forEach(b =>
+      b.addEventListener("click", () => openForm(servers[+b.dataset.i])));
+    $("#ms-list").querySelectorAll(".ms-del").forEach(b =>
+      b.addEventListener("click", async () => {
+        const id = servers[+b.dataset.i].id;
+        if (!confirm("删除 MCP server " + id + "？其工具将从目录移除")) return;
+        try { await apiWrite("DELETE", "/admin/mcp-servers/" + encodeURIComponent(id)); await refresh(); }
+        catch (e) { alert(e.message); }
+      }));
+  };
+
+  const probe = async (i, btn) => {
+    btn.disabled = true; btn.textContent = "探测中…";
+    try {
+      const r = await apiWrite("POST", "/admin/mcp-servers/" + encodeURIComponent(servers[i].id) + "/probe");
+      servers[i].health = r.health || r; // 契约返回 health 对象本体，防御兼容包裹形
+      const dot = $("#ms-dot-" + i);
+      if (dot) dot.outerHTML = healthDot(servers[i].health, "ms-dot-" + i);
+      const det = $("#ms-detail-" + i);
+      if (det && det.style.display !== "none") await renderDetail(i);
+    } catch (e) { alert("探测失败：" + e.message); }
+    btn.disabled = false; btn.textContent = "探测";
+  };
+
+  const toggleDetail = async i => {
+    const rowEl = $("#ms-detail-" + i);
+    if (rowEl.style.display !== "none") { rowEl.style.display = "none"; return; }
+    rowEl.style.display = "";
+    await renderDetail(i);
+  };
+
+  const renderDetail = async i => {
+    const cell = $("#ms-detail-" + i).querySelector("td");
+    cell.innerHTML = '<p class="hint">加载中…</p>';
+    let d;
+    try { d = await api("/admin/mcp-servers/" + encodeURIComponent(servers[i].id)); }
+    catch (e) { cell.innerHTML = '<p class="empty">' + esc(e.message) + '（详情端点未就绪或无权限）</p>'; return; }
+    const hh = d.health || {}, lim = d.limits || {}, sec = d.security || {};
+    const line = (k, v) => '<div><b>' + esc(k) + '</b>: ' + v + '</div>';
+    const dash = v => v === null || v === undefined || v === "" ? "—" : esc(v);
+    let h = '<div class="card" style="margin:4px 0;min-width:0">'
+      + line("描述", dash(d.description))
+      + line("健康", healthDot(hh) + " " + dash(hh.status)
+        + " · last_check_at " + dash(hh.last_check_at)
+        + " · last_ok_at " + dash(hh.last_ok_at)
+        + " · latency_ms " + dash(hh.latency_ms)
+        + " · consecutive_failures " + dash(hh.consecutive_failures))
+      + (hh.last_error ? line("last_error", '<span style="color:var(--err)">' + esc(hh.last_error) + "</span>") : "")
+      + line("测活", d.health_check_enabled === false ? "关闭" : "开启")
+      + line("限额", "rps " + dash(lim.rps) + " · rpm " + dash(lim.rpm) + " · max_concurrent " + dash(lim.max_concurrent))
+      + line("安全", "integrity_policy " + dash(sec.integrity_policy)
+        + " · defense " + (sec.defense_enabled ? "开" : "关")
+        + " · result_budget_bytes " + dash(sec.result_budget_bytes));
+    const tools = Array.isArray(d.tools) ? d.tools : [];
+    h += '<h3 style="margin:12px 0 6px">工具（' + tools.length + '）</h3>';
+    if (tools.length) {
+      h += '<div class="tablewrap"><table><thead><tr><th>wire_name</th><th>描述（有效）</th><th></th></tr></thead><tbody>';
+      tools.forEach((t, j) => {
+        h += '<tr><td>' + esc(t.wire_name)
+          + (t.description_override ? '<span class="badge" title="原始描述: ' + esc(t.description || "（无）") + '">override</span>' : "")
+          + '</td><td>' + esc(t.description_override || t.description || "") + '</td>'
+          + '<td><button class="mt-meta" data-j="' + j + '">介绍</button> '
+          + '<button class="mt-dbg" data-j="' + j + '">调试</button></td></tr>'
+          + '<tr id="mt-meta-' + i + '-' + j + '" style="display:none"><td colspan="3"></td></tr>'
+          + '<tr id="mt-dbg-' + i + '-' + j + '" style="display:none"><td colspan="3"></td></tr>';
+      });
+      h += '</tbody></table></div>';
+    } else h += '<p class="empty">无工具</p>';
+    h += '</div>';
+    cell.innerHTML = h;
+    cell.querySelectorAll(".mt-meta").forEach(b =>
+      b.addEventListener("click", () =>
+        toggleMetaPanel(tools[+b.dataset.j], $("#mt-meta-" + i + "-" + b.dataset.j), () => renderDetail(i))));
+    cell.querySelectorAll(".mt-dbg").forEach(b =>
+      b.addEventListener("click", () =>
+        toggleDebugPanel(tools[+b.dataset.j].wire_name, $("#mt-dbg-" + i + "-" + b.dataset.j))));
+  };
+
+  // 添加/编辑表单；凭据一律 secret ref，编辑不回显既有 ref
+  const openForm = s => {
+    const editing = !!s;
+    s = s || {};
+    const lim = s.limits || {};
+    const f = $("#ms-form");
+    const val = v => esc(v ?? "");
+    f.innerHTML = '<div class="card" style="margin:8px 0">'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
+      + '<label>ID<br><input id="ms-id" size="12" value="' + val(s.id) + '"' + (editing ? " disabled" : "") + '></label>'
+      + '<label>Domain<br><input id="ms-domain" size="10" value="' + val(s.domain) + '"></label>'
+      + '<label>Provider<br><input id="ms-provider" size="10" value="' + val(s.provider) + '"></label>'
+      + '<label>URL<br><input id="ms-url" size="28" value="' + val(s.url) + '"></label>'
+      + '<label>描述<br><input id="ms-desc" size="18" value="' + val(s.description) + '"></label>'
+      + '<label>Auth<br><select id="ms-auth">'
+      + ["none", "bearer", "header"].map(t => '<option' + (s.auth_type === t ? " selected" : "") + '>' + t + '</option>').join("")
+      + '</select></label>'
+      + '<label id="ms-l-token">token_ref<br><input id="ms-token" size="24" placeholder="secret://env/NAME"></label>'
+      + '<label id="ms-l-hname">Header 名<br><input id="ms-hname" size="10" placeholder="x-api-key"></label>'
+      + '<label id="ms-l-hval">value_ref<br><input id="ms-hval" size="24" placeholder="secret://env/NAME"></label>'
+      + '<label>测活<br><input type="checkbox" id="ms-hc"' + (s.health_check_enabled === false ? "" : " checked") + '></label>'
+      + '<label>rps<br><input id="ms-rps" size="4" value="' + val(lim.rps) + '"></label>'
+      + '<label>rpm<br><input id="ms-rpm" size="4" value="' + val(lim.rpm) + '"></label>'
+      + '<label>max_concurrent<br><input id="ms-conc" size="4" value="' + val(lim.max_concurrent) + '"></label>'
+      + '<button id="ms-save">' + (editing ? "保存" : "创建") + '</button><button id="ms-cancel">取消</button></div>'
+      + '<div class="hint" style="padding:6px 0 0;text-align:left">凭据只收 secret ref（如 secret://env/NAME），不收明文密钥'
+      + (editing ? '；编辑不回显既有 ref，auth 为 bearer/header 时需重新填写' : "") + '</div></div>';
+    const syncAuth = () => {
+      const t = $("#ms-auth").value;
+      $("#ms-l-token").style.display = t === "bearer" ? "" : "none";
+      $("#ms-l-hname").style.display = t === "header" ? "" : "none";
+      $("#ms-l-hval").style.display = t === "header" ? "" : "none";
+    };
+    $("#ms-auth").addEventListener("change", syncAuth);
+    syncAuth();
+    $("#ms-cancel").addEventListener("click", () => { f.innerHTML = ""; });
+    $("#ms-save").addEventListener("click", async () => {
+      const refOk = r => r.startsWith("secret://");
+      const body = {
+        domain: $("#ms-domain").value.trim(),
+        provider: $("#ms-provider").value.trim(),
+        url: $("#ms-url").value.trim(),
+        health_check: { enabled: $("#ms-hc").checked },
+      };
+      const id = editing ? s.id : $("#ms-id").value.trim();
+      if (!editing) body.id = id;
+      const desc = $("#ms-desc").value.trim();
+      if (desc) body.description = desc;
+      const at = $("#ms-auth").value;
+      if (at === "bearer") {
+        const ref = $("#ms-token").value.trim();
+        if (!refOk(ref)) { alert("token_ref 必须是 secret ref（secret://…），不收明文密钥"); return; }
+        body.auth = { type: "bearer", token_ref: ref };
+      } else if (at === "header") {
+        const name = $("#ms-hname").value.trim(), ref = $("#ms-hval").value.trim();
+        if (!name) { alert("Header 名不能为空"); return; }
+        if (!refOk(ref)) { alert("value_ref 必须是 secret ref（secret://…），不收明文密钥"); return; }
+        body.auth = { type: "header", name, value_ref: ref };
+      } else body.auth = { type: "none" };
+      const lim2 = {};
+      [["rps", "#ms-rps"], ["rpm", "#ms-rpm"], ["max_concurrent", "#ms-conc"]].forEach(([k, sel]) => {
+        const v = parseInt($(sel).value, 10);
+        if (v > 0) lim2[k] = v;
+      });
+      if (Object.keys(lim2).length) body.limits = lim2;
+      try {
+        const r = editing
+          ? await apiWrite("PUT", "/admin/mcp-servers/" + encodeURIComponent(id), body)
+          : await apiWrite("POST", "/admin/mcp-servers", body);
+        if (r.health?.status === "unreachable")
+          alert("已保存但连接失败" + (r.health.last_error ? "：" + r.health.last_error : "，可稍后「探测」重试"));
+        f.innerHTML = "";
+        await refresh();
+      } catch (e) { alert(e.message); }
+    });
+  };
+
+  $("#ms-new").addEventListener("click", () => openForm(null));
+  await refresh();
+}
+
 async function loadProxyKeys(view) {
   const rows = await api("/admin/proxy-keys");
   view.innerHTML = objTable(rows,
-    ["id", "display_name", "allowed_tools", "denied_tools", "default_tool_page_size"]);
+    ["id", "display_name", "auth_mode", "expires_at", "usage", "allowed_servers", "allowed_tool_names", "limits",
+      "allowed_tools", "denied_tools", "default_tool_page_size"]);
 }
 
 async function loadKeyPools(view) {
@@ -391,10 +659,134 @@ async function loadSecurity(view) {
     ["timestamp", "resource_id", "tool_name", "kind", "severity", "details"]);
 }
 
+// auth_mode 徽标：token 绿 / legacy 灰；字段缺失（后端未就绪）不渲染
+function authBadge(mode) {
+  if (mode === "token") return '<span class="badge" style="color:var(--ok);border-color:var(--ok);margin-left:0">token</span>';
+  if (mode === "legacy") return '<span class="badge" style="margin-left:0">legacy</span>';
+  return "";
+}
+
+// per-key 配额进度条：总量 + 当日两条；≥80% 橙、100% 红；无上限只显示计数；usage 缺失整体不渲染
+function usageBars(u) {
+  if (!u || typeof u !== "object") return "";
+  const row = (lbl, count, max) => {
+    const c = Number(count) || 0;
+    if (max == null) return '<div class="q-row"><span>' + lbl + '</span><span></span><span class="q-num">' + c + '</span></div>';
+    const pct = max > 0 ? Math.min(c / max * 100, 100) : 100;
+    const color = pct >= 100 ? "var(--err)" : pct >= 80 ? "var(--warn)" : "var(--accent)";
+    return '<div class="q-row"><span>' + lbl + '</span>'
+      + '<span class="q-track" title="' + pct.toFixed(0) + '%"><span class="q-fill" style="width:' + pct.toFixed(0) + '%;background:' + color + '"></span></span>'
+      + '<span class="q-num">' + c + "/" + max + '</span></div>';
+  };
+  return '<div class="q-wrap">' + row("总", u.calls_total, u.max_calls) + row("日", u.calls_today, u.max_calls_per_day) + '</div>';
+}
+
+// ── Proxy key token 签发/轮换弹窗 ──
+// 安全红线：token 明文只存在于弹窗 DOM，不写 sessionStorage/localStorage/console；关闭即清空
+function openTokenDialog(key, onDone) {
+  const dlg = $("#tok-dialog");
+  const mode = key.auth_mode === "token" ? "轮换" : "签发";
+  let issued = false;
+  dlg.innerHTML = '<h3 style="margin:0 0 8px">' + mode + ' token · ' + esc(key.id) + '</h3>'
+    + (key.auth_mode === "token"
+      ? '<div class="hint" style="padding:0 0 8px;text-align:left">该 key 已有 token，' + mode + '后旧 token 立即失效</div>' : "")
+    + '<label>过期时间（可选，留空永不过期）<br><input type="datetime-local" id="tok-exp"></label>'
+    + '<div class="toolbar" style="margin:10px 0 0"><button id="tok-go">' + mode + '</button>'
+    + '<button id="tok-cancel">取消</button>'
+    + '<span id="tok-status" class="hint" style="padding:6px;text-align:left"></span></div>';
+  dlg.addEventListener("close", () => { dlg.innerHTML = ""; if (issued && onDone) onDone(); }, { once: true });
+  dlg.showModal();
+  $("#tok-cancel").addEventListener("click", () => dlg.close());
+  $("#tok-go").addEventListener("click", async () => {
+    const exp = $("#tok-exp").value;
+    $("#tok-status").textContent = mode + "中…";
+    let r;
+    try {
+      r = await apiWrite("POST", "/admin/proxy-keys/" + encodeURIComponent(key.id) + "/token",
+        exp ? { expires_at: new Date(exp).toISOString() } : undefined);
+    } catch (e) { $("#tok-status").textContent = e.message + "（端点未就绪或无权限）"; return; }
+    if (!r || !r.token) { $("#tok-status").textContent = "响应缺少 token 字段"; return; }
+    issued = true;
+    dlg.innerHTML = '<h3 style="margin:0 0 8px">token 已' + mode + ' · ' + esc(key.id) + '</h3>'
+      + '<div style="color:var(--err);font-weight:600;margin:0 0 10px">仅此一次展示，关闭后无法再查看，请立即保存</div>'
+      + '<div style="display:flex;gap:8px;align-items:center">'
+      + '<input id="tok-value" readonly value="' + esc(r.token) + '" size="48" style="flex:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px">'
+      + '<button id="tok-copy">复制</button></div>'
+      + '<div style="color:var(--muted);font-size:12px;margin-top:8px">过期时间：' + esc(r.expires_at || "永不过期") + '</div>'
+      + '<div class="toolbar" style="margin:12px 0 0"><button id="tok-close">关闭</button></div>';
+    $("#tok-copy").addEventListener("click", async () => {
+      const inp = $("#tok-value");
+      inp.select();
+      try { await navigator.clipboard.writeText(inp.value); }
+      catch { document.execCommand("copy"); } // 非安全上下文（http）时的兜底
+      $("#tok-copy").textContent = "已复制";
+    });
+    $("#tok-close").addEventListener("click", () => dlg.close());
+  });
+}
+
+// 审计 tab：security-events 按 kind 过滤；admin_audit 字段可能平铺在行上或嵌在 details 内，防御式取
+async function loadAudit(view) {
+  view.innerHTML = '<div class="toolbar">'
+    + '<select id="au-kind"><option value="admin_audit">admin_audit</option><option value="">全部 kind</option></select>'
+    + '<input id="au-limit" value="100" size="5" title="limit">'
+    + '<button id="au-go">查询</button></div><div id="au-table"></div>';
+  const run = async () => {
+    const p = new URLSearchParams({ limit: parseInt($("#au-limit").value, 10) || 100 });
+    if ($("#au-kind").value) p.set("kind", $("#au-kind").value);
+    try {
+      const rows = await api("/admin/security-events?" + p);
+      if (!rows.length) { $("#au-table").innerHTML = '<p class="empty">无数据</p>'; return; }
+      const field = (r, det, names) => {
+        for (const n of names) {
+          if (r[n] != null && r[n] !== "") return r[n];
+          if (det[n] != null && det[n] !== "") return det[n];
+        }
+        return "";
+      };
+      let h = '<div class="tablewrap"><table><thead><tr><th>时间</th><th>kind</th><th>admin</th><th>action</th><th>target</th><th>details</th></tr></thead><tbody>';
+      rows.forEach(r => {
+        let det = r.details;
+        if (typeof det === "string") { try { det = JSON.parse(det); } catch { det = {}; } }
+        if (!det || typeof det !== "object") det = {};
+        h += '<tr><td>' + esc(r.timestamp || "") + '</td><td>' + esc(r.kind || "") + '</td>'
+          + '<td>' + esc(field(r, det, ["admin_key_id", "admin_key", "admin_id", "admin"])) + '</td>'
+          + '<td>' + esc(field(r, det, ["action"])) + '</td>'
+          + '<td>' + esc(field(r, det, ["target", "target_id"])) + '</td>'
+          + '<td>' + esc(fmtCell("details", r.details)) + '</td></tr>';
+      });
+      h += '</tbody></table></div>';
+      $("#au-table").innerHTML = h;
+    } catch (e) {
+      $("#au-table").innerHTML = '<p class="empty">' + esc(e.message) + '（/admin/security-events 端点未就绪或无权限）</p>';
+    }
+  };
+  $("#au-go").addEventListener("click", run);
+  $("#au-kind").addEventListener("change", run);
+  await run();
+}
+
 async function loadConfig(view) {
+  let editingKeyId = null; // 非空 = 正在编辑该 proxy key（保存走 PUT）
   const render = async () => {
-    const [resources, keys] = await Promise.all([api("/admin/resources"), api("/admin/proxy-keys")]);
-    let h = '<h3>配置校验</h3><button id="cfg-validate">校验当前配置</button><div id="cfg-vresult"></div>';
+    // mcp-servers / tools 是 key 表单范围选择的数据源，端点未就绪时降级为空
+    const [resources, keys, mcps, toolsData] = await Promise.all([
+      api("/admin/resources"),
+      api("/admin/proxy-keys"),
+      api("/admin/mcp-servers").catch(() => null),
+      api("/admin/tools").catch(() => null),
+    ]);
+    const mcpList = Array.isArray(mcps) ? mcps : [];
+    const allTools = (toolsData && toolsData.tools) || [];
+    // server 多选 = api resources ∪ mcp servers 的 id
+    const serverOpts = resources.map(r => ({ id: r.id, kind: "api" }))
+      .concat(mcpList.map(m => ({ id: m.id, kind: "mcp" })));
+    const toolServers = [...new Set(allTools.map(t => t.resource_id).filter(Boolean))];
+    const srcHint = [mcps === null ? "/admin/mcp-servers" : "", toolsData === null ? "/admin/tools" : ""]
+      .filter(Boolean).join("、");
+    let h = '<h3>配置校验与导出</h3><div class="toolbar"><button id="cfg-validate">校验当前配置</button>'
+      + '<button id="cfg-export">导出 YAML</button>'
+      + '<span id="cfg-export-msg" class="hint" style="padding:6px;text-align:left"></span></div><div id="cfg-vresult"></div>';
     // resources
     h += '<h3>资源管理</h3><button id="cfg-new-res">+ 新建资源</button>'
       + '<div id="cfg-res-form" style="display:none;margin:8px 0"><div class="card">'
@@ -414,25 +806,55 @@ async function loadConfig(view) {
     });
     if (!resources.length) h += '<tr><td colspan="6" class="empty">无资源</td></tr>';
     h += '</tbody></table></div>';
-    // proxy keys
+    // proxy keys：结构化范围（多选）+ 限额；正则收进「高级」折叠区
     h += '<h3>Proxy Key 管理</h3><button id="cfg-new-key">+ 新建 Proxy Key</button>'
       + '<div id="cfg-key-form" style="display:none;margin:8px 0"><div class="card">'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
       + '<label>ID<br><input id="nk-id" size="12"></label>'
       + '<label>显示名<br><input id="nk-name" size="12"></label>'
-      + '<label>Allowed（逗号分隔）<br><input id="nk-allow" size="20"></label>'
-      + '<label>Denied（逗号分隔）<br><input id="nk-deny" size="20"></label>'
       + '<label>Page Size<br><input id="nk-ps" size="4" value="20"></label>'
-      + '<button id="nk-save">创建</button><button id="nk-cancel">取消</button>'
-      + '</div></div></div>';
-    h += '<div class="tablewrap"><table><thead><tr><th>id</th><th>display_name</th><th>allowed_tools</th><th>denied_tools</th><th>page_size</th><th></th></tr></thead><tbody>';
-    keys.forEach(k => {
-      h += '<tr><td>' + esc(k.id) + '</td><td>' + esc(k.display_name) + '</td><td>' + esc(Array.isArray(k.allowed_tools) ? k.allowed_tools.join(", ") : k.allowed_tools)
-        + '</td><td>' + esc(Array.isArray(k.denied_tools) ? k.denied_tools.join(", ") : k.denied_tools)
-        + '</td><td>' + esc(k.default_tool_page_size)
-        + '</td><td><button class="cfg-del-key" data-id="' + esc(k.id) + '">删除</button></td></tr>';
+      + '<label>rps<br><input id="nk-rps" size="4"></label>'
+      + '<label>rpm<br><input id="nk-rpm" size="4"></label>'
+      + '<label>max_calls<br><input id="nk-calls" size="7"></label></div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:8px">'
+      + '<label>允许的 MCP/资源（allowed_servers）<br><select id="nk-servers" multiple size="6" style="min-width:200px">'
+      + serverOpts.map(o => '<option value="' + esc(o.id) + '">' + esc(o.id) + '（' + o.kind + '）</option>').join("")
+      + '</select></label>'
+      + '<div><label>允许的工具（allowed_tool_names）</label><br>'
+      + '<input id="nk-toolfilter" placeholder="按名称过滤" size="14"> '
+      + '<select id="nk-toolserver"><option value="">全部 server</option>'
+      + toolServers.map(sid => '<option>' + esc(sid) + '</option>').join("") + '</select><br>'
+      + '<select id="nk-tools" multiple size="6" style="min-width:280px;margin-top:4px">'
+      + allTools.map(t => '<option value="' + esc(t.name) + '" data-res="' + esc(t.resource_id || "") + '">' + esc(t.name) + '</option>').join("")
+      + '</select></div></div>'
+      + (srcHint ? '<div class="hint" style="padding:4px 0 0;text-align:left">' + esc(srcHint) + ' 端点未就绪或无权限，范围选项可能不全</div>' : "")
+      + '<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--muted);font-size:12px">高级：正则 scope（allowed_tools / denied_tools）</summary>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'
+      + '<label>Allowed（正则，逗号分隔）<br><input id="nk-allow" size="26"></label>'
+      + '<label>Denied（正则，逗号分隔）<br><input id="nk-deny" size="26"></label></div></details>'
+      + '<div class="toolbar" style="margin:10px 0 0"><button id="nk-save">创建</button><button id="nk-cancel">取消</button></div>'
+      + '</div></div>';
+    h += '<div class="tablewrap"><table><thead><tr><th>id</th><th>display_name</th><th>认证</th><th>用量/配额</th><th>servers</th><th>tool_names</th><th>limits</th><th>正则 scope</th><th>page_size</th><th></th></tr></thead><tbody>';
+    keys.forEach((k, i) => {
+      const lim = k.limits || {};
+      const limStr = ["rps", "rpm", "max_calls"].filter(x => lim[x] != null).map(x => x + " " + lim[x]).join(" · ");
+      const tn = k.allowed_tool_names || [];
+      const rx = [(k.allowed_tools || []).length ? "allow: " + k.allowed_tools.join(", ") : "",
+        (k.denied_tools || []).length ? "deny: " + k.denied_tools.join(", ") : ""].filter(Boolean).join("\n");
+      h += '<tr><td>' + esc(k.id) + '</td><td>' + esc(k.display_name || "") + '</td>'
+        + '<td>' + authBadge(k.auth_mode)
+        + (k.expires_at ? '<div style="color:var(--muted);font-size:11px">到期 ' + esc(k.expires_at) + '</div>' : "") + '</td>'
+        + '<td>' + usageBars(k.usage) + '</td>'
+        + '<td>' + esc((k.allowed_servers || []).join(", ")) + '</td>'
+        + '<td' + (tn.length ? ' title="' + esc(tn.join("\n")) + '"' : "") + '>' + (tn.length ? tn.length + " 个" : "") + '</td>'
+        + '<td>' + esc(limStr) + '</td><td>' + esc(rx) + '</td>'
+        + '<td>' + esc(k.default_tool_page_size ?? "") + '</td>'
+        + '<td><button class="cfg-edit-key" data-i="' + i + '">编辑</button> '
+        + '<button class="cfg-tok-issue" data-i="' + i + '">' + (k.auth_mode === "token" ? "轮换 token" : "签发 token") + '</button> '
+        + (k.auth_mode === "token" ? '<button class="cfg-tok-revoke" data-id="' + esc(k.id) + '">吊销</button> ' : "")
+        + '<button class="cfg-del-key" data-id="' + esc(k.id) + '">删除</button></td></tr>';
     });
-    if (!keys.length) h += '<tr><td colspan="6" class="empty">无 Proxy Key</td></tr>';
+    if (!keys.length) h += '<tr><td colspan="10" class="empty">无 Proxy Key</td></tr>';
     h += '</tbody></table></div>';
     view.innerHTML = h;
     // events
@@ -444,6 +866,22 @@ async function loadConfig(view) {
         if (v.issues.length) t += '<br>' + v.issues.map(i => '<span style="color:var(--' + (i.level === 'error' ? 'err' : 'muted') + ')">[' + esc(i.level) + '] ' + esc(i.target) + ': ' + esc(i.message) + '</span>').join('<br>');
         $("#cfg-vresult").innerHTML = '<div class="card" style="margin-top:8px">' + t + '</div>';
       } catch (e) { $("#cfg-vresult").innerHTML = '<p class="empty">' + esc(e.message) + '</p>'; }
+    });
+    // 导出当前合并配置快照（api() 只吃 JSON，这里要拿 YAML 原文，走裸 fetch + Blob 下载）
+    $("#cfg-export").addEventListener("click", async () => {
+      const msg = $("#cfg-export-msg");
+      msg.textContent = "导出中…";
+      try {
+        const res = await fetch("/admin/config/export", {
+          headers: { Authorization: "Bearer " + (sessionStorage.getItem(TOKEN_KEY) || ""), Accept: "text/yaml" },
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement("a");
+        a.href = url; a.download = "gateway-export.yaml"; a.click();
+        URL.revokeObjectURL(url);
+        msg.textContent = "已导出";
+      } catch (e) { msg.textContent = "导出失败：" + e.message + "（端点未就绪或无权限）"; }
     });
     $("#cfg-new-res").addEventListener("click", () => { $("#cfg-res-form").style.display = "block"; });
     $("#nr-cancel").addEventListener("click", () => { $("#cfg-res-form").style.display = "none"; });
@@ -458,12 +896,65 @@ async function loadConfig(view) {
       try { await apiWrite("DELETE", "/admin/resources/" + encodeURIComponent(b.dataset.id)); await render(); }
       catch (e) { alert(e.message); }
     }));
-    $("#cfg-new-key").addEventListener("click", () => { $("#cfg-key-form").style.display = "block"; });
-    $("#nk-cancel").addEventListener("click", () => { $("#cfg-key-form").style.display = "none"; });
+    // key 表单：新建与编辑共用；编辑时 ID 锁定、保存走 PUT
+    const openKeyForm = k => {
+      editingKeyId = k ? k.id : null;
+      $("#cfg-key-form").style.display = "block";
+      $("#nk-id").value = k ? k.id : ""; $("#nk-id").disabled = !!k;
+      $("#nk-name").value = k?.display_name || "";
+      $("#nk-ps").value = k?.default_tool_page_size ?? 20;
+      const lim = k?.limits || {};
+      $("#nk-rps").value = lim.rps ?? ""; $("#nk-rpm").value = lim.rpm ?? ""; $("#nk-calls").value = lim.max_calls ?? "";
+      $("#nk-allow").value = (k?.allowed_tools || []).join(", ");
+      $("#nk-deny").value = (k?.denied_tools || []).join(", ");
+      const setSel = (el, vals) => [...el.options].forEach(o => { o.selected = vals.includes(o.value); });
+      setSel($("#nk-servers"), k?.allowed_servers || []);
+      setSel($("#nk-tools"), k?.allowed_tool_names || []);
+      $("#nk-save").textContent = k ? "保存" : "创建";
+    };
+    $("#cfg-new-key").addEventListener("click", () => openKeyForm(null));
+    view.querySelectorAll(".cfg-edit-key").forEach(b =>
+      b.addEventListener("click", () => openKeyForm(keys[+b.dataset.i])));
+    view.querySelectorAll(".cfg-tok-issue").forEach(b =>
+      b.addEventListener("click", () => openTokenDialog(keys[+b.dataset.i], render)));
+    view.querySelectorAll(".cfg-tok-revoke").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("吊销 " + b.dataset.id + " 的 token？吊销后该 key 回到 legacy（id-only）模式")) return;
+      try { await apiWrite("DELETE", "/admin/proxy-keys/" + encodeURIComponent(b.dataset.id) + "/token"); await render(); }
+      catch (e) { alert(e.message + "（端点未就绪或无权限）"); }
+    }));
+    $("#nk-cancel").addEventListener("click", () => { $("#cfg-key-form").style.display = "none"; editingKeyId = null; });
+    // 工具多选过滤：文本 + 按 server（隐藏不匹配项，已选中项保持选中）
+    const filterTools = () => {
+      const f = $("#nk-toolfilter").value.trim().toLowerCase();
+      const srv = $("#nk-toolserver").value;
+      [...$("#nk-tools").options].forEach(o => {
+        o.hidden = Boolean((f && !o.value.toLowerCase().includes(f)) || (srv && o.dataset.res !== srv));
+      });
+    };
+    $("#nk-toolfilter").addEventListener("input", filterTools);
+    $("#nk-toolserver").addEventListener("change", filterTools);
     $("#nk-save").addEventListener("click", async () => {
       const split = s => s ? s.split(",").map(x => x.trim()).filter(Boolean) : [];
+      const picked = el => [...el.selectedOptions].map(o => o.value);
+      const body = {
+        id: editingKeyId || $("#nk-id").value.trim(),
+        display_name: $("#nk-name").value,
+        allowed_tools: split($("#nk-allow").value),
+        denied_tools: split($("#nk-deny").value),
+        default_tool_page_size: parseInt($("#nk-ps").value, 10) || 20,
+        allowed_servers: picked($("#nk-servers")),
+        allowed_tool_names: picked($("#nk-tools")),
+      };
+      const lim = {};
+      [["rps", "#nk-rps"], ["rpm", "#nk-rpm"], ["max_calls", "#nk-calls"]].forEach(([kk, sq]) => {
+        const v = parseInt($(sq).value, 10);
+        if (v > 0) lim[kk] = v;
+      });
+      if (Object.keys(lim).length) body.limits = lim;
       try {
-        await apiWrite("POST", "/admin/proxy-keys", { id: $("#nk-id").value, display_name: $("#nk-name").value, allowed_tools: split($("#nk-allow").value), denied_tools: split($("#nk-deny").value), default_tool_page_size: parseInt($("#nk-ps").value, 10) || 20 });
+        if (editingKeyId) await apiWrite("PUT", "/admin/proxy-keys/" + encodeURIComponent(editingKeyId), body);
+        else await apiWrite("POST", "/admin/proxy-keys", body);
+        editingKeyId = null;
         await render();
       } catch (e) { alert(e.message); }
     });

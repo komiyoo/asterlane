@@ -15,9 +15,13 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::catalog::ToolCatalog;
-use crate::config::{ApiResource, GatewayConfig, ProxyKey, UpstreamAuth};
+use crate::config::{
+    ApiResource, GatewayConfig, KeyLimits, ProxyKey, UpstreamAuth, UpstreamLimits,
+};
 use crate::error::{AsterlaneError, ErrorCode};
+use crate::gateway_auth::GatewayAuth;
 use crate::http::AppState;
+use crate::limits::LimitRegistry;
 use crate::observability::{SecurityEvent, SecurityEventKind, Severity};
 use crate::store::repository::{
     ProxyKeyRecord, ProxyKeyRepository, Resource, ResourceRepository, SecurityEventRepository,
@@ -36,8 +40,14 @@ pub(super) struct ResourceInput {
     pub base_url: String,
     #[serde(default)]
     pub description: String,
+    /// 上游限额（0 值非法，swap 前经 `LimitRegistry::from_config` 校验 fail fast）。
+    #[serde(default)]
+    pub limits: Option<UpstreamLimits>,
 }
 
+/// proxy key 创建/更新输入。**不接受凭据字段**（token_ref/token_digest/
+/// expires_at 等未知字段被 serde 忽略）：token 签发只走
+/// `POST /admin/proxy-keys/{id}/token`（`super::tokens`），更新不触碰已签发凭据。
 #[derive(Deserialize)]
 pub(super) struct ProxyKeyInput {
     pub id: String,
@@ -47,6 +57,15 @@ pub(super) struct ProxyKeyInput {
     pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub denied_tools: Vec<String>,
+    /// 结构化范围：resource/mcp server id 白名单（见 §2）。
+    #[serde(default)]
+    pub allowed_servers: Vec<String>,
+    /// 结构化范围：精确 wire name 白名单。
+    #[serde(default)]
+    pub allowed_tool_names: Vec<String>,
+    /// Per-key 限额（rps/rpm/max_calls；0 值非法）。
+    #[serde(default)]
+    pub limits: Option<KeyLimits>,
     #[serde(default = "default_page_size")]
     pub default_tool_page_size: usize,
 }
@@ -71,11 +90,12 @@ pub(super) async fn create_resource(
     }
 
     let resource = api_resource_from_input(&input);
-    persist_resource(&state, &resource).await;
 
     let mut new_config = (*config).clone();
-    new_config.api_resources.push(resource);
+    new_config.api_resources.push(resource.clone());
+    // 先校验+原子替换（limits 0 值在此 fail fast），再落库（best-effort）
     swap_config_and_catalog(&state, new_config).await?;
+    persist_resource(&state, &resource).await;
 
     record_audit(&state, &admin.0, "create", "resource", &input.id).await;
     Ok(Json(json!({"created": input.id})))
@@ -96,7 +116,6 @@ pub(super) async fn update_resource(
     }
 
     let resource = api_resource_from_input(&input);
-    update_resource_db(&state, &resource).await;
 
     let mut new_config = (*config).clone();
     if let Some(r) = new_config.api_resources.iter_mut().find(|r| r.id == id) {
@@ -104,8 +123,10 @@ pub(super) async fn update_resource(
         r.provider = input.provider;
         r.base_url = input.base_url;
         r.description = input.description;
+        r.limits = input.limits;
     }
     swap_config_and_catalog(&state, new_config).await?;
+    update_resource_db(&state, &resource).await;
 
     record_audit(&state, &admin.0, "update", "resource", &id).await;
     Ok(Json(json!({"updated": id})))
@@ -154,11 +175,12 @@ pub(super) async fn create_proxy_key(
     }
 
     let key = proxy_key_from_input(&input);
-    persist_proxy_key(&state, &key).await;
 
     let mut new_config = (*config).clone();
-    new_config.proxy_keys.push(key);
-    *state.config.write().await = Arc::new(new_config);
+    new_config.proxy_keys.push(key.clone());
+    // proxy key 限额影响 LimitRegistry，统一走 swap 校验+重建
+    swap_config_and_catalog(&state, new_config).await?;
+    persist_proxy_key(&state, &key).await;
 
     record_audit(&state, &admin.0, "create", "proxy_key", &input.id).await;
     Ok(Json(json!({"created": input.id})))
@@ -178,17 +200,24 @@ pub(super) async fn update_proxy_key(
         ));
     }
 
-    let key = proxy_key_from_input(&input);
-    update_proxy_key_db(&state, &key).await;
-
     let mut new_config = (*config).clone();
+    // 持久化更新后的配置条目（保留凭据/呈现字段），而非 input 重建的 key——
+    // scope_json 携带 token 摘要后，用 input 重建会把已签发凭据从 DB 抹掉
+    let mut updated = None;
     if let Some(k) = new_config.proxy_keys.iter_mut().find(|k| k.id == id) {
         k.display_name = input.display_name;
         k.allowed_tools = input.allowed_tools;
         k.denied_tools = input.denied_tools;
+        k.allowed_servers = input.allowed_servers;
+        k.allowed_tool_names = input.allowed_tool_names;
+        k.limits = input.limits;
         k.default_tool_page_size = input.default_tool_page_size;
+        updated = Some(k.clone());
     }
-    *state.config.write().await = Arc::new(new_config);
+    swap_config_and_catalog(&state, new_config).await?;
+    if let Some(key) = &updated {
+        update_proxy_key_db(&state, key).await;
+    }
 
     record_audit(&state, &admin.0, "update", "proxy_key", &id).await;
     Ok(Json(json!({"updated": id})))
@@ -215,7 +244,7 @@ pub(super) async fn delete_proxy_key(
 
     let mut new_config = (*config).clone();
     new_config.proxy_keys.retain(|k| k.id != id);
-    *state.config.write().await = Arc::new(new_config);
+    swap_config_and_catalog(&state, new_config).await?;
 
     record_audit(&state, &admin.0, "delete", "proxy_key", &id).await;
     Ok(Json(json!({"deleted": id})))
@@ -294,6 +323,7 @@ fn api_resource_from_input(input: &ResourceInput) -> ApiResource {
         endpoints: Vec::new(),
         discovery: None,
         security: Default::default(),
+        limits: input.limits.clone(),
     }
 }
 
@@ -306,10 +336,24 @@ fn proxy_key_from_input(input: &ProxyKeyInput) -> ProxyKey {
         default_tool_page_size: input.default_tool_page_size,
         discovery_mode: None,
         response_format: None,
+        allowed_servers: input.allowed_servers.clone(),
+        allowed_tool_names: input.allowed_tool_names.clone(),
+        limits: input.limits.clone(),
+        token_ref: None,
+        token_digest: None,
+        expires_at: None,
     }
 }
 
-async fn swap_config_and_catalog(
+/// 校验并原子替换配置快照 + catalog + 限额注册表 + gateway 认证。
+///
+/// `LimitRegistry::from_config` 与 `GatewayAuth::from_config` 都在替换前执行
+/// （limits 0 值、token_ref 解析失败等报错时整体拒绝本次写操作，内存态不变）；
+/// 重建的注册表携带旧表仍存在 key 的 `max_calls` 已用计数，热更新不清零累计
+/// 配额。gateway 认证随每次 swap 从新快照重建：CRUD 增删 key、token 签发/
+/// 吊销即时生效（见 docs/key-credentials-and-persistence.md K1）。
+/// mcp-servers CRUD（`super::mcp`）与 token 端点（`super::tokens`）复用。
+pub(super) async fn swap_config_and_catalog(
     state: &AppState,
     new_config: GatewayConfig,
 ) -> Result<(), AsterlaneError> {
@@ -320,21 +364,35 @@ async fn swap_config_and_catalog(
         .collect();
 
     let mut new_catalog = ToolCatalog::from_config(&new_config)?;
+    let new_registry = LimitRegistry::from_config(&new_config)?;
+    let old_registry = state.limit_registry_snapshot().await;
+    new_registry.carry_counts_from(&old_registry);
+    let new_auth = GatewayAuth::from_config(&new_config, state.secrets.as_ref()).await?;
 
-    // 保留 MCP tools
+    // 保留 MCP tools 与介绍 override（overlay 状态存于 catalog，重建时携带）
     {
         let old_catalog = state.catalog.read().await;
+        new_catalog.load_description_overrides(old_catalog.description_overrides().clone());
         let mcp_tools: Vec<_> = old_catalog
             .all_tools()
             .iter()
             .filter(|t| mcp_resource_ids.contains(&t.resource_id))
             .cloned()
+            .map(|mut t| {
+                // 携带的克隆描述已是有效描述；还原为上游原始，交给 extend 重放 overlay
+                if let Some(original) = old_catalog.original_description(&t.name.to_wire_name()) {
+                    t.description = original.to_string();
+                }
+                t
+            })
             .collect();
         new_catalog.extend_with_mcp_tools(mcp_tools);
     }
 
     *state.config.write().await = Arc::new(new_config);
     *state.catalog.write().await = new_catalog;
+    *state.limit_registry.write().await = Arc::new(new_registry);
+    *state.gateway_auth.write().await = new_auth;
     Ok(())
 }
 
@@ -345,13 +403,16 @@ fn to_db_resource(r: &ApiResource) -> Resource {
         provider: r.provider.clone(),
         base_url: r.base_url.clone(),
         description: Some(r.description.clone()),
-        config_json: "{}".to_string(),
+        config_json: json!({ "limits": r.limits }).to_string(),
         created_at: String::new(),
         updated_at: String::new(),
     }
 }
 
-fn to_db_proxy_key(k: &ProxyKey) -> ProxyKeyRecord {
+/// config → DB 行（反向映射见 `store::config_merge::proxy_key_from_record`，
+/// 两侧字段必须保持一一对应，往返测试见本文件 tests）。
+/// 凭据只以 ref/摘要入库，明文 token 永不落 DB（安全红线）。
+pub(super) fn to_db_proxy_key(k: &ProxyKey) -> ProxyKeyRecord {
     ProxyKeyRecord {
         id: k.id.clone(),
         display_name: k.display_name.clone(),
@@ -359,6 +420,14 @@ fn to_db_proxy_key(k: &ProxyKey) -> ProxyKeyRecord {
         scope_json: json!({
             "allowed_tools": k.allowed_tools,
             "denied_tools": k.denied_tools,
+            "allowed_servers": k.allowed_servers,
+            "allowed_tool_names": k.allowed_tool_names,
+            "limits": k.limits,
+            "token_ref": k.token_ref,
+            "token_digest": k.token_digest,
+            "expires_at": k.expires_at,
+            "discovery_mode": k.discovery_mode,
+            "response_format": k.response_format,
         })
         .to_string(),
         created_at: String::new(),
@@ -398,7 +467,7 @@ async fn update_proxy_key_db(state: &AppState, key: &ProxyKey) {
     }
 }
 
-/// 落一条 `AdminAudit` 审计事件（admin 写操作统一入口，defaults 模块复用）。
+/// 落一条 `AdminAudit` 审计事件（admin 写操作统一入口，defaults/tokens 模块复用）。
 pub(super) async fn record_audit(
     state: &AppState,
     admin_key_id: &str,
@@ -428,5 +497,57 @@ pub(super) async fn record_audit(
     };
     if let Err(e) = repo.insert_security_event(&event).await {
         warn!(%e, "failed to record admin audit event");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::config_merge::merge_db_into_config;
+
+    fn parse(yaml: &str) -> GatewayConfig {
+        serde_norway::from_str(yaml).expect("valid test yaml")
+    }
+
+    /// 写读往返：`to_db_proxy_key` → `merge_db_into_config` 反向映射必须保真，
+    /// 否则签发落库后重启丢凭据（见 docs/key-credentials-and-persistence.md K2）。
+    #[test]
+    fn proxy_key_db_round_trip_preserves_all_fields() {
+        let digest = "a".repeat(64);
+        let config = parse(&format!(
+            r#"
+proxy_keys:
+  - id: agent-a
+    display_name: Agent A
+    allowed_tools: ['^search:.*']
+    denied_tools: ['^admin:.*']
+    allowed_servers: [exa]
+    allowed_tool_names: [search__exa__go]
+    limits: {{ rpm: 60, max_calls: 100, max_calls_per_day: 10 }}
+    token_digest: "{digest}"
+    expires_at: 2027-01-01T00:00:00Z
+    default_tool_page_size: 7
+    discovery_mode: lazy
+    response_format: markdown
+"#
+        ));
+        let record = to_db_proxy_key(&config.proxy_keys[0]);
+
+        let mut restored = parse("proxy_keys: []");
+        let report = merge_db_into_config(&mut restored, Vec::new(), Vec::new(), vec![record]);
+        assert!(report.skipped_invalid.is_empty());
+        assert_eq!(restored.proxy_keys, config.proxy_keys);
+    }
+
+    /// token_ref 形态同样保真往返（YAML 管理 ref、经 CRUD 更新落库的场景）。
+    #[test]
+    fn proxy_key_db_round_trip_preserves_token_ref() {
+        let config =
+            parse("proxy_keys:\n  - id: agent-ref\n    token_ref: secret://env/AGENT_TOKEN\n");
+        let record = to_db_proxy_key(&config.proxy_keys[0]);
+
+        let mut restored = parse("proxy_keys: []");
+        merge_db_into_config(&mut restored, Vec::new(), Vec::new(), vec![record]);
+        assert_eq!(restored.proxy_keys, config.proxy_keys);
     }
 }

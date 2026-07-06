@@ -123,6 +123,41 @@ impl GatewayConfig {
         self.mcp_servers.iter().find(|server| server.id == id)
     }
 
+    /// 校验 proxy key 凭据字段（见 docs/key-credentials-and-persistence.md K1）。
+    ///
+    /// - `token_ref` 与 `token_digest` 互斥；
+    /// - `token_digest` 必须为 64 位小写 hex（SHA-256）。
+    ///
+    /// 配置加载后调用（`main.rs` 的 `load_config`），失败 fail fast。
+    pub fn validate_key_credentials(&self) -> Result<(), AsterlaneError> {
+        for key in &self.proxy_keys {
+            if key.token_ref.is_some() && key.token_digest.is_some() {
+                return Err(AsterlaneError::internal(
+                    ErrorCode::ConfigInvalidYaml,
+                    format!(
+                        "proxy key {}: token_ref and token_digest are mutually exclusive",
+                        key.id
+                    ),
+                ));
+            }
+            if let Some(digest) = &key.token_digest
+                && !(digest.len() == 64
+                    && digest
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+            {
+                return Err(AsterlaneError::internal(
+                    ErrorCode::ConfigInvalidYaml,
+                    format!(
+                        "proxy key {}: token_digest must be 64 lowercase hex chars",
+                        key.id
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// 把 `builtin_mcp` 中的 preset 展开为 [`McpServerConfig`] 追加进 `mcp_servers`。
     ///
     /// 配置加载后调用（`main.rs` 的 `load_config`）。展开语义
@@ -162,6 +197,8 @@ impl GatewayConfig {
                 description: preset.description.to_string(),
                 auth: UpstreamAuth::None,
                 security: SecurityConfig::default(),
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
             });
         }
         Ok(())
@@ -189,6 +226,9 @@ pub struct ApiResource {
     pub discovery: Option<DiscoveryConfig>,
     #[serde(default)]
     pub security: SecurityConfig,
+    /// 上游限额；缺省不限（见 docs/mcp-governance-and-key-limits.md §3）。
+    #[serde(default)]
+    pub limits: Option<UpstreamLimits>,
 }
 
 /// 上游 key 池配置（见 docs/config-schema.md Key Pool）。
@@ -314,6 +354,89 @@ pub struct McpServerConfig {
     pub auth: UpstreamAuth,
     #[serde(default)]
     pub security: SecurityConfig,
+    /// 测活配置；缺省启用（见 docs/mcp-governance-and-key-limits.md §4）。
+    #[serde(default)]
+    pub health_check: HealthCheckConfig,
+    /// 上游限额；缺省不限（见 docs/mcp-governance-and-key-limits.md §3）。
+    #[serde(default)]
+    pub limits: Option<UpstreamLimits>,
+}
+
+/// MCP server 测活配置。
+///
+/// `enabled: false` 时该 server 不参与周期探测（健康状态 `disabled`），
+/// 按需 probe 仍可用；工具快照沿用 stale 缓存。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HealthCheckConfig {
+    #[serde(default = "default_health_check_enabled")]
+    pub enabled: bool,
+}
+
+impl Default for HealthCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_health_check_enabled(),
+        }
+    }
+}
+
+fn default_health_check_enabled() -> bool {
+    true
+}
+
+/// 上游限额（`api_resources[]` 与 `mcp_servers[]` 可选）。
+///
+/// 数值必须 > 0，构建限流器时校验（`config.*` 错误 fail fast）；
+/// 语义见 docs/mcp-governance-and-key-limits.md §3。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpstreamLimits {
+    /// 每秒请求数（GCRA）。
+    #[serde(default)]
+    pub rps: Option<u32>,
+    /// 每分钟请求数。
+    #[serde(default)]
+    pub rpm: Option<u32>,
+    /// 并发上限（队列准入）。
+    #[serde(default)]
+    pub max_concurrent: Option<u32>,
+    /// 队列准入排队超时秒数，缺省 10。
+    #[serde(default = "default_queue_timeout_secs")]
+    pub queue_timeout_secs: u64,
+}
+
+impl Default for UpstreamLimits {
+    fn default() -> Self {
+        Self {
+            rps: None,
+            rpm: None,
+            max_concurrent: None,
+            queue_timeout_secs: default_queue_timeout_secs(),
+        }
+    }
+}
+
+fn default_queue_timeout_secs() -> u64 {
+    10
+}
+
+/// Per-key 限额（`proxy_keys[]` 可选）。
+///
+/// `max_calls` 为累计调用配额：有 store 时从事件计数回填跨重启累计，
+/// 无 store 时仅内存计数（见 docs/mcp-governance-and-key-limits.md §3）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyLimits {
+    /// 每秒请求数。
+    #[serde(default)]
+    pub rps: Option<u32>,
+    /// 每分钟请求数。
+    #[serde(default)]
+    pub rpm: Option<u32>,
+    /// 累计调用配额。
+    #[serde(default)]
+    pub max_calls: Option<u64>,
+    /// 当日调用配额（UTC 零点重置）。
+    #[serde(default)]
+    pub max_calls_per_day: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,6 +470,27 @@ pub struct ProxyKey {
     pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub denied_tools: Vec<String>,
+    /// 结构化范围：resource id / mcp server id 白名单，命中即允许该上游全部工具
+    /// （与 `allowed_tools` 正则、`allowed_tool_names` 取并集；
+    /// 见 docs/mcp-governance-and-key-limits.md §2）。
+    #[serde(default)]
+    pub allowed_servers: Vec<String>,
+    /// 结构化范围：精确 wire name 白名单。
+    #[serde(default)]
+    pub allowed_tool_names: Vec<String>,
+    /// Per-key 限额（rps/rpm/累计调用配额）；缺省不限。
+    #[serde(default)]
+    pub limits: Option<KeyLimits>,
+    /// gateway key token 的 secret ref（启动解析为 SHA-256 摘要）；
+    /// 与 `token_digest` 互斥（见 docs/key-credentials-and-persistence.md K1）。
+    #[serde(default)]
+    pub token_ref: Option<String>,
+    /// gateway key token 的 SHA-256 摘要（64 位小写 hex，签发路径写入）。
+    #[serde(default)]
+    pub token_digest: Option<String>,
+    /// token 过期时间（UTC）；缺省永不过期。
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default = "default_tool_page_size")]
     pub default_tool_page_size: usize,
     /// Discovery mode: `"lazy"` exposes only meta-tools, `"full"` (or absent) exposes all.
@@ -449,6 +593,151 @@ mcp_servers:
         let mut config = parse("builtin_mcp: [context7, context7]");
         config.expand_builtin_mcp().expect("expand");
         assert_eq!(config.mcp_servers.len(), 1);
+    }
+
+    #[test]
+    fn new_governance_fields_default_when_absent() {
+        let config = parse(
+            r#"
+api_resources:
+  - id: tavily
+    domain: search
+    base_url: https://api.tavily.com
+mcp_servers:
+  - id: exa
+    domain: search
+    provider: exa
+    url: https://mcp.exa.ai/mcp
+proxy_keys:
+  - id: agent-a
+"#,
+        );
+        let resource = config.resource("tavily").expect("resource");
+        assert!(resource.limits.is_none());
+        let server = config.mcp_server("exa").expect("server");
+        assert!(server.health_check.enabled);
+        assert!(server.limits.is_none());
+        let key = config.proxy_key("agent-a").expect("key");
+        assert!(key.allowed_servers.is_empty());
+        assert!(key.allowed_tool_names.is_empty());
+        assert!(key.limits.is_none());
+    }
+
+    #[test]
+    fn new_governance_fields_parse_when_present() {
+        let config = parse(
+            r#"
+api_resources:
+  - id: tavily
+    domain: search
+    base_url: https://api.tavily.com
+    limits:
+      rps: 10
+      rpm: 300
+      max_concurrent: 4
+mcp_servers:
+  - id: exa
+    domain: search
+    provider: exa
+    url: https://mcp.exa.ai/mcp
+    health_check:
+      enabled: false
+    limits:
+      rps: 5
+      queue_timeout_secs: 3
+proxy_keys:
+  - id: agent-a
+    allowed_servers: [exa]
+    allowed_tool_names: [search__exa__web_search_exa]
+    limits:
+      rps: 5
+      rpm: 60
+      max_calls: 10000
+"#,
+        );
+        let limits = config
+            .resource("tavily")
+            .and_then(|r| r.limits.as_ref())
+            .expect("resource limits");
+        assert_eq!(limits.rps, Some(10));
+        assert_eq!(limits.rpm, Some(300));
+        assert_eq!(limits.max_concurrent, Some(4));
+        // 缺省排队超时 10s
+        assert_eq!(limits.queue_timeout_secs, 10);
+
+        let server = config.mcp_server("exa").expect("server");
+        assert!(!server.health_check.enabled);
+        let server_limits = server.limits.as_ref().expect("server limits");
+        assert_eq!(server_limits.rps, Some(5));
+        assert_eq!(server_limits.rpm, None);
+        assert_eq!(server_limits.queue_timeout_secs, 3);
+
+        let key = config.proxy_key("agent-a").expect("key");
+        assert_eq!(key.allowed_servers, vec!["exa".to_string()]);
+        assert_eq!(
+            key.allowed_tool_names,
+            vec!["search__exa__web_search_exa".to_string()]
+        );
+        let key_limits = key.limits.as_ref().expect("key limits");
+        assert_eq!(key_limits.rps, Some(5));
+        assert_eq!(key_limits.rpm, Some(60));
+        assert_eq!(key_limits.max_calls, Some(10000));
+    }
+
+    #[test]
+    fn key_credential_fields_default_to_none() {
+        let config = parse("proxy_keys:\n  - id: agent-a\n");
+        let key = config.proxy_key("agent-a").expect("key");
+        assert!(key.token_ref.is_none());
+        assert!(key.token_digest.is_none());
+        assert!(key.expires_at.is_none());
+        assert!(config.validate_key_credentials().is_ok());
+    }
+
+    #[test]
+    fn key_credentials_parse_and_validate() {
+        let digest = "a".repeat(64);
+        let config = parse(&format!(
+            r#"
+proxy_keys:
+  - id: agent-a
+    token_digest: "{digest}"
+    expires_at: 2027-01-01T00:00:00Z
+    limits:
+      max_calls_per_day: 500
+"#
+        ));
+        let key = config.proxy_key("agent-a").expect("key");
+        assert_eq!(key.token_digest.as_deref(), Some(digest.as_str()));
+        assert!(key.expires_at.is_some());
+        assert_eq!(
+            key.limits.as_ref().and_then(|l| l.max_calls_per_day),
+            Some(500)
+        );
+        assert!(config.validate_key_credentials().is_ok());
+    }
+
+    #[test]
+    fn token_ref_and_digest_are_mutually_exclusive() {
+        let config = parse(&format!(
+            "proxy_keys:\n  - id: agent-a\n    token_ref: secret://env/T\n    token_digest: \"{}\"\n",
+            "a".repeat(64)
+        ));
+        let err = config.validate_key_credentials().expect_err("must fail");
+        assert!(err.to_string().contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn token_digest_must_be_lowercase_hex64() {
+        for bad in ["abc", &"A".repeat(64), &"g".repeat(64)] {
+            let config = parse(&format!(
+                "proxy_keys:\n  - id: agent-a\n    token_digest: \"{bad}\"\n"
+            ));
+            assert!(
+                config.validate_key_credentials().is_err(),
+                "digest {bad:?} should be rejected"
+            );
+        }
     }
 
     #[test]

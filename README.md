@@ -8,7 +8,10 @@
 
 - **统一上游接入**：HTTP API（Tavily、Jina、Exa、内部 REST 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（env / Vault / Infisical），永不下发给代理。
 - **内置 MCP preset**：平台预集成免费 MCP server（exa / deepwiki / context7），配置 `builtin_mcp: [exa]` 一行启用；显式 `mcp_servers` 同 id 条目可覆盖。
-- **工具命名与范围**：稳定三段 wire name `domain__provider__tool`；每个 proxy key 有 allow/deny 正则 scope，请求级过滤只能收窄、不能扩权。
+- **工具命名与范围**：稳定三段 wire name `domain__provider__tool`；每个 proxy key 有 allow/deny 正则 scope 与结构化勾选（按上游 `allowed_servers` / 按工具 `allowed_tool_names`），请求级过滤只能收窄、不能扩权。
+- **Key 凭据化**：proxy key 真实 token（`alk_*`，服务端只存 SHA-256 摘要）签发/轮换/吊销/过期，`Authorization: Bearer` 认证覆盖 REST 与 `/mcp`；无 token 的 key 保留 `?key=` 兼容模式。在线创建的资源/MCP/key 落库并跨重启回读（YAML 为准），`/admin/config/export` 一键导出。
+- **细粒度限额**：per-key rps/rpm/累计调用配额（`max_calls`）/当日配额（`max_calls_per_day`，UTC 重置），per-上游 rps/rpm/并发上限；独立 GCRA 配额、429 带 Retry-After、控制台配额进度条。
+- **MCP 治理**：`/admin/mcp-servers` 列表/详情/CRUD/按需探测；健康状态机（ok/unreachable/unknown/disabled）、降级启动与周期自动重连、可关测活；工具介绍 override（管理员编写、agent 侧即时生效）。
 - **渐进式发现**：`tools/list` 支持 domain/provider/tool 正则过滤、limit、cursor 分页；亦可从 OpenAPI spec 自动发现生成工具。
 - **执行管线**：upstream key pool 负载均衡、限流与队列准入、失败重试、声明式请求变换、content defense 扫描、结果预算裁剪、json/yaml/markdown 结果渲染。
 - **MCP 代理安全**：上游工具指纹 baseline 与 drift 检测，按策略 warn/quarantine/block，变更时推送 `tools/list_changed`。

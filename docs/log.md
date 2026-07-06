@@ -1,5 +1,31 @@
 # Documentation Update Log
 
+## 2026-07-06（Key 凭据化与配置持久化闭环交付）
+
+按 `docs/key-credentials-and-persistence.md` 契约，K-W0 地基主代理先行，五个 subagent 两波交付，主代理验收：
+
+- **Proxy key 凭据化（K1）**：`ProxyKey.{token_ref, token_digest, expires_at}`（互斥校验接入 load_config）；`src/gateway_auth.rs` `GatewayAuth`（SHA-256 摘要表，模式同 admin/auth.rs）——Bearer `alk_<64hex>` 认证、带 token 的 key 拒绝 `?key=` id-only（错误不区分「不存在/错 token」防枚举）、过期 401 `auth.expired_gateway_key`、legacy（无 token）key 保持 `?key=` 兼容；`/mcp` 端点经 axum middleware + rmcp RequestContext extensions 绑定真实 ProxyKey（scope/限额/format 生效），任一 key 配 token 即强制 Bearer，否则维持开放模式（启动日志明示）；`POST/DELETE /admin/proxy-keys/{id}/token` 签发/轮换/吊销（明文仅返回一次，审计不含 token 材料），swap 统一重建 GatewayAuth（修复运行期 CRUD 增删 key 不更新认证）。
+- **持久化闭环（K2）**：`store/config_merge.rs` `merge_db_into_config`（YAML 胜 + shadowed 警告 + 坏行跳过）+ `merge_db_config` 聚合；serve() 重排为 DB 合并先于 catalog/registry 构建，在线创建的 resources/mcp_servers/proxy_keys 跨重启存活；`GET /admin/config/export` 导出合并快照 YAML；crud 写路径与反向映射补齐凭据字段往返（顺带修复 update_proxy_key 抹掉已签发摘要的问题）。
+- **日配额（K3）**：`KeyLimits.max_calls_per_day`（UTC 零点惰性翻转），准入顺序 …→max_calls→max_calls_per_day→上游…；429 `limit.daily_calls_exhausted` 带距零点 Retry-After；计数改为全 key 统一维护，`KeyUsage` getter 供 `/admin/proxy-keys` 行 `usage` 输出；启动按当天 usage_buckets 回填。
+- **审计视图（K4）**：`/admin/security-events?kind=`；控制台「审计」tab（预置 admin_audit）。
+- **控制台**：token 一次性弹窗（关闭清 DOM，零存储）、auth_mode 徽标、总/日配额进度条、审计 tab、导出 YAML 下载。CLI：`proxy-keys issue/revoke-token`、`security-events --kind`。
+- **验证**：mini `just check` 全绿（707 lib+集成+OKF）；带重启真机冒烟 13 项全过：签发→Bearer→id-only 401→/mcp 强制认证→DB key 跨重启存活→日配额第 3 发 429（Retry-After=距 UTC 零点）→YAML key token 被 shadow（契约语义）。
+- **已知边界**：token 格式 as-built 为 `alk_+64hex`（避免新增 base64 依赖）；YAML 定义 key 的在线签发不跨重启（运维提示已写入契约文档）；日计数并发边界可短暂超发（沿用既有 ponytail 取舍）。
+
+## 2026-07-06（MCP 治理与 Key 限额交付）
+
+按 `docs/mcp-governance-and-key-limits.md` 契约，W0 配置地基由主代理先行（避免并行类型冲突），五个 subagent 两波交付，主代理集成验收：
+
+- **配置**：`UpstreamLimits`（rps/rpm/max_concurrent/queue_timeout_secs，挂 `api_resources[]`/`mcp_servers[]`）、`KeyLimits`（rps/rpm/max_calls）与结构化范围（`allowed_servers`/`allowed_tool_names`）挂 `proxy_keys[]`、`HealthCheckConfig` 挂 `mcp_servers[]`；全部 `serde(default)` 向后兼容。config-schema.md 增 Upstream Limits / MCP Health Check / Proxy Keys 三处。
+- **限额引擎**：`limits/registry.rs` `LimitRegistry`（按实体独立 GCRA quota + 并发队列）、`LimiterKey::Principal`、`max_calls` 计数（store 回填，seed = request_count − rate_limit_hits）；executor 内单一准入 choke point（key rps→rpm→max_calls→上游 rps→rpm→并发队列，permit 持有至上游返回），REST/MCP（含 lazy call_tool）/admin 调试共管线；429 带 Retry-After，新错误码 `limit.calls_exhausted`；命中落 `Limited` 事件与 metrics；CRUD swap 重建限流器并携带已用计数。
+- **policy**：`key_can_use_tool` 增 `resource_id` 参数；允许 = 正则 ∨ allowed_servers ∨ allowed_tool_names，denied 最高优先，全空全拒。
+- **MCP 健康**：`mcp/health.rs` `HealthStatus`（ok/unreachable/unknown/disabled）+ `ServerHealth`；`connect_all` 降级启动（单 server 失败不再拖垮进程）；`probe`/`add_server`/`update_server`/`remove_server`；refresh task 改 `refresh_with_secrets` 周期重连 unreachable；disabled 跳过周期探测（stale 工具保留）。
+- **工具介绍 override**：`tool_metadata` 表 + `ToolMetadataRepository`；overlay 存于 catalog 内（有效描述 = override ?? 上游原始，`/v1/tools`、MCP tools/list、search 零改动生效，refresh/replace 重放不丢）；integrity fingerprint 仍用上游原始描述。
+- **admin API（C5）**：`GET/POST/PUT/DELETE /admin/mcp-servers(/{id})`、`POST /admin/mcp-servers/{id}/probe`、`GET /admin/tool-metadata`、`GET/PUT/DELETE /admin/tools/{name}/metadata`、`/admin/tools` 行扩展（resource_id/description_override）；写操作全审计；`mcp_servers` 表（config_json 模式，migration `20260706000002`）。CLI 增 `mcp-servers [get|probe]` 与 `metadata list/get/set/rm`；admin-console.md（C5）、error-model.md、SKILL.md 同步。
+- **控制台**：MCP Servers 页（健康灯/探测/行展开详情/工具介绍编辑/调试面板复用/增删改表单，auth ref 硬校验 `secret://` 前缀拒收明文）；proxy key 表单升级（server 与工具多选、rps/rpm/max_calls，正则收进「高级」折叠区）；Tools 页 resource_id 列与 override 徽标。
+- **验证**：mini 上 `just check` 全绿（605 lib 单测 + 集成 + doctests + OKF）；真机冒烟通过：不可达 MCP server 降级启动、probe 失败计数、metadata override 在 `/v1/tools` 生效、`allowed_servers` 结构化放行。
+- **已知边界**：`max_calls` 无 store 时重启归零；计数 load/fetch_add 非原子（并发边界可短暂超发，ponytail 注释）；零 MCP 配置启动后在线加首个 server 报 503（重启恢复）；`api_resources` 测活为非目标。as-built 偏离已回写 `mcp-governance-and-key-limits.md`。
+
 ## 2026-07-05（Phase 9 交付：内置 MCP / 负载捕获 / 默认参数与调试调用 / CLI）
 
 按 `docs/tool-debugging-and-cli.md` 契约，四个 subagent 分两个 wave 交付，主代理集成：

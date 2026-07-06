@@ -90,6 +90,8 @@ fn config_with_quarantine_policy() -> asterlane::config::GatewayConfig {
                 integrity_policy: IntegrityPolicy::Quarantine,
                 ..Default::default()
             },
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-test".to_string(),
@@ -99,6 +101,12 @@ fn config_with_quarantine_policy() -> asterlane::config::GatewayConfig {
             default_tool_page_size: 20,
             discovery_mode: None,
             response_format: None,
+            allowed_servers: Vec::new(),
+            allowed_tool_names: Vec::new(),
+            limits: None,
+            token_ref: None,
+            token_digest: None,
+            expires_at: None,
         }],
     }
 }
@@ -265,6 +273,8 @@ async fn drift_with_warn_policy_does_not_quarantine() {
                 integrity_policy: IntegrityPolicy::Warn,
                 ..Default::default()
             },
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-test".to_string(),
@@ -274,6 +284,12 @@ async fn drift_with_warn_policy_does_not_quarantine() {
             default_tool_page_size: 20,
             discovery_mode: None,
             response_format: None,
+            allowed_servers: Vec::new(),
+            allowed_tool_names: Vec::new(),
+            limits: None,
+            token_ref: None,
+            token_digest: None,
+            expires_at: None,
         }],
     };
     let registry = McpServerRegistry::from_peers(&config.mcp_servers, vec![peer])

@@ -106,16 +106,33 @@ async fn main() -> Result<()> {
     }
 }
 
-fn load_config(path: &PathBuf) -> Result<GatewayConfig> {
+fn load_config(path: &std::path::Path) -> Result<GatewayConfig> {
+    let mut config = parse_config_file(path)?;
+    expand_builtin(&mut config, path)?;
+    Ok(config)
+}
+
+/// 读取 + 解析 + YAML 级凭据校验（fail fast），**不展开** builtin preset——
+/// serve 的 DB 启动合并必须发生在展开前（DB 同 id 条目遮蔽 preset，
+/// 见 docs/key-credentials-and-persistence.md K2）。
+fn parse_config_file(path: &std::path::Path) -> Result<GatewayConfig> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read config {}", path.display()))?;
-    let mut config: GatewayConfig = serde_norway::from_str(&raw)
+    let config: GatewayConfig = serde_norway::from_str(&raw)
         .with_context(|| format!("failed to parse config {}", path.display()))?;
-    // 内置 MCP preset 展开：未知 id fail fast（见 docs/tool-debugging-and-cli.md）
+    // proxy key 凭据字段校验：token_ref/token_digest 互斥、摘要格式
+    // （见 docs/key-credentials-and-persistence.md K1）
+    config
+        .validate_key_credentials()
+        .with_context(|| format!("invalid proxy key credentials in config {}", path.display()))?;
+    Ok(config)
+}
+
+/// 内置 MCP preset 展开：未知 id fail fast（见 docs/tool-debugging-and-cli.md）。
+fn expand_builtin(config: &mut GatewayConfig, path: &std::path::Path) -> Result<()> {
     config
         .expand_builtin_mcp()
-        .with_context(|| format!("invalid builtin_mcp in config {}", path.display()))?;
-    Ok(config)
+        .with_context(|| format!("invalid builtin_mcp in config {}", path.display()))
 }
 
 /// Initialize tracing subscriber (fmt layer, optionally OTLP layer).
@@ -169,7 +186,27 @@ async fn serve(args: ServeArgs) -> Result<()> {
         .install_recorder()
         .context("failed to install prometheus metrics recorder")?;
 
-    let config = load_config(&args.config)?;
+    let mut config = parse_config_file(&args.config)?;
+
+    // 持久化 store 前移到 catalog 装配前：启动合并需要在 preset 展开与
+    // catalog/registry 构建之前把 DB 条目并入配置（K2 闭环——在线添加的
+    // resources/mcp_servers/proxy_keys 重启回读，凭据摘要随行恢复）
+    let event_repo = match &args.database_url {
+        Some(database_url) => {
+            let pool = sqlx::sqlite::SqlitePool::connect(database_url)
+                .await
+                .with_context(|| format!("failed to connect database {database_url}"))?;
+            asterlane::store::run_migrations(&pool).await?;
+            let repo = Arc::new(asterlane::store::SqliteRequestEventRepository::new(pool));
+            asterlane::store::merge_db_config(&mut config, &repo)
+                .await
+                .context("failed to merge persisted config entries from database")?;
+            Some(repo)
+        }
+        None => None,
+    };
+    expand_builtin(&mut config, &args.config)?;
+
     let mut catalog = ToolCatalog::from_config(&config)?;
     let mcp_registry = if config.mcp_servers.is_empty() {
         None
@@ -188,15 +225,31 @@ async fn serve(args: ServeArgs) -> Result<()> {
     if let Some(registry) = &mcp_registry {
         state = state.with_mcp_registry(registry.clone());
     }
+    if let Some(repo) = event_repo {
+        state = state.with_event_repository(repo);
+    }
 
-    if let Some(database_url) = args.database_url {
-        let pool = sqlx::sqlite::SqlitePool::connect(&database_url)
-            .await
-            .with_context(|| format!("failed to connect database {database_url}"))?;
-        asterlane::store::run_migrations(&pool).await?;
-        state = state.with_event_repository(Arc::new(
-            asterlane::store::SqliteRequestEventRepository::new(pool),
-        ));
+    // 工具介绍 override：启动时从 store 全量加载进 catalog overlay
+    // （agent 可见描述 = override ?? 上游原始，见 docs/mcp-governance-and-key-limits.md §5）
+    if let Some(repo) = &state.event_repo {
+        use asterlane::store::ToolMetadataRepository;
+        match repo.list_tool_metadata().await {
+            Ok(rows) if !rows.is_empty() => {
+                let count = rows.len();
+                let overrides = rows
+                    .into_iter()
+                    .map(|row| (row.tool_name, row.description))
+                    .collect();
+                state
+                    .catalog
+                    .write()
+                    .await
+                    .load_description_overrides(overrides);
+                info!(count, "tool description overrides loaded");
+            }
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, "failed to load tool description overrides"),
+        }
     }
 
     // admin 认证：启动期解析 token secret ref，失败 fail fast；未配置则不挂载 admin API
@@ -212,6 +265,25 @@ async fn serve(args: ServeArgs) -> Result<()> {
         None => info!("admin api disabled (no admin keys configured)"),
     }
 
+    // gateway key 认证：启动期解析 proxy key token_ref 为摘要（fail fast）；
+    // 任一 key 配置 token 时 /mcp 进入 Bearer required 模式
+    // （见 docs/key-credentials-and-persistence.md K1）
+    let gateway_auth =
+        asterlane::gateway_auth::GatewayAuth::from_config(&config, state.secrets.as_ref())
+            .await
+            .context("failed to resolve proxy key token refs")?;
+    info!(
+        token_keys = gateway_auth.token_key_count(),
+        legacy_keys = gateway_auth.legacy_key_count(),
+        mcp_mode = if gateway_auth.mcp_auth_required() {
+            "bearer-required"
+        } else {
+            "open"
+        },
+        "gateway key auth configured"
+    );
+    state = state.with_gateway_auth(gateway_auth);
+
     // key 池：启动期从配置构建（校验 keys 非空、auth 形状、ref 格式），失败 fail fast
     if let Some(registry) =
         asterlane::keys::KeyPoolRegistry::from_config(&config).context("invalid key_pool config")?
@@ -220,6 +292,54 @@ async fn serve(args: ServeArgs) -> Result<()> {
         info!(?resources, "upstream key pools enabled");
         state = state.with_key_pools(Arc::new(registry));
     }
+
+    // 限额引擎：启动期从配置构建（数值 0 非法 fail fast）；有 store 时用
+    // 每 key 请求总数回填 max_calls 计数（减去被限流拒绝的行，与准入计数同口径；
+    // 无 store 仅内存计数，重启归零——见 docs/mcp-governance-and-key-limits.md §3）
+    let limit_registry =
+        asterlane::limits::LimitRegistry::from_config(&config).context("invalid limits config")?;
+    if let Some(repo) = &state.event_repo {
+        use asterlane::store::{AggregationDimension, AggregationFilter, AggregationRepository};
+        match repo
+            .summarize_by(
+                AggregationDimension::ProxyKey,
+                &AggregationFilter::default(),
+                u32::MAX,
+            )
+            .await
+        {
+            Ok(rows) => {
+                for row in rows {
+                    let admitted = (row.request_count - row.rate_limit_hits).max(0) as u64;
+                    limit_registry.seed_call_count(&row.dimension_value, admitted);
+                }
+            }
+            Err(e) => warn!(error = %e, "failed to seed max_calls counters from store"),
+        }
+        // 日配额回填：当天（UTC 零点起）事件按 key 求和，与准入口径一致
+        // （近似口径，事件为异步写；见 docs/key-credentials-and-persistence.md K3）
+        let day_start = chrono::Utc::now()
+            .date_naive()
+            .and_time(chrono::NaiveTime::MIN)
+            .and_utc();
+        let today_filter = AggregationFilter {
+            from: Some(day_start),
+            ..Default::default()
+        };
+        match repo
+            .summarize_by(AggregationDimension::ProxyKey, &today_filter, u32::MAX)
+            .await
+        {
+            Ok(rows) => {
+                for row in rows {
+                    let admitted = (row.request_count - row.rate_limit_hits).max(0) as u64;
+                    limit_registry.seed_daily_count(&row.dimension_value, admitted);
+                }
+            }
+            Err(e) => warn!(error = %e, "failed to seed daily call counters from store"),
+        }
+    }
+    state = state.with_limit_registry(Arc::new(limit_registry));
 
     // 语义搜索：启动期解析 embedding 端点 api key ref，失败 fail fast；未配置则关键词搜索
     if let Some(semantic) = asterlane::semantic::SemanticIndex::from_config(
@@ -260,6 +380,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
             state.integrity_baseline.clone(),
             state.quarantined_tools.clone(),
             state.event_repo.clone(),
+            state.secrets.clone(),
             ct.child_token(),
         );
     }
@@ -285,7 +406,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
 /// 启动后台 MCP registry 刷新 task。
 ///
 /// 每 `MCP_REFRESH_INTERVAL_SECS` 秒：
-/// 1. `registry.refresh()` 重新拉取上游 `tools/list`。
+/// 1. `registry.refresh_with_secrets()` 重新拉取上游 `tools/list`
+///    （unreachable 的 server 用 secrets 自动重连，恢复后并入其工具）。
 /// 2. `catalog.replace_mcp_tools()` 更新工具快照。
 /// 3. `check_integrity_drift()` 检测 drift → 写 security event → 更新隔离集合 → rebase baseline。
 /// 4. `notify_peers_tool_list_changed()` 向活跃 client session 推送通知。
@@ -300,6 +422,7 @@ fn spawn_mcp_refresh_task(
     baseline: Arc<tokio::sync::RwLock<asterlane::integrity::IntegrityBaseline>>,
     quarantined: asterlane::http::QuarantinedTools,
     event_repo: Option<Arc<asterlane::store::SqliteRequestEventRepository>>,
+    secrets: Arc<asterlane::secrets::DefaultSecretStore>,
     ct: tokio_util::sync::CancellationToken,
 ) {
     tokio::spawn(async move {
@@ -309,7 +432,7 @@ fn spawn_mcp_refresh_task(
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    let result = registry.refresh().await;
+                    let result = registry.refresh_with_secrets(secrets.as_ref()).await;
                     info!(
                         old_count = result.old_tool_count,
                         new_count = result.new_tool_count,

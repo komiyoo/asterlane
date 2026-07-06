@@ -5,6 +5,7 @@ pub mod config;
 pub mod defense;
 pub mod discovery;
 pub mod error;
+pub mod gateway_auth;
 pub mod http;
 pub mod integrity;
 pub mod keys;

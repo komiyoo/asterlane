@@ -68,6 +68,10 @@ pub enum LimiterKey {
     Ip(ApiId, IpAddr),
     /// 按 API + 网关 principal 维度限流。
     GatewayPrincipal(ApiId, PrincipalId),
+    /// 按网关 principal（proxy key）全局维度限流，per-key rps/rpm 限额用它
+    /// （`GatewayPrincipal` 保留给未来 per-key-per-resource 需求，
+    /// 见 docs/mcp-governance-and-key-limits.md §3）。
+    Principal(PrincipalId),
 }
 
 impl LimiterKey {
@@ -78,6 +82,7 @@ impl LimiterKey {
             Self::UpstreamKey(_, _) => "upstream_key",
             Self::Ip(_, _) => "ip",
             Self::GatewayPrincipal(_, _) => "gateway_principal",
+            Self::Principal(_) => "principal",
         }
     }
 }
@@ -91,6 +96,7 @@ impl Display for LimiterKey {
             Self::GatewayPrincipal(api, principal) => {
                 write!(f, "gateway_principal[api={api}, principal={principal}]")
             }
+            Self::Principal(principal) => write!(f, "principal[id={principal}]"),
         }
     }
 }
@@ -133,6 +139,9 @@ mod tests {
             principal.to_string(),
             "gateway_principal[api=tavily, principal=agent-1]"
         );
+
+        let global = LimiterKey::Principal(PrincipalId::new("agent-1"));
+        assert_eq!(global.to_string(), "principal[id=agent-1]");
     }
 
     #[test]
@@ -152,6 +161,10 @@ mod tests {
         assert_eq!(
             LimiterKey::GatewayPrincipal(ApiId::new("a"), PrincipalId::new("p")).dimension(),
             "gateway_principal"
+        );
+        assert_eq!(
+            LimiterKey::Principal(PrincipalId::new("p")).dimension(),
+            "principal"
         );
     }
 

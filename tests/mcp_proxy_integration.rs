@@ -17,6 +17,8 @@ async fn exa_live_lists_default_tools_and_calls_web_search() -> Result<()> {
         description: "Exa hosted MCP".to_string(),
         auth: UpstreamAuth::None,
         security: SecurityConfig::default(),
+        health_check: asterlane::config::HealthCheckConfig::default(),
+        limits: None,
     }];
     let registry =
         McpServerRegistry::connect_all(&configs, Arc::new(DefaultSecretStore::with_backends()))
@@ -115,6 +117,8 @@ fn rollinggo_configs() -> Vec<McpServerConfig> {
             description: "RollingGo hotel MCP".to_string(),
             auth: rollinggo_auth(),
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         },
         McpServerConfig {
             id: "rollinggo-flight".to_string(),
@@ -124,6 +128,8 @@ fn rollinggo_configs() -> Vec<McpServerConfig> {
             description: "RollingGo flight MCP".to_string(),
             auth: rollinggo_auth(),
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         },
     ]
 }

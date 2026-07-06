@@ -32,6 +32,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `config.*` | `config.invalid_tool_name` | 工具名段不合法或超长 | "invalid tool name segment: {detail}" |
 | `auth.*` | `auth.missing_gateway_key` | 请求未携带 gateway key | "missing gateway key" |
 | `auth.*` | `auth.invalid_gateway_key` | gateway key 未识别 | "invalid gateway key" |
+| `auth.*` | `auth.expired_gateway_key` | gateway key token 已过期（`expires_at` 已到） | "gateway key token expired" |
 | `auth.*` | `auth.forbidden_tool` | key scope 不允许该工具 | "tool {wire_name} not permitted for this key" |
 | `auth.*` | `auth.missing_upstream_secret` | secret ref 解析失败 | "upstream secret unavailable for resource {resource_id}" |
 | `catalog.*` | `catalog.unknown_tool` | 调用不存在的工具 | "unknown tool: {wire_name}" |
@@ -45,12 +46,15 @@ timestamp: 2026-07-03T00:00:00Z
 | `limit.*` | `limit.quota_exceeded` | 配额耗尽 | "quota exceeded for {dimension}" |
 | `limit.*` | `limit.queue_full` | 队列满 | "request queue full" |
 | `limit.*` | `limit.queue_timeout` | 排队超时 | "request exceeded queue wait limit" |
+| `limit.*` | `limit.calls_exhausted` | per-key 累计调用配额 `max_calls` 耗尽（需管理员调高，无 Retry-After） | "call quota exhausted for this key" |
+| `limit.*` | `limit.daily_calls_exhausted` | per-key 当日调用配额 `max_calls_per_day` 耗尽（UTC 零点重置） | "daily call quota exhausted for this key" |
 | `mcp.*` | `mcp.invalid_tool_call` | 参数不合法 | "invalid tool call arguments" |
 | `mcp.*` | `mcp.upstream_mcp_failure` | 上游 MCP server 失败 | "upstream MCP server error" |
 | `transform.*` | `transform.dangerous_header` | 变换规则尝试设置危险 header | "transform rule targets protected header" |
 | `transform.*` | `transform.invalid_pointer` | JSON Pointer 路径不合法 | "invalid transform pointer: {detail}" |
 | `admin.*` | `admin.unauthorized` | admin token 缺失或不匹配 | "missing or invalid admin token" |
 | `admin.*` | `admin.invalid_query` | admin 查询参数不合法 | "invalid group_by: {value}" |
+| `admin.*` | `admin.not_found` | admin 管理的实体未找到；`McpError::UnknownServer`（未知 MCP server id）也映射到此码 | "unknown MCP server: {server_id}" |
 
 # 边界转换
 
@@ -76,7 +80,7 @@ timestamp: 2026-07-03T00:00:00Z
 | 错误类别 | HTTP status |
 | --- | --- |
 | `config.*` | 500（服务端配置错误） |
-| `auth.missing_gateway_key` / `auth.invalid_gateway_key` | 401 |
+| `auth.missing_gateway_key` / `auth.invalid_gateway_key` / `auth.expired_gateway_key` | 401 |
 | `auth.forbidden_tool` | 403 |
 | `auth.missing_upstream_secret` | 503 |
 | `catalog.*` / `mcp.invalid_tool_call` | 400 |
@@ -84,11 +88,13 @@ timestamp: 2026-07-03T00:00:00Z
 | `store.*` | 503 |
 | `proxy.upstream_timeout` / `proxy.connection_failed` | 504 |
 | `mcp.upstream_mcp_failure` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
-| `limit.quota_exceeded` | 429 |
+| `limit.quota_exceeded` / `limit.calls_exhausted` | 429（`calls_exhausted` 无 Retry-After） |
+| `limit.daily_calls_exhausted` | 429（Retry-After = 距下个 UTC 零点秒数） |
 | `limit.queue_full` / `limit.queue_timeout` | 503 |
 | `transform.*` | 500 |
 | `admin.unauthorized` | 401 |
 | `admin.invalid_query` | 400 |
+| `admin.not_found` | 404 |
 
 JSON body 形态：
 

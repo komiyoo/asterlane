@@ -102,6 +102,15 @@ The CLI reads the server URL from `--server` or env `ASTERLANE_SERVER` (default 
 cargo run -- admin stats
 cargo run -- admin presets                      # builtin MCP presets and enabled state
 cargo run -- admin tools --filter '^search__'   # client-side name regex filter
+cargo run -- admin mcp-servers                  # configured MCP servers with health status
+cargo run -- admin mcp-servers get exa          # one server detail incl. its tool list
+cargo run -- admin mcp-servers probe exa        # on-demand health probe
+cargo run -- admin metadata list                # tool description overrides
+cargo run -- admin metadata set search__exa__web_search_exa --description 'Curated description'
+cargo run -- admin metadata rm search__exa__web_search_exa
+cargo run -- admin proxy-keys issue agent-a --expires-at 2027-01-01T00:00:00Z  # mint gateway token (plaintext printed once)
+cargo run -- admin proxy-keys revoke-token agent-a   # key falls back to legacy ?key= mode
+cargo run -- admin security-events --kind admin_audit  # audit trail of admin writes
 ```
 
 Output is pretty JSON on stdout. Errors print the server error JSON on stderr; exit codes follow the CLI mapping in `docs/error-model.md` (for example `auth.*`/`admin.*` → 3, `proxy.*` → 6).

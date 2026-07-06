@@ -11,7 +11,6 @@ use crate::config::{GatewayConfig, ProxyKey};
 use crate::discovery::{self, DiscoveryMode};
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::state::AppState;
-use crate::limits::{ApiId, LimiterKey, PrincipalId};
 use crate::mcp::model::{ToolCallResult, ToolContent};
 use crate::proxy::{InvokeResult, ProxyExecutor};
 use crate::render::{self, ResponseFormat};
@@ -106,26 +105,42 @@ impl From<&GatewayConfig> for ConfigSummary {
     }
 }
 
+/// 统一 gateway key 认证：`Authorization: Bearer` 优先，legacy `?key=` 兼容
+/// （契约见 docs/key-credentials-and-persistence.md K1）。返回认证后的 key id。
+async fn authenticate_request(
+    state: &AppState,
+    headers: &HeaderMap,
+    query_key: Option<&str>,
+) -> Result<String, AsterlaneError> {
+    state.gateway_auth.read().await.authenticate(
+        crate::gateway_auth::bearer_token(headers),
+        query_key,
+        chrono::Utc::now(),
+    )
+}
+
+/// 认证后按 key id 取 ProxyKey（防御：认证表与配置快照不一致时按无效 key 处理）。
+fn proxy_key_for<'a>(
+    config: &'a GatewayConfig,
+    key_id: &str,
+) -> Result<&'a ProxyKey, AsterlaneError> {
+    config.proxy_key(key_id).ok_or_else(|| {
+        AsterlaneError::internal(ErrorCode::AuthInvalidGatewayKey, "invalid gateway key")
+    })
+}
+
 /// `GET /config` — 返回脱敏后的配置概要。
 pub async fn get_config(
     State(state): State<AppState>,
     Query(query): Query<ToolsQuery>,
+    headers: HeaderMap,
 ) -> Result<Json<ConfigSummary>, AsterlaneError> {
     let config = state.config_snapshot().await;
-    let key = query.key.ok_or_else(|| {
-        AsterlaneError::internal(ErrorCode::AuthMissingGatewayKey, "missing gateway key")
-    })?;
-    config.proxy_key(&key).ok_or_else(|| {
-        AsterlaneError::internal(ErrorCode::AuthInvalidGatewayKey, "invalid gateway key")
-    })?;
-    if let Some(limits) = &state.limits {
-        limits
-            .check(&LimiterKey::GatewayPrincipal(
-                ApiId::new("config"),
-                PrincipalId::new(&key),
-            ))
-            .await?;
-    }
+    let key_id = authenticate_request(&state, &headers, query.key.as_deref()).await?;
+    proxy_key_for(&config, &key_id)?;
+    // 控制面共享 per-key rps/rpm（`principal` 维度）；与 invoke 准入同一注册表，
+    // 不做双重扣减（invoke 走 executor 内的 admit）
+    state.limit_registry_snapshot().await.check_key(&key_id)?;
     Ok(Json(ConfigSummary::from(config.as_ref())))
 }
 
@@ -174,23 +189,21 @@ struct MetaToolInvokeResult {
 
 /// `GET /v1/tools` — 工具列表。
 ///
-/// 先校验 proxy key（`config.proxy_key(&key)`）：
-/// - key 缺失返回 `auth.missing_gateway_key`（401）
-/// - key 不存在返回 `auth.invalid_gateway_key`（401）
+/// 先经 gateway key 认证（Bearer 优先，legacy `?key=` 兼容）：
+/// - 凭据缺失返回 `auth.missing_gateway_key`（401）
+/// - 凭据无效返回 `auth.invalid_gateway_key`（401）
+/// - token 过期返回 `auth.expired_gateway_key`（401）
 ///
 /// 在 lazy discovery 模式下，仅返回 meta-tool descriptor；
 /// 否则映射 query 参数到 `ToolListQuery`，调用 `ToolCatalog::list_for_key`。
 pub async fn list_tools(
     State(state): State<AppState>,
     Query(query): Query<ToolsQuery>,
+    headers: HeaderMap,
 ) -> Result<Response, AsterlaneError> {
     let config = state.config_snapshot().await;
-    let key = query.key.ok_or_else(|| {
-        AsterlaneError::internal(ErrorCode::AuthMissingGatewayKey, "missing gateway key")
-    })?;
-    let proxy_key = config.proxy_key(&key).ok_or_else(|| {
-        AsterlaneError::internal(ErrorCode::AuthInvalidGatewayKey, "invalid gateway key")
-    })?;
+    let key_id = authenticate_request(&state, &headers, query.key.as_deref()).await?;
+    let proxy_key = proxy_key_for(&config, &key_id)?;
 
     // Lazy mode: return only meta-tool descriptors
     if DiscoveryMode::from_config_str(proxy_key.discovery_mode.as_deref()) == DiscoveryMode::Lazy {
@@ -251,9 +264,7 @@ pub(crate) async fn execute_invoke(
     if let Some(registry) = &state.mcp_registry {
         executor = executor.with_mcp_registry(registry.clone());
     }
-    if let Some(limits) = &state.limits {
-        executor = executor.with_limits(limits.clone());
-    }
+    executor = executor.with_limits(state.limit_registry_snapshot().await);
     if let Some(pools) = &state.key_pools {
         executor = executor.with_key_pools(pools.clone());
     }
@@ -286,8 +297,7 @@ fn json_response(body: Vec<u8>) -> Response {
 
 /// `POST /v1/tools/{name}/invoke` — 调用上游工具。
 ///
-/// 第一阶段沿用 `/v1/tools` 的 `?key=` 传递 proxy key；后续可统一迁移到
-/// Authorization header / middleware。
+/// gateway key 认证与 `/v1/tools` 同口径：Bearer 优先，legacy `?key=` 兼容。
 ///
 /// Meta-tool 调用（`asterlane__*`）在此层拦截并直接处理，不转发上游。
 pub async fn invoke_tool(
@@ -298,15 +308,8 @@ pub async fn invoke_tool(
     Json(args): Json<serde_json::Value>,
 ) -> Result<Response, AsterlaneError> {
     let config = state.config_snapshot().await;
-    let key = query.key.ok_or_else(|| {
-        AsterlaneError::internal(ErrorCode::AuthMissingGatewayKey, "missing gateway key")
-    })?;
-    let proxy_key = config
-        .proxy_key(&key)
-        .ok_or_else(|| {
-            AsterlaneError::internal(ErrorCode::AuthInvalidGatewayKey, "invalid gateway key")
-        })?
-        .clone();
+    let key_id = authenticate_request(&state, &headers, query.key.as_deref()).await?;
+    let proxy_key = proxy_key_for(&config, &key_id)?.clone();
 
     // 响应格式：?format= 显式优先，其次 Accept 内容协商，再落渠道/全局配置
     let accept_override = headers

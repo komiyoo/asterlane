@@ -31,6 +31,8 @@ pub enum ErrorCode {
     AuthMissingGatewayKey,
     /// gateway key 未识别。
     AuthInvalidGatewayKey,
+    /// gateway key token 已过期。
+    AuthExpiredGatewayKey,
     /// key scope 不允许该工具。
     AuthForbiddenTool,
     /// secret ref 解析失败。
@@ -65,6 +67,10 @@ pub enum ErrorCode {
     LimitQueueFull,
     /// 排队超时。
     LimitQueueTimeout,
+    /// Per-key 累计调用配额（`max_calls`）耗尽。
+    LimitCallsExhausted,
+    /// Per-key 当日调用配额（`max_calls_per_day`）耗尽，UTC 零点重置。
+    LimitDailyCallsExhausted,
 
     // ── mcp ──
     /// 参数不合法。
@@ -99,6 +105,7 @@ impl ErrorCode {
             Self::ConfigInvalidToolName => "config.invalid_tool_name",
             Self::AuthMissingGatewayKey => "auth.missing_gateway_key",
             Self::AuthInvalidGatewayKey => "auth.invalid_gateway_key",
+            Self::AuthExpiredGatewayKey => "auth.expired_gateway_key",
             Self::AuthForbiddenTool => "auth.forbidden_tool",
             Self::AuthMissingUpstreamSecret => "auth.missing_upstream_secret",
             Self::CatalogUnknownTool => "catalog.unknown_tool",
@@ -112,6 +119,8 @@ impl ErrorCode {
             Self::LimitQuotaExceeded => "limit.quota_exceeded",
             Self::LimitQueueFull => "limit.queue_full",
             Self::LimitQueueTimeout => "limit.queue_timeout",
+            Self::LimitCallsExhausted => "limit.calls_exhausted",
+            Self::LimitDailyCallsExhausted => "limit.daily_calls_exhausted",
             Self::McpInvalidToolCall => "mcp.invalid_tool_call",
             Self::McpUpstreamMcpFailure => "mcp.upstream_mcp_failure",
             Self::TransformDangerousHeader => "transform.dangerous_header",
@@ -132,6 +141,7 @@ impl ErrorCode {
             | Self::ConfigInvalidToolName => "config",
             Self::AuthMissingGatewayKey
             | Self::AuthInvalidGatewayKey
+            | Self::AuthExpiredGatewayKey
             | Self::AuthForbiddenTool
             | Self::AuthMissingUpstreamSecret => "auth",
             Self::CatalogUnknownTool | Self::CatalogInvalidPagination => "catalog",
@@ -140,7 +150,11 @@ impl ErrorCode {
             | Self::ProxyRetryExhausted
             | Self::ProxyUpstreamError
             | Self::ProxyConnectionFailed => "proxy",
-            Self::LimitQuotaExceeded | Self::LimitQueueFull | Self::LimitQueueTimeout => "limit",
+            Self::LimitQuotaExceeded
+            | Self::LimitQueueFull
+            | Self::LimitQueueTimeout
+            | Self::LimitCallsExhausted
+            | Self::LimitDailyCallsExhausted => "limit",
             Self::McpInvalidToolCall | Self::McpUpstreamMcpFailure => "mcp",
             Self::TransformDangerousHeader | Self::TransformInvalidPointer => "transform",
             Self::AdminUnauthorized
@@ -290,7 +304,8 @@ impl AsterlaneError {
             | ErrorCode::McpUpstreamMcpFailure
             | ErrorCode::LimitQuotaExceeded
             | ErrorCode::LimitQueueFull
-            | ErrorCode::LimitQueueTimeout => McpErrorForm::ToolResultIsError(message),
+            | ErrorCode::LimitQueueTimeout
+            | ErrorCode::LimitCallsExhausted => McpErrorForm::ToolResultIsError(message),
             // 网关自身故障 → Internal error
             _ => McpErrorForm::JsonRpc(-32603, message),
         }
@@ -347,7 +362,9 @@ fn http_status_for(code: ErrorCode) -> u16 {
         | ErrorCode::ConfigUnknownResource
         | ErrorCode::ConfigInvalidRegex
         | ErrorCode::ConfigInvalidToolName => 500,
-        ErrorCode::AuthMissingGatewayKey | ErrorCode::AuthInvalidGatewayKey => 401,
+        ErrorCode::AuthMissingGatewayKey
+        | ErrorCode::AuthInvalidGatewayKey
+        | ErrorCode::AuthExpiredGatewayKey => 401,
         ErrorCode::AuthForbiddenTool => 403,
         ErrorCode::AuthMissingUpstreamSecret => 503,
         ErrorCode::CatalogUnknownTool => 404,
@@ -356,7 +373,9 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::StoreMigrationFailed | ErrorCode::StoreUnavailable => 503,
         ErrorCode::ProxyUpstreamTimeout | ErrorCode::ProxyConnectionFailed => 504,
         ErrorCode::ProxyRetryExhausted | ErrorCode::ProxyUpstreamError => 502,
-        ErrorCode::LimitQuotaExceeded => 429,
+        ErrorCode::LimitQuotaExceeded
+        | ErrorCode::LimitCallsExhausted
+        | ErrorCode::LimitDailyCallsExhausted => 429,
         ErrorCode::LimitQueueFull | ErrorCode::LimitQueueTimeout => 503,
         ErrorCode::TransformDangerousHeader | ErrorCode::TransformInvalidPointer => 500,
         ErrorCode::AdminUnauthorized => 401,
@@ -439,6 +458,10 @@ mod tests {
         assert_eq!(ErrorCode::LimitQueueFull.as_str(), "limit.queue_full");
         assert_eq!(ErrorCode::LimitQueueTimeout.as_str(), "limit.queue_timeout");
         assert_eq!(
+            ErrorCode::LimitCallsExhausted.as_str(),
+            "limit.calls_exhausted"
+        );
+        assert_eq!(
             ErrorCode::McpInvalidToolCall.as_str(),
             "mcp.invalid_tool_call"
         );
@@ -485,6 +508,7 @@ mod tests {
         assert_eq!(ErrorCode::LimitQuotaExceeded.category(), "limit");
         assert_eq!(ErrorCode::LimitQueueFull.category(), "limit");
         assert_eq!(ErrorCode::LimitQueueTimeout.category(), "limit");
+        assert_eq!(ErrorCode::LimitCallsExhausted.category(), "limit");
         assert_eq!(ErrorCode::McpInvalidToolCall.category(), "mcp");
         assert_eq!(ErrorCode::McpUpstreamMcpFailure.category(), "mcp");
         assert_eq!(ErrorCode::AdminUnauthorized.category(), "admin");
@@ -683,6 +707,13 @@ mod tests {
         let err = AsterlaneError::internal(ErrorCode::LimitQueueFull, "queue full");
         let view = err.http_response();
         assert_eq!(view.status, 503);
+    }
+
+    #[test]
+    fn http_limit_calls_exhausted_returns_429() {
+        let err = AsterlaneError::internal(ErrorCode::LimitCallsExhausted, "quota exhausted");
+        let view = err.http_response();
+        assert_eq!(view.status, 429);
     }
 
     #[test]

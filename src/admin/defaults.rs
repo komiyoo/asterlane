@@ -40,8 +40,10 @@ fn invalid_body() -> AsterlaneError {
     AsterlaneError::internal(ErrorCode::AdminInvalidQuery, "body must be a JSON object")
 }
 
-/// defaults 写路径需要持久化 store；未配置时报 `store.unavailable`（503）。
-fn require_store(state: &AppState) -> Result<&Arc<SqliteRequestEventRepository>, AsterlaneError> {
+/// defaults/metadata 写路径需要持久化 store；未配置时报 `store.unavailable`（503）。
+pub(super) fn require_store(
+    state: &AppState,
+) -> Result<&Arc<SqliteRequestEventRepository>, AsterlaneError> {
     state.event_repo.as_ref().ok_or_else(|| {
         AsterlaneError::internal(
             ErrorCode::StoreUnavailable,
@@ -51,8 +53,10 @@ fn require_store(state: &AppState) -> Result<&Arc<SqliteRequestEventRepository>,
 }
 
 /// 解析裸 JSON object body。空 body / `null` 返回 `None`；
-/// 非法 JSON 或非 object 报 `admin.invalid_query`。
-fn parse_object_body(body: &Bytes) -> Result<Option<Map<String, Value>>, AsterlaneError> {
+/// 非法 JSON 或非 object 报 `admin.invalid_query`（metadata 模块复用）。
+pub(super) fn parse_object_body(
+    body: &Bytes,
+) -> Result<Option<Map<String, Value>>, AsterlaneError> {
     if body.is_empty() {
         return Ok(None);
     }
@@ -194,6 +198,12 @@ pub(super) async fn invoke_tool_debug(
         default_tool_page_size: 20,
         discovery_mode: None,
         response_format: None,
+        allowed_servers: Vec::new(),
+        allowed_tool_names: Vec::new(),
+        limits: None,
+        token_ref: None,
+        token_digest: None,
+        expires_at: None,
     };
 
     let started = Instant::now();

@@ -45,12 +45,28 @@ pub enum AdminCommand {
     Stats,
     /// 上游资源列表（GET /admin/resources）
     Resources,
-    /// proxy key 列表（GET /admin/proxy-keys）
-    ProxyKeys,
+    /// proxy key 治理：无子命令时列表（GET /admin/proxy-keys）
+    ProxyKeys {
+        /// proxy-keys 子命令；缺省输出列表
+        #[command(subcommand)]
+        command: Option<ProxyKeysCommand>,
+    },
     /// 上游 key 池状态（GET /admin/key-pools）
     KeyPools,
     /// 内置 MCP preset 目录与启用状态（GET /admin/mcp-presets）
     Presets,
+    /// MCP server 治理：无子命令时列表（GET /admin/mcp-servers）
+    McpServers {
+        /// mcp-servers 子命令；缺省输出列表
+        #[command(subcommand)]
+        command: Option<McpServersCommand>,
+    },
+    /// 工具介绍 override 管理（覆盖上游 description）
+    Metadata {
+        /// metadata 子命令
+        #[command(subcommand)]
+        command: MetadataCommand,
+    },
     /// 运行时配置校验（GET /admin/config/validate）
     Validate,
     /// 工具目录（GET /admin/tools）；--filter 在客户端按 name 正则过滤
@@ -85,6 +101,9 @@ pub enum AdminCommand {
         /// 按 resource id 过滤
         #[arg(long)]
         resource: Option<String>,
+        /// 按事件分类过滤（snake_case，如 admin_audit、content_defense_flag）
+        #[arg(long)]
+        kind: Option<String>,
     },
     /// 用量聚合（GET /admin/usage）
     Usage {
@@ -120,6 +139,64 @@ pub enum AdminCommand {
         /// 调用成功后把实际使用的参数存为该工具默认
         #[arg(long)]
         save_defaults: bool,
+    },
+}
+
+/// `proxy-keys` 子命令。
+#[derive(Debug, clap::Subcommand)]
+pub enum ProxyKeysCommand {
+    /// 签发/轮换 gateway token（POST /admin/proxy-keys/{id}/token；明文仅此一次）
+    Issue {
+        /// proxy key id
+        id: String,
+        /// token 过期时间（RFC3339，UTC；缺省永不过期）
+        #[arg(long)]
+        expires_at: Option<String>,
+    },
+    /// 吊销 token，key 回到 legacy id-only 模式（DELETE /admin/proxy-keys/{id}/token）
+    RevokeToken {
+        /// proxy key id
+        id: String,
+    },
+}
+
+/// `mcp-servers` 子命令。
+#[derive(Debug, clap::Subcommand)]
+pub enum McpServersCommand {
+    /// 单个 server 详情，含健康状态与工具清单（GET /admin/mcp-servers/{id}）
+    Get {
+        /// MCP server id
+        id: String,
+    },
+    /// 立即探测健康状态（POST /admin/mcp-servers/{id}/probe）
+    Probe {
+        /// MCP server id
+        id: String,
+    },
+}
+
+/// `metadata` 子命令。
+#[derive(Debug, clap::Subcommand)]
+pub enum MetadataCommand {
+    /// 全量介绍 override 列表（GET /admin/tool-metadata）
+    List,
+    /// 单个工具介绍（GET /admin/tools/{name}/metadata；无 override 时 404）
+    Get {
+        /// 工具 wire name
+        tool: String,
+    },
+    /// 写入介绍 override（PUT /admin/tools/{name}/metadata）
+    Set {
+        /// 工具 wire name
+        tool: String,
+        /// 介绍文本（覆盖上游 description，agent 侧即时生效）
+        #[arg(long)]
+        description: String,
+    },
+    /// 删除介绍 override，恢复上游描述（DELETE /admin/tools/{name}/metadata）
+    Rm {
+        /// 工具 wire name
+        tool: String,
     },
 }
 
@@ -178,9 +255,40 @@ async fn execute(args: AdminArgs) -> Result<Value, CliError> {
     match args.command {
         AdminCommand::Stats => client.get("/admin/stats", &[]).await,
         AdminCommand::Resources => client.get("/admin/resources", &[]).await,
-        AdminCommand::ProxyKeys => client.get("/admin/proxy-keys", &[]).await,
+        AdminCommand::ProxyKeys { command } => match command {
+            None => client.get("/admin/proxy-keys", &[]).await,
+            Some(ProxyKeysCommand::Issue { id, expires_at }) => {
+                let body = match expires_at {
+                    Some(ts) => json!({ "expires_at": ts }),
+                    None => json!({}),
+                };
+                let result = client
+                    .post_json(&format!("/admin/proxy-keys/{id}/token"), &[], &body)
+                    .await?;
+                // 提醒走 stderr，不污染 stdout 的 JSON（token 明文只出现在 stdout 一次）
+                eprintln!("note: the token plaintext is shown only once; store it now");
+                Ok(result)
+            }
+            Some(ProxyKeysCommand::RevokeToken { id }) => {
+                client
+                    .delete(&format!("/admin/proxy-keys/{id}/token"))
+                    .await
+            }
+        },
         AdminCommand::KeyPools => client.get("/admin/key-pools", &[]).await,
         AdminCommand::Presets => client.get("/admin/mcp-presets", &[]).await,
+        AdminCommand::McpServers { command } => match command {
+            None => client.get("/admin/mcp-servers", &[]).await,
+            Some(McpServersCommand::Get { id }) => {
+                client.get(&format!("/admin/mcp-servers/{id}"), &[]).await
+            }
+            Some(McpServersCommand::Probe { id }) => {
+                client
+                    .post_json(&format!("/admin/mcp-servers/{id}/probe"), &[], &json!({}))
+                    .await
+            }
+        },
+        AdminCommand::Metadata { command } => run_metadata(&client, command).await,
         AdminCommand::Validate => client.get("/admin/config/validate", &[]).await,
         AdminCommand::Tools { filter } => {
             let body = client.get("/admin/tools", &[]).await?;
@@ -197,10 +305,13 @@ async fn execute(args: AdminArgs) -> Result<Value, CliError> {
             let query = events_query(tool, key, resource, limit, from, to);
             client.get("/admin/events", &query).await
         }
-        AdminCommand::SecurityEvents { resource } => {
+        AdminCommand::SecurityEvents { resource, kind } => {
             let mut query = Vec::new();
             if let Some(v) = resource {
                 query.push(("resource_id", v));
+            }
+            if let Some(v) = kind {
+                query.push(("kind", v));
             }
             client.get("/admin/security-events", &query).await
         }
@@ -224,6 +335,30 @@ async fn execute(args: AdminArgs) -> Result<Value, CliError> {
             ];
             client
                 .post_json(&format!("/admin/tools/{tool}/invoke"), &query, &body)
+                .await
+        }
+    }
+}
+
+async fn run_metadata(client: &AdminClient, command: MetadataCommand) -> Result<Value, CliError> {
+    match command {
+        MetadataCommand::List => client.get("/admin/tool-metadata", &[]).await,
+        MetadataCommand::Get { tool } => {
+            client
+                .get(&format!("/admin/tools/{tool}/metadata"), &[])
+                .await
+        }
+        MetadataCommand::Set { tool, description } => {
+            client
+                .put_json(
+                    &format!("/admin/tools/{tool}/metadata"),
+                    &json!({ "description": description }),
+                )
+                .await
+        }
+        MetadataCommand::Rm { tool } => {
+            client
+                .delete(&format!("/admin/tools/{tool}/metadata"))
                 .await
         }
     }
@@ -489,7 +624,20 @@ mod tests {
 
     #[test]
     fn parses_security_events_and_usage() {
-        parse(&["security-events", "--resource", "exa"]);
+        let args = parse(&[
+            "security-events",
+            "--resource",
+            "exa",
+            "--kind",
+            "admin_audit",
+        ]);
+        match args.command {
+            AdminCommand::SecurityEvents { resource, kind } => {
+                assert_eq!(resource.as_deref(), Some("exa"));
+                assert_eq!(kind.as_deref(), Some("admin_audit"));
+            }
+            other => panic!("expected security-events, got {other:?}"),
+        }
         let args = parse(&["usage", "--group-by", "proxy_key"]);
         match args.command {
             AdminCommand::Usage { group_by, .. } => {
@@ -497,6 +645,80 @@ mod tests {
             }
             other => panic!("expected usage, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_proxy_keys_token_subcommands() {
+        // 无子命令 = 列表
+        assert!(matches!(
+            parse(&["proxy-keys"]).command,
+            AdminCommand::ProxyKeys { command: None }
+        ));
+        let args = parse(&[
+            "proxy-keys",
+            "issue",
+            "agent-a",
+            "--expires-at",
+            "2027-01-01T00:00:00Z",
+        ]);
+        match args.command {
+            AdminCommand::ProxyKeys {
+                command: Some(ProxyKeysCommand::Issue { id, expires_at }),
+            } => {
+                assert_eq!(id, "agent-a");
+                assert_eq!(expires_at.as_deref(), Some("2027-01-01T00:00:00Z"));
+            }
+            other => panic!("expected proxy-keys issue, got {other:?}"),
+        }
+        let args = parse(&["proxy-keys", "revoke-token", "agent-a"]);
+        match args.command {
+            AdminCommand::ProxyKeys {
+                command: Some(ProxyKeysCommand::RevokeToken { id }),
+            } => assert_eq!(id, "agent-a"),
+            other => panic!("expected proxy-keys revoke-token, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_mcp_servers_subcommands() {
+        let args = parse(&["mcp-servers"]);
+        assert!(matches!(
+            args.command,
+            AdminCommand::McpServers { command: None }
+        ));
+        let args = parse(&["mcp-servers", "get", "exa"]);
+        match args.command {
+            AdminCommand::McpServers {
+                command: Some(McpServersCommand::Get { id }),
+            } => assert_eq!(id, "exa"),
+            other => panic!("expected mcp-servers get, got {other:?}"),
+        }
+        let args = parse(&["mcp-servers", "probe", "exa"]);
+        match args.command {
+            AdminCommand::McpServers {
+                command: Some(McpServersCommand::Probe { id }),
+            } => assert_eq!(id, "exa"),
+            other => panic!("expected mcp-servers probe, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_metadata_subcommands() {
+        parse(&["metadata", "list"]);
+        parse(&["metadata", "get", "t"]);
+        parse(&["metadata", "rm", "t"]);
+        let args = parse(&["metadata", "set", "t", "--description", "更好的介绍"]);
+        match args.command {
+            AdminCommand::Metadata {
+                command: MetadataCommand::Set { tool, description },
+            } => {
+                assert_eq!(tool, "t");
+                assert_eq!(description, "更好的介绍");
+            }
+            other => panic!("expected metadata set, got {other:?}"),
+        }
+        // description 必填
+        parse_err(&["metadata", "set", "t"]);
     }
 
     #[test]

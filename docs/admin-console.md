@@ -4,7 +4,7 @@ title: Admin Console
 description: Web 管理控制台的形态决策、页面地图、admin API 缺口清单与分阶段路线。
 resource: docs/admin-console.md
 tags: [admin, console, ui, observability, design]
-timestamp: 2026-07-05T00:00:00Z
+timestamp: 2026-07-06T00:00:00Z
 ---
 
 # 定位
@@ -51,7 +51,7 @@ admin:
 
 # 页面地图与 API 缺口
 
-页面与端点一一对应；「状态」截至 2026-07-05。
+页面与端点一一对应；「状态」截至 2026-07-06。
 
 | 页面 | 内容 | 端点 | 状态 |
 | --- | --- | --- | --- |
@@ -65,6 +65,11 @@ admin:
 | Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中） | `/admin/usage?group_by=&from=&to=` | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
 | Config | 配置校验报告、资源与 key 的 CRUD | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3） |
 | （跨页面）Tool Defaults | 工具默认调用参数全量列表（Tools 调试面板与 CLI 消费） | `GET /admin/tool-defaults` | 已上线（C4） |
+| MCP Servers | MCP 供应商列表（健康状态、builtin/requires_key 标记、tool_count、探测按钮）；行展开详情 = 元信息 + 健康 + 限额 + security + 工具表（介绍编辑、行内调试）+ server 增删改表单 | `GET/POST /admin/mcp-servers`、`GET/PUT/DELETE /admin/mcp-servers/{id}`、`POST /admin/mcp-servers/{id}/probe` | 已上线（C5，2026-07-06）：JSON 形状钉死于 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §6 |
+| （跨页面）Tool Metadata | 工具介绍 override（覆盖上游 description；agent 可见描述 = override ?? 原始）；`/admin/tools` 行含 `resource_id`/`description_override` | `GET /admin/tool-metadata`、`GET/PUT/DELETE /admin/tools/{name}/metadata` | 已上线（C5，2026-07-06） |
+| Proxy Keys（token 签发） | key 行「签发/轮换」「吊销」按钮 + token 一次性弹窗（明文仅此一次）、`auth_mode` 徽标、过期时间输入、总量/当日配额进度条；列表行含 `auth_mode`/`expires_at`/`usage`，永不回显摘要或明文 | `POST/DELETE /admin/proxy-keys/{id}/token`、`/admin/proxy-keys` | 已上线（C6，2026-07-06） |
+| 审计 | AdminAudit 审计流水（时间/admin_key_id/action/target），预置 kind=admin_audit，沿用事件页分页；非法 kind 400 `admin.invalid_query` | `/admin/security-events?kind=` | 已上线（C6，2026-07-06） |
+| Config（导出） | 「导出 YAML」按钮：当前合并快照（`text/yaml`，只含 secret ref 与 token 摘要，无明文密钥） | `GET /admin/config/export` | 已上线（C6，2026-07-06） |
 
 除 Key Pools（依赖尚未接线的运行时能力）外，覆盖 [Architecture – Admin Console](architecture.md) 第一阶段最小集。
 
@@ -81,6 +86,8 @@ admin:
   - `DELETE /admin/tools/{name}/defaults` — 不存在 404；
   - `POST /admin/tools/{name}/invoke?use_defaults=&save=` — 调试调用，args 优先级 = body 非空 > body 空且 `use_defaults=true` 用存储默认 > `{}`；`save=true` 且调用成功时把实际使用的 args 存为默认（`source=captured`）并记审计；响应 `{request_id, status, latency_ms, result}`。
   - 调试调用复用 `/v1/tools/{name}/invoke` 执行管线（`http::execute_invoke`：limits、key pool、隔离、content defense、shaping、事件记录与负载捕获全部生效）；事件 `proxy_key_id` 记 `admin:{admin_key_id}`，通过合成 ProxyKey（allow `.*`）绕过 proxy key scope，合成 key 不写入配置。defaults 写操作（set/delete/capture）均落 `AdminAudit`。未配置 store 时写路径报 503 `store.unavailable`。控制台新增 Tools 行内调试面板与事件行详情（见页面地图）。
+- **C5 MCP 治理（已交付 2026-07-06）**：设计契约见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §6。`/admin/mcp-servers` 列表/详情/CRUD/`probe`（`src/admin/mcp.rs`）：列表合并配置快照与 registry 健康快照（未配 MCP 时 health 全 `unknown`）；POST 创建即尝试连接，失败仍保存并返回 `unreachable`（201）；写路径复用 C3 `swap_config_and_catalog` 原子替换，另同步 registry 工具进 catalog 并 rebase integrity baseline，DB 持久化走新 `mcp_servers` 表（`config_json` 模式同 `resources`，启动不回读）。工具介绍 override（`src/admin/metadata.rs` + `tool_metadata` 表 + catalog overlay）：`PUT/DELETE /admin/tools/{name}/metadata` 即时生效于 agent 可见描述（override ?? 上游原始），integrity fingerprint 仍用上游原始描述。CLI 新增 `admin mcp-servers [get|probe]` 与 `admin metadata list/get/set/rm`。全部写操作落 `AdminAudit`；响应永不含 secret ref。控制台新增 MCP Servers 页（W2-E）。
+- **C6 Key 凭据与持久化（已交付 2026-07-06）**：设计契约见 [Proxy Key 凭据化与配置持久化闭环](key-credentials-and-persistence.md)。token 签发/轮换/吊销端点（`src/admin/tokens.rs`）：明文 `alk_` token 只出现在签发响应一次，内存/DB/导出只存 SHA-256 摘要；`swap_config_and_catalog` 每次写操作从新快照重建 GatewayAuth（CRUD 增删 key 与签发/吊销即时生效；新快照 token_ref 解析失败则整体拒绝该次写入，内存态不变）。`/admin/proxy-keys` 行扩展 `auth_mode`/`expires_at`/`usage`；`GET /admin/config/export` 导出合并快照 YAML；`/admin/security-events?kind=` 过滤 + 控制台审计 tab。serve 启动回读 DB 合并（同 id YAML 胜，K2 闭环）与日配额计数回填。CLI 新增 `admin proxy-keys issue/revoke-token`、`admin security-events --kind`。
 - **远期（不排期）**：多管理员 RBAC、SSE live tail、SSO。
 
 每阶段独立可交付：C0/C1 合起来就是可用的最小控制台，C2/C3 按需求节奏推进。

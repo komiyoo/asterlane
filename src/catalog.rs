@@ -4,6 +4,7 @@ use crate::openapi;
 use crate::policy::{PolicyError, key_can_use_tool};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,9 +43,23 @@ pub struct ParamLocations {
     pub has_body: bool,
 }
 
+/// 工具目录。
+///
+/// `tools` 中的 `description` 为**有效描述**：管理员介绍 override 已应用
+/// （见 docs/mcp-governance-and-key-limits.md §5）。所有读路径
+/// （`/v1/tools`、MCP `tools/list`、meta-tool 搜索、语义索引）因此自动
+/// 输出 `override ?? 上游原始`，无需各自处理。上游原始描述保存在
+/// `original_descriptions`，仅供 admin 端点展示；integrity baseline 不经
+/// catalog 取描述（用 registry descriptors），override 不参与 fingerprint。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolCatalog {
     tools: Vec<WrappedTool>,
+    /// wire name → 管理员介绍 override（来源 `tool_metadata` 表）。
+    description_overrides: HashMap<String, String>,
+    /// wire name → 上游原始描述（仅记录被 override 的工具）。
+    /// 工具下线后的残留条目无害：读取只按 catalog 现存工具查询，
+    /// 工具重新上线时 `overlay_tool` 会以新的原始描述覆盖。
+    original_descriptions: HashMap<String, String>,
 }
 
 impl ToolCatalog {
@@ -59,11 +74,22 @@ impl ToolCatalog {
             }
         }
         tools.sort_by_key(|a| a.name.to_wire_name());
-        Ok(Self { tools })
+        Ok(Self {
+            tools,
+            description_overrides: HashMap::new(),
+            original_descriptions: HashMap::new(),
+        })
     }
 
     pub fn extend_with_mcp_tools(&mut self, tools: impl IntoIterator<Item = WrappedTool>) {
-        self.tools.extend(tools);
+        for mut tool in tools {
+            overlay_tool(
+                &self.description_overrides,
+                &mut self.original_descriptions,
+                &mut tool,
+            );
+            self.tools.push(tool);
+        }
         self.tools.sort_by_key(|a| a.name.to_wire_name());
     }
 
@@ -72,6 +98,7 @@ impl ToolCatalog {
     /// refresh 后调用：先移除所有 `resource_id` 在给定集合中的旧工具，
     /// 再 extend 新工具并重排序。HTTP API 工具（非 MCP）不受影响。
     /// 保持 `list_for_key` 的过滤/scope 逻辑不变——仅替换数据源。
+    /// 介绍 override 在 extend 时按 overlay map 重放，替换后不丢失。
     pub fn replace_mcp_tools(
         &mut self,
         new_tools: Vec<WrappedTool>,
@@ -79,8 +106,79 @@ impl ToolCatalog {
     ) {
         self.tools
             .retain(|t| !mcp_resource_ids.contains(&t.resource_id));
-        self.tools.extend(new_tools);
-        self.tools.sort_by_key(|a| a.name.to_wire_name());
+        self.extend_with_mcp_tools(new_tools);
+    }
+
+    // ── 介绍 override（治理契约 §5）──
+
+    /// 写入/更新单个工具的介绍 override，并即时应用到现有工具。
+    /// 工具当前不在 catalog（如上游暂不可达）时仅登记，工具出现后重放。
+    pub fn set_description_override(&mut self, wire_name: &str, description: &str) {
+        self.description_overrides
+            .insert(wire_name.to_string(), description.to_string());
+        if let Some(tool) = self
+            .tools
+            .iter_mut()
+            .find(|t| t.name.to_wire_name() == wire_name)
+        {
+            // 首次 override 时记录原始描述；再次覆盖时原始描述不变
+            self.original_descriptions
+                .entry(wire_name.to_string())
+                .or_insert_with(|| tool.description.clone());
+            tool.description = description.to_string();
+        }
+    }
+
+    /// 移除介绍 override，恢复上游原始描述。
+    pub fn remove_description_override(&mut self, wire_name: &str) {
+        self.description_overrides.remove(wire_name);
+        if let Some(original) = self.original_descriptions.remove(wire_name)
+            && let Some(tool) = self
+                .tools
+                .iter_mut()
+                .find(|t| t.name.to_wire_name() == wire_name)
+        {
+            tool.description = original;
+        }
+    }
+
+    /// 整体加载 override 集合（启动时从 store 读取；配置热更新时从旧
+    /// catalog 携带）。可重入：先还原已应用的 override 再全量重放。
+    pub fn load_description_overrides(&mut self, overrides: HashMap<String, String>) {
+        for tool in &mut self.tools {
+            if let Some(original) = self.original_descriptions.remove(&tool.name.to_wire_name()) {
+                tool.description = original;
+            }
+        }
+        self.original_descriptions.clear();
+        self.description_overrides = overrides;
+        for tool in &mut self.tools {
+            overlay_tool(
+                &self.description_overrides,
+                &mut self.original_descriptions,
+                tool,
+            );
+        }
+    }
+
+    /// 当前 override 集合（wire name → 介绍）。
+    pub fn description_overrides(&self) -> &HashMap<String, String> {
+        &self.description_overrides
+    }
+
+    /// 某工具的介绍 override（若有）。
+    pub fn description_override(&self, wire_name: &str) -> Option<&str> {
+        self.description_overrides
+            .get(wire_name)
+            .map(String::as_str)
+    }
+
+    /// 某工具的上游原始描述。无 override 时工具自身 `description` 即原始，
+    /// 返回 `None`——调用方以 `original_description(w).unwrap_or(&t.description)` 取原始。
+    pub fn original_description(&self, wire_name: &str) -> Option<&str> {
+        self.original_descriptions
+            .get(wire_name)
+            .map(String::as_str)
     }
 
     pub fn list_for_key(
@@ -100,7 +198,7 @@ impl ToolCatalog {
         let mut visible = Vec::new();
         for tool in &self.tools {
             // 1. key scope（收窄不扩张：request filter 只能在 key scope 内进一步收窄）
-            if !key_can_use_tool(key, &tool.name)? {
+            if !key_can_use_tool(key, &tool.name, &tool.resource_id)? {
                 continue;
             }
             let full_name = tool.name.to_wire_name();
@@ -179,7 +277,7 @@ impl ToolCatalog {
     pub fn count_visible_for_key(&self, key: &ProxyKey) -> Result<usize, CatalogError> {
         let mut count = 0;
         for tool in &self.tools {
-            if key_can_use_tool(key, &tool.name)? {
+            if key_can_use_tool(key, &tool.name, &tool.resource_id)? {
                 count += 1;
             }
         }
@@ -198,7 +296,7 @@ impl ToolCatalog {
         if query.is_empty() {
             let mut results = Vec::new();
             for tool in &self.tools {
-                if !key_can_use_tool(key, &tool.name)? {
+                if !key_can_use_tool(key, &tool.name, &tool.resource_id)? {
                     continue;
                 }
                 results.push(tool);
@@ -211,7 +309,7 @@ impl ToolCatalog {
         let query_lower = query.to_lowercase();
         let mut scored: Vec<(&WrappedTool, u8)> = Vec::new();
         for tool in &self.tools {
-            if !key_can_use_tool(key, &tool.name)? {
+            if !key_can_use_tool(key, &tool.name, &tool.resource_id)? {
                 continue;
             }
             let wire = tool.name.to_wire_name().to_lowercase();
@@ -231,6 +329,24 @@ impl ToolCatalog {
         scored.sort_by_key(|s| std::cmp::Reverse(s.1));
         scored.truncate(limit);
         Ok(scored.into_iter().map(|(t, _)| t).collect())
+    }
+}
+
+/// 对一个**携带上游原始描述**的工具应用介绍 override：
+/// 命中 overlay map 时把原始描述记入 `originals` 并替换为 override。
+/// 输入约定为原始描述（catalog 的所有工具入口均满足），因此总是覆盖记录，
+/// 上游原始描述变化后 admin 展示随之更新。
+fn overlay_tool(
+    overrides: &HashMap<String, String>,
+    originals: &mut HashMap<String, String>,
+    tool: &mut WrappedTool,
+) {
+    let wire_name = tool.name.to_wire_name();
+    if let Some(override_desc) = overrides.get(&wire_name) {
+        originals.insert(
+            wire_name,
+            std::mem::replace(&mut tool.description, override_desc.clone()),
+        );
     }
 }
 
@@ -383,6 +499,7 @@ mod tests {
                     key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
+                    limits: None,
                 },
                 ApiResource {
                     id: "exa".to_string(),
@@ -403,6 +520,7 @@ mod tests {
                     key_pool: None,
                     discovery: None,
                     security: SecurityConfig::default(),
+                    limits: None,
                 },
             ],
             mcp_servers: Vec::new(),
@@ -414,6 +532,12 @@ mod tests {
                 default_tool_page_size: 1,
                 discovery_mode: None,
                 response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
             }],
         }
     }
@@ -580,6 +704,97 @@ mod tests {
         assert!(!results.is_empty());
         // tavily (name contains "web_search") should rank above exa (description contains "search")
         assert_eq!(results[0].name.to_wire_name(), "search__tavily__web_search");
+    }
+
+    // ── 介绍 override overlay（治理契约 §5）──
+
+    #[test]
+    fn override_applies_to_existing_tool_and_restores_on_remove() {
+        let config = config();
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        let wire = "search__tavily__web_search";
+
+        catalog.set_description_override(wire, "管理员介绍");
+        let tool = catalog.find_by_wire_name(wire).unwrap();
+        assert_eq!(tool.description, "管理员介绍");
+        assert_eq!(
+            catalog.original_description(wire),
+            Some("Search web with Tavily")
+        );
+        assert_eq!(catalog.description_override(wire), Some("管理员介绍"));
+
+        // 二次覆盖不破坏原始描述
+        catalog.set_description_override(wire, "修订介绍");
+        assert_eq!(
+            catalog.original_description(wire),
+            Some("Search web with Tavily")
+        );
+
+        catalog.remove_description_override(wire);
+        let tool = catalog.find_by_wire_name(wire).unwrap();
+        assert_eq!(tool.description, "Search web with Tavily");
+        assert_eq!(catalog.original_description(wire), None);
+        assert_eq!(catalog.description_override(wire), None);
+    }
+
+    #[test]
+    fn override_survives_replace_mcp_tools() {
+        let config = config();
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        catalog.extend_with_mcp_tools(vec![mcp_tool("travel__rollinggo__search", "rollinggo")]);
+        catalog.set_description_override("travel__rollinggo__search", "override 介绍");
+
+        // refresh 重建：registry 快照的描述总是上游原始
+        let mut mcp_ids = std::collections::HashSet::new();
+        mcp_ids.insert("rollinggo".to_string());
+        catalog.replace_mcp_tools(
+            vec![mcp_tool("travel__rollinggo__search", "rollinggo")],
+            &mcp_ids,
+        );
+
+        let tool = catalog
+            .find_by_wire_name("travel__rollinggo__search")
+            .unwrap();
+        assert_eq!(tool.description, "override 介绍");
+        assert_eq!(
+            catalog.original_description("travel__rollinggo__search"),
+            Some("mcp tool")
+        );
+    }
+
+    #[test]
+    fn load_description_overrides_is_reentrant() {
+        let config = config();
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        let wire = "search__exa__neural_search";
+
+        let mut first = HashMap::new();
+        first.insert(wire.to_string(), "第一版".to_string());
+        catalog.load_description_overrides(first);
+        assert_eq!(
+            catalog.find_by_wire_name(wire).unwrap().description,
+            "第一版"
+        );
+
+        // 重载为另一集合：旧 override 还原，新 override 应用
+        let mut second = HashMap::new();
+        second.insert(
+            "search__tavily__web_search".to_string(),
+            "tavily 介绍".to_string(),
+        );
+        catalog.load_description_overrides(second);
+        assert_eq!(
+            catalog.find_by_wire_name(wire).unwrap().description,
+            "Search web with Exa"
+        );
+        assert_eq!(
+            catalog
+                .find_by_wire_name("search__tavily__web_search")
+                .unwrap()
+                .description,
+            "tavily 介绍"
+        );
+        assert_eq!(catalog.original_description(wire), None);
     }
 
     #[test]

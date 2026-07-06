@@ -1,7 +1,8 @@
 use asterlane::catalog::{ToolCatalog, ToolListQuery, WrappedTool};
+use asterlane::config::UpstreamLimits;
 use asterlane::config::{GatewayConfig, McpServerConfig, ProxyKey, SecurityConfig, UpstreamAuth};
 use asterlane::http::{AppState, build_app};
-use asterlane::limits::RateLimits;
+use asterlane::limits::LimitRegistry;
 use asterlane::mcp::{McpServerRegistry, RemoteMcpPeer};
 use asterlane::naming::ToolName;
 use asterlane::observability::{RequestEvent, RequestStatus, SecurityEvent};
@@ -15,7 +16,6 @@ use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use rmcp::model::{CallToolResult, ContentBlock, Tool};
 use std::future::Future;
-use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
@@ -71,6 +71,8 @@ fn catalog_extends_with_remote_mcp_tools() {
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -80,6 +82,12 @@ fn catalog_extends_with_remote_mcp_tools() {
             default_tool_page_size: 20,
             discovery_mode: None,
             response_format: None,
+            allowed_servers: Vec::new(),
+            allowed_tool_names: Vec::new(),
+            limits: None,
+            token_ref: None,
+            token_digest: None,
+            expires_at: None,
         }],
     };
     let mut catalog = ToolCatalog::from_config(&config).unwrap();
@@ -232,6 +240,8 @@ async fn registry_wraps_tools_and_calls_original_tool_name() {
         description: "RollingGo flight MCP".to_string(),
         auth: UpstreamAuth::None,
         security: SecurityConfig::default(),
+        health_check: asterlane::config::HealthCheckConfig::default(),
+        limits: None,
     };
     let registry = McpServerRegistry::from_peers(&[config], vec![peer.clone()])
         .await
@@ -277,6 +287,8 @@ async fn registry_rejects_duplicate_wire_names() {
             description: "RollingGo flight MCP A".to_string(),
             auth: UpstreamAuth::None,
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         },
         McpServerConfig {
             id: "rollinggo-flight-b".to_string(),
@@ -286,6 +298,8 @@ async fn registry_rejects_duplicate_wire_names() {
             description: "RollingGo flight MCP B".to_string(),
             auth: UpstreamAuth::None,
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         },
     ];
 
@@ -317,6 +331,8 @@ async fn http_invoke_dispatches_remote_mcp_tool() {
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -326,6 +342,12 @@ async fn http_invoke_dispatches_remote_mcp_tool() {
             default_tool_page_size: 20,
             discovery_mode: None,
             response_format: None,
+            allowed_servers: Vec::new(),
+            allowed_tool_names: Vec::new(),
+            limits: None,
+            token_ref: None,
+            token_digest: None,
+            expires_at: None,
         }],
     };
     let registry = Arc::new(
@@ -382,6 +404,13 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: Some(UpstreamLimits {
+                rps: Some(1),
+                rpm: None,
+                max_concurrent: None,
+                queue_timeout_secs: 10,
+            }),
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -391,6 +420,12 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
             default_tool_page_size: 20,
             discovery_mode: None,
             response_format: None,
+            allowed_servers: Vec::new(),
+            allowed_tool_names: Vec::new(),
+            limits: None,
+            token_ref: None,
+            token_digest: None,
+            expires_at: None,
         }],
     };
     let registry = Arc::new(
@@ -400,12 +435,11 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
     );
     let mut catalog = ToolCatalog::from_config(&config).unwrap();
     catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
+    let limit_registry = Arc::new(LimitRegistry::from_config(&config).unwrap());
     let app = build_app(
         AppState::new(config, catalog)
             .with_mcp_registry(registry)
-            .with_limits(Arc::new(RateLimits::per_second(
-                NonZeroU32::new(1).unwrap(),
-            ))),
+            .with_limit_registry(limit_registry),
     );
 
     let first = app
@@ -458,6 +492,13 @@ async fn proxy_executor_limits_remote_mcp_tools() {
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: Some(UpstreamLimits {
+                rps: Some(1),
+                rpm: None,
+                max_concurrent: None,
+                queue_timeout_secs: 10,
+            }),
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -467,6 +508,12 @@ async fn proxy_executor_limits_remote_mcp_tools() {
             default_tool_page_size: 20,
             discovery_mode: None,
             response_format: None,
+            allowed_servers: Vec::new(),
+            allowed_tool_names: Vec::new(),
+            limits: None,
+            token_ref: None,
+            token_digest: None,
+            expires_at: None,
         }],
     };
     let key = config.proxy_keys[0].clone();
@@ -477,6 +524,7 @@ async fn proxy_executor_limits_remote_mcp_tools() {
     );
     let mut catalog = ToolCatalog::from_config(&config).unwrap();
     catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
+    let limit_registry = Arc::new(LimitRegistry::from_config(&config).unwrap());
     let executor = ProxyExecutor::new(
         Arc::new(config),
         Arc::new(catalog),
@@ -484,9 +532,7 @@ async fn proxy_executor_limits_remote_mcp_tools() {
         reqwest::Client::new(),
     )
     .with_mcp_registry(registry)
-    .with_limits(Arc::new(RateLimits::per_second(
-        NonZeroU32::new(1).unwrap(),
-    )));
+    .with_limits(limit_registry);
 
     executor
         .invoke(
@@ -530,6 +576,8 @@ async fn proxy_executor_records_remote_mcp_request_events() {
             description: "RollingGo flight MCP".to_string(),
             auth: UpstreamAuth::None,
             security: SecurityConfig::default(),
+            health_check: asterlane::config::HealthCheckConfig::default(),
+            limits: None,
         }],
         proxy_keys: vec![ProxyKey {
             id: "agent-travel".to_string(),
@@ -539,6 +587,12 @@ async fn proxy_executor_records_remote_mcp_request_events() {
             default_tool_page_size: 20,
             discovery_mode: None,
             response_format: None,
+            allowed_servers: Vec::new(),
+            allowed_tool_names: Vec::new(),
+            limits: None,
+            token_ref: None,
+            token_digest: None,
+            expires_at: None,
         }],
     };
     let key = config.proxy_keys[0].clone();
