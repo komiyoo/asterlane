@@ -227,7 +227,6 @@ pub(super) async fn invoke_tool_debug(
     })))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
