@@ -8,7 +8,6 @@
 //! DB best-effort 持久化 → `AdminAudit`。响应永不含明文密钥或 secret ref。
 
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::Extension;
