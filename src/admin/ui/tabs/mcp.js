@@ -190,7 +190,7 @@ export async function loadMcpServers(view) {
     const applyRow = (!editing && preset && preset.apply_url)
       ? '<div class="hint" style="padding:0 0 8px;text-align:left">配置 ' + esc(preset.id)
         + ' 需要 API key：<a href="' + esc(preset.apply_url) + '" target="_blank" rel="noopener">申请 key</a>'
-        + '，拿到后存入你的 secret 后端，再在下方填引用（不收明文）</div>'
+        + '，拿到后在下方直接填入 key 或 secret 引用（secret://…）</div>'
       : "";
     f.innerHTML = '<div class="card" style="margin:8px 0">'
       + applyRow
@@ -203,9 +203,9 @@ export async function loadMcpServers(view) {
       + '<label>Auth<br><select id="ms-auth">'
       + ["none", "bearer", "header"].map(t => '<option' + (s.auth_type === t ? " selected" : "") + '>' + t + '</option>').join("")
       + '</select></label>'
-      + '<label id="ms-l-token">token_ref<br><input id="ms-token" size="24" placeholder="secret://env/NAME"></label>'
+      + '<label id="ms-l-token">Token<br><input id="ms-token" size="24" placeholder="sk-… 或 secret://env/NAME"></label>'
       + '<label id="ms-l-hname">Header 名<br><input id="ms-hname" size="10" placeholder="x-api-key"></label>'
-      + '<label id="ms-l-hval">value_ref<br><input id="ms-hval" size="24" placeholder="secret://env/NAME"></label>'
+      + '<label id="ms-l-hval">Header 值<br><input id="ms-hval" size="24" placeholder="sk-… 或 secret://env/NAME"></label>'
       + '<label>测活<br><input type="checkbox" id="ms-hc"' + (s.health_check_enabled === false ? "" : " checked") + '></label>'
       + '<label>rps<br><input id="ms-rps" size="4" value="' + val(lim.rps) + '"></label>'
       + '<label>rpm<br><input id="ms-rpm" size="4" value="' + val(lim.rpm) + '"></label>'
@@ -216,8 +216,8 @@ export async function loadMcpServers(view) {
       + '<label>defense<br><input type="checkbox" id="ms-def"' + (sec.defense_enabled ? " checked" : "") + '></label>'
       + '<label>result_budget_bytes<br><input id="ms-rbb" size="8" value="' + val(sec.result_budget_bytes) + '"></label>'
       + '<button id="ms-save">' + (editing ? "保存" : "创建") + '</button><button id="ms-cancel">取消</button></div>'
-      + '<div class="hint" style="padding:6px 0 0;text-align:left">凭据只收 secret ref（如 secret://env/NAME），不收明文密钥'
-      + (editing ? '；编辑不回显既有 ref，auth 为 bearer/header 时需重新填写' : "") + '</div></div>';
+      + '<div class="hint" style="padding:6px 0 0;text-align:left">凭据支持直接填写明文 key 或 secret 引用（secret://env/NAME）'
+      + (editing ? '；编辑不回显既有凭据，auth 为 bearer/header 时需重新填写' : "") + '</div></div>';
     const syncAuth = () => {
       const t = $("#ms-auth").value;
       $("#ms-l-token").style.display = t === "bearer" ? "" : "none";
@@ -226,19 +226,18 @@ export async function loadMcpServers(view) {
     };
     $("#ms-auth").addEventListener("change", syncAuth);
     syncAuth();
-    // 「配置 key 启用」：header preset 预填 header 名，聚焦凭据输入并给 provider 相关 placeholder
+    // 「配置 key 启用」：header preset 预填 header 名，聚焦凭据输入
     if (!editing && preset && preset.requires_key) {
-      const envHint = "secret://env/" + (preset.provider || "KEY").toUpperCase().replace(/[^A-Z0-9]/g, "_") + "_API_KEY";
       if (preset.auth?.type === "header") {
         if (preset.auth.name) $("#ms-hname").value = preset.auth.name;
-        const hv = $("#ms-hval"); hv.placeholder = envHint; hv.focus();
+        $("#ms-hval").focus();
       } else {
-        const tk = $("#ms-token"); tk.placeholder = envHint; tk.focus();
+        $("#ms-token").focus();
       }
     }
     $("#ms-cancel").addEventListener("click", () => { f.innerHTML = ""; });
     $("#ms-save").addEventListener("click", async () => {
-      const refOk = r => r.startsWith("secret://");
+      const toRef = r => r.startsWith("secret://") ? r : "secret://inline/" + r;
       const body = {
         domain: $("#ms-domain").value.trim(),
         provider: $("#ms-provider").value.trim(),
@@ -251,14 +250,14 @@ export async function loadMcpServers(view) {
       if (desc) body.description = desc;
       const at = $("#ms-auth").value;
       if (at === "bearer") {
-        const ref = $("#ms-token").value.trim();
-        if (!refOk(ref)) { alert("token_ref 必须是 secret ref（secret://…），不收明文密钥"); return; }
-        body.auth = { type: "bearer", token_ref: ref };
+        const raw = $("#ms-token").value.trim();
+        if (!raw) { alert("Token 不能为空"); return; }
+        body.auth = { type: "bearer", token_ref: toRef(raw) };
       } else if (at === "header") {
-        const name = $("#ms-hname").value.trim(), ref = $("#ms-hval").value.trim();
+        const name = $("#ms-hname").value.trim(), raw = $("#ms-hval").value.trim();
         if (!name) { alert("Header 名不能为空"); return; }
-        if (!refOk(ref)) { alert("value_ref 必须是 secret ref（secret://…），不收明文密钥"); return; }
-        body.auth = { type: "header", name, value_ref: ref };
+        if (!raw) { alert("Header 值不能为空"); return; }
+        body.auth = { type: "header", name, value_ref: toRef(raw) };
       } else body.auth = { type: "none" };
       const lim2 = {};
       [["rps", "#ms-rps"], ["rpm", "#ms-rpm"], ["max_concurrent", "#ms-conc"]].forEach(([k, sel]) => {

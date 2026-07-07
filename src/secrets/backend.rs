@@ -101,6 +101,7 @@ impl FileBackend {
 
 /// 默认 secret store，按 `SecretRef.backend` 分发到对应 backend。
 ///
+/// - `backend == "inline"` → 直接返回 `path` 作为明文（admin 页面明文输入场景）
 /// - `backend == "env"` → [`EnvBackend`]
 /// - `backend == "file"` → [`FileBackend`]
 /// - `backend == "vault"` → [`VaultBackend`]（需 `with_vault` 配置）
@@ -141,6 +142,7 @@ impl DefaultSecretStore {
 impl SecretStore for DefaultSecretStore {
     async fn resolve(&self, secret_ref: &SecretRef) -> Result<SecretString, SecretError> {
         match secret_ref.backend.as_str() {
+            "inline" => Ok(SecretString::new(secret_ref.path.clone())),
             "file" => self.file.resolve(secret_ref).await,
             "vault" => match &self.vault {
                 Some(v) => v.resolve(secret_ref).await,
@@ -291,6 +293,14 @@ mod tests {
     }
 
     // ── DefaultSecretStore ──
+
+    #[tokio::test]
+    async fn default_store_resolves_inline_backend() {
+        let store = DefaultSecretStore::default_env();
+        let ref_ = SecretRef::from_str("secret://inline/sk-test-inline-value").unwrap();
+        let secret = store.resolve(&ref_).await.unwrap();
+        assert_eq!(secret.expose_secret(), "sk-test-inline-value");
+    }
 
     #[tokio::test]
     async fn default_store_resolves_file_backend() {
