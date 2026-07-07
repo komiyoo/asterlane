@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-07-07（MCP registry 始终初始化：零配置也可运行时接入上游）
+
+- **修复（`src/main.rs`）**：MCP registry 不再按 `config.mcp_servers.is_empty()` gate（旧逻辑空配置 → `mcp_registry = None`，运行时经 admin API 加/启用/probe 首个上游 MCP server 报 "mcp registry unavailable" 503、需重启）。改为始终 `connect_all(&config.mcp_servers)`（空 slice = 空 registry）并 `Some(...)` 挂上；空 registry 刷新任务每轮 no-op，integrity baseline 以空 tools pin（`pinned=0`），运行时加的 server 进同一 registry Arc、自动纳入周期刷新/drift 检测。
+- **产品意义**：对齐"统一 gateway 始终在、上游 MCP 运行时接入即走统一转发 + 中间采集"的模型——面向 agent 的 `/mcp`+`/v1/tools` 本就始终挂载（不依赖上游 registry），本次把上游 registry 也补成始终在。
+- **验证**：mini release 重启后零配置网关 `POST /admin/mcp-servers` 启用 exa → 201（旧版 503），日志示 exa 完成 MCP 握手（`server_info: Exa 3.2.1`）。resolves `mcp-governance-and-key-limits.md` §as-built 与下方 C5 已知边界。
+
 ## 2026-07-07（内置 MCP preset：可见集成区 + 只配 key + rollinggo 预集成 + 控制台密度重调）
 
 两个 subagent 在互不重叠文件上并行（P: presets.rs/config.rs/mod.rs/tabs/mcp.js；D: styles.css），主代理调研 + 集成验收：
@@ -54,7 +60,7 @@
 - **admin API（C5）**：`GET/POST/PUT/DELETE /admin/mcp-servers(/{id})`、`POST /admin/mcp-servers/{id}/probe`、`GET /admin/tool-metadata`、`GET/PUT/DELETE /admin/tools/{name}/metadata`、`/admin/tools` 行扩展（resource_id/description_override）；写操作全审计；`mcp_servers` 表（config_json 模式，migration `20260706000002`）。CLI 增 `mcp-servers [get|probe]` 与 `metadata list/get/set/rm`；admin-console.md（C5）、error-model.md、SKILL.md 同步。
 - **控制台**：MCP Servers 页（健康灯/探测/行展开详情/工具介绍编辑/调试面板复用/增删改表单，auth ref 硬校验 `secret://` 前缀拒收明文）；proxy key 表单升级（server 与工具多选、rps/rpm/max_calls，正则收进「高级」折叠区）；Tools 页 resource_id 列与 override 徽标。
 - **验证**：mini 上 `just check` 全绿（605 lib 单测 + 集成 + doctests + OKF）；真机冒烟通过：不可达 MCP server 降级启动、probe 失败计数、metadata override 在 `/v1/tools` 生效、`allowed_servers` 结构化放行。
-- **已知边界**：`max_calls` 无 store 时重启归零；计数 load/fetch_add 非原子（并发边界可短暂超发，ponytail 注释）；零 MCP 配置启动后在线加首个 server 报 503（重启恢复）；`api_resources` 测活为非目标。as-built 偏离已回写 `mcp-governance-and-key-limits.md`。
+- **已知边界**：`max_calls` 无 store 时重启归零；计数 load/fetch_add 非原子（并发边界可短暂超发，ponytail 注释）；零 MCP 配置启动后在线加首个 server 报 503（重启恢复）〔已于 2026-07-07 修复：registry 始终初始化，见顶部条目〕；`api_resources` 测活为非目标。as-built 偏离已回写 `mcp-governance-and-key-limits.md`。
 
 ## 2026-07-05（Phase 9 交付：内置 MCP / 负载捕获 / 默认参数与调试调用 / CLI）
 

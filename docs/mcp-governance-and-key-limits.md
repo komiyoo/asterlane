@@ -156,7 +156,7 @@ CREATE TABLE tool_metadata (
 - `DELETE /admin/mcp-servers/{id}` → 移除配置与 registry entry、清理 catalog 该 server 工具；204。
 - `POST /admin/mcp-servers/{id}/probe` → 立即探测，返回 `health` 对象。
 - 工具介绍：`GET /admin/tool-metadata`（全量列表）；`GET/PUT/DELETE /admin/tools/{name}/metadata`，PUT body `{"description": "..."}`（空串 400 `admin.invalid_query`；不存在 DELETE/GET 404）。
-- as-built 偏离（2026-07-06 交付）：POST 重复 id（含与 `api_resources` 撞 id）→ 400 `admin.invalid_query`（未启用 409）；未配置任何 `mcp_servers` 启动（registry 缺失）时 mcp-servers 写操作与 probe → 503 `store.unavailable`，重启后恢复；列表/详情响应不回显 auth ref（控制台编辑 server 时 bearer/header 的 ref 需重新填写）。
+- as-built 偏离（2026-07-06 交付）：POST 重复 id（含与 `api_resources` 撞 id）→ 400 `admin.invalid_query`（未启用 409）；MCP registry 始终初始化（2026-07-07：`main.rs` 不再按 `mcp_servers.is_empty()` gate，空配置也建空 registry，`connect_all(&[])`），零 MCP 配置启动后仍可经 admin API 在线添加/启用/probe 首个 server、无需重启（此前该场景报 registry unavailable 503，已消除）；列表/详情响应不回显 auth ref（控制台编辑 server 时 bearer/header 的 ref 需重新填写）。
 - `/admin/tools` 行扩展为 `{name, resource_id, description, description_override}`：`description` = 上游原始，`description_override` 可空；有效描述 = override ?? 原始（agent 可见路径同口径）。
 - proxy key CRUD（既有端点）输入/输出增加 `allowed_servers`、`allowed_tool_names`、`limits` 字段透传。
 - CLI（`asterlane admin`）同步新增：`mcp-servers [--id ID]`、`mcp-servers probe <id>`、`metadata get/set/rm <tool>`；沿用既有输出与认证约定。
