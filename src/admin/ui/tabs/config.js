@@ -26,13 +26,13 @@ export async function loadConfig(view) {
       + '<div id="cfg-res-form" style="display:none;margin:8px 0"><div class="card">'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
       + '<label>ID<br><input id="nr-id" size="12"></label>'
-      + '<label>Domain<br><input id="nr-domain" size="12"></label>'
-      + '<label>Provider<br><input id="nr-provider" size="12"></label>'
-      + '<label>Base URL<br><input id="nr-url" size="24"></label>'
+      + '<label>领域<br><input id="nr-domain" size="12"></label>'
+      + '<label>提供商<br><input id="nr-provider" size="12"></label>'
+      + '<label>基础 URL<br><input id="nr-url" size="24"></label>'
       + '<label>描述<br><input id="nr-desc" size="20"></label>'
       + '<button id="nr-save">创建</button><button id="nr-cancel">取消</button>'
       + '</div></div></div>';
-    h += '<div class="tablewrap"><table><thead><tr><th>id</th><th>domain</th><th>provider</th><th>base_url</th><th>endpoint_count</th><th></th></tr></thead><tbody>';
+    h += '<div class="tablewrap"><table><thead><tr><th>ID</th><th>领域</th><th>提供商</th><th>基础 URL</th><th>端点数</th><th></th></tr></thead><tbody>';
     resources.forEach(r => {
       h += '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.domain) + '</td><td>' + esc(r.provider)
         + '</td><td>' + esc(r.base_url) + '</td><td>' + esc(r.endpoint_count)
@@ -46,35 +46,35 @@ export async function loadConfig(view) {
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
       + '<label>ID<br><input id="nk-id" size="12"></label>'
       + '<label>显示名<br><input id="nk-name" size="12"></label>'
-      + '<label>Page Size<br><input id="nk-ps" size="4" value="20"></label>'
+      + '<label>页大小<br><input id="nk-ps" size="4" value="20"></label>'
       + '<label>rps<br><input id="nk-rps" size="4"></label>'
       + '<label>rpm<br><input id="nk-rpm" size="4"></label>'
-      + '<label>max_calls<br><input id="nk-calls" size="7"></label></div>'
+      + '<label>最大调用<br><input id="nk-calls" size="7"></label></div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:8px">'
       + '<label>允许的 MCP/资源（allowed_servers）<br><select id="nk-servers" multiple size="6" style="min-width:200px">'
       + serverOpts.map(o => '<option value="' + esc(o.id) + '">' + esc(o.id) + '（' + o.kind + '）</option>').join("")
       + '</select></label>'
       + '<div><label>允许的工具（allowed_tool_names）</label><br>'
       + '<input id="nk-toolfilter" placeholder="按名称过滤" size="14"> '
-      + '<select id="nk-toolserver"><option value="">全部 server</option>'
+      + '<select id="nk-toolserver"><option value="">全部服务</option>'
       + toolServers.map(sid => '<option>' + esc(sid) + '</option>').join("") + '</select><br>'
       + '<select id="nk-tools" multiple size="6" style="min-width:280px;margin-top:4px">'
       + allTools.map(t => '<option value="' + esc(t.name) + '" data-res="' + esc(t.resource_id || "") + '">' + esc(t.name) + '</option>').join("")
       + '</select></div></div>'
       + (srcHint ? '<div class="hint" style="padding:4px 0 0;text-align:left">' + esc(srcHint) + ' 端点未就绪或无权限，范围选项可能不全</div>' : "")
-      + '<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--muted);font-size:12px">高级：正则 scope（allowed_tools / denied_tools）</summary>'
+      + '<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--muted);font-size:12px">高级：正则范围（allowed_tools / denied_tools）</summary>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'
-      + '<label>Allowed（正则，逗号分隔）<br><input id="nk-allow" size="26"></label>'
-      + '<label>Denied（正则，逗号分隔）<br><input id="nk-deny" size="26"></label></div></details>'
+      + '<label>允许（正则，逗号分隔）<br><input id="nk-allow" size="26"></label>'
+      + '<label>拒绝（正则，逗号分隔）<br><input id="nk-deny" size="26"></label></div></details>'
       + '<div class="toolbar" style="margin:10px 0 0"><button id="nk-save">创建</button><button id="nk-cancel">取消</button></div>'
       + '</div></div>';
-    h += '<div class="tablewrap"><table><thead><tr><th>id</th><th>display_name</th><th>认证</th><th>用量/配额</th><th>servers</th><th>tool_names</th><th>limits</th><th>正则 scope</th><th>page_size</th><th></th></tr></thead><tbody>';
+    h += '<div class="tablewrap"><table><thead><tr><th>ID</th><th>显示名</th><th>认证</th><th>用量/配额</th><th>服务</th><th>工具名</th><th>限额</th><th>正则范围</th><th>页大小</th><th></th></tr></thead><tbody>';
     keys.forEach((k, i) => {
       const lim = k.limits || {};
       const limStr = ["rps", "rpm", "max_calls"].filter(x => lim[x] != null).map(x => x + " " + lim[x]).join(" · ");
       const tn = k.allowed_tool_names || [];
-      const rx = [(k.allowed_tools || []).length ? "allow: " + k.allowed_tools.join(", ") : "",
-        (k.denied_tools || []).length ? "deny: " + k.denied_tools.join(", ") : ""].filter(Boolean).join("\n");
+      const rx = [(k.allowed_tools || []).length ? "允许: " + k.allowed_tools.join(", ") : "",
+        (k.denied_tools || []).length ? "拒绝: " + k.denied_tools.join(", ") : ""].filter(Boolean).join("\n");
       h += '<tr><td>' + esc(k.id) + '</td><td>' + esc(k.display_name || "") + '</td>'
         + '<td>' + authBadge(k.auth_mode)
         + (k.expires_at ? '<div style="color:var(--muted);font-size:11px">到期 ' + esc(k.expires_at) + '</div>' : "") + '</td>'

@@ -3,7 +3,7 @@ import { $, api, esc, objTable } from "../core.js";
 export async function loadUsage(view) {
   view.innerHTML = '<div class="toolbar">'
     + '<select id="us-dim">'
-    + '<option value="tool">按工具</option><option value="domain">按 domain</option>'
+    + '<option value="tool">按工具</option><option value="domain">按领域</option>'
     + '<option value="resource">按资源</option><option value="proxy_key">按 proxy key</option>'
     + '<option value="status">按状态</option>'
     + '<option value="bucket">按小时（趋势）</option></select>'
@@ -36,7 +36,9 @@ export async function loadUsage(view) {
           + (r.error_count ? " (" + esc(r.error_count) + " 错)" : "") + "</span></div>";
       }).join("") + "</div>";
       $("#us-table").innerHTML = objTable(rows,
-        ["dimension_value", "request_count", "error_count", "total_units", "avg_latency_ms", "rate_limit_hits"]);
+        ["dimension_value", "request_count", "error_count", "total_units", "avg_latency_ms", "rate_limit_hits"],
+        {dimension_value: "维度", request_count: "请求数", error_count: "错误数", total_units: "总单元",
+         avg_latency_ms: "平均延迟(ms)", rate_limit_hits: "限流命中"});
     } catch (e) {
       $("#us-chart").innerHTML = "";
       $("#us-table").innerHTML = '<p class="empty">' + esc(e.message) + "</p>";

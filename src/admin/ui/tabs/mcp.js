@@ -2,7 +2,7 @@ import { $, api, apiWrite, esc, healthDot, toggleMetaPanel, toggleDebugPanel } f
 
 export async function loadMcpServers(view) {
   view.innerHTML = '<div id="ms-presets"></div>'
-    + '<div class="toolbar"><button id="ms-new">+ 添加 MCP Server</button>'
+    + '<div class="toolbar"><button id="ms-new">+ 添加 MCP 服务</button>'
     + '<span class="hint" style="padding:6px;text-align:left">行点击展开详情</span></div>'
     + '<div id="ms-form"></div><div id="ms-list"></div>';
   let servers = [];
@@ -67,12 +67,12 @@ export async function loadMcpServers(view) {
   };
 
   const renderList = () => {
-    let h = '<div class="tablewrap"><table><thead><tr><th>状态</th><th>id</th><th>domain / provider</th>'
-      + '<th>url</th><th>需要 key</th><th>工具数</th><th></th></tr></thead><tbody>';
+    let h = '<div class="tablewrap"><table><thead><tr><th>状态</th><th>ID</th><th>领域 / 提供商</th>'
+      + '<th>URL</th><th>需要 key</th><th>工具数</th><th></th></tr></thead><tbody>';
     servers.forEach((s, i) => {
       h += '<tr class="ms-row" data-i="' + i + '" style="cursor:pointer">'
         + '<td>' + healthDot(s.health, "ms-dot-" + i) + '</td>'
-        + '<td>' + esc(s.id) + (s.builtin ? '<span class="badge">builtin</span>' : "") + '</td>'
+        + '<td>' + esc(s.id) + (s.builtin ? '<span class="badge">内置</span>' : "") + '</td>'
         + '<td>' + esc(s.domain || "") + " / " + esc(s.provider || "") + '</td>'
         + '<td>' + esc(s.url || "") + '</td>'
         + '<td>' + (s.requires_key ? "是（" + esc(s.auth_type || "?") + "）" : "否") + '</td>'
@@ -82,7 +82,7 @@ export async function loadMcpServers(view) {
         + '<button class="ms-del" data-i="' + i + '">删除</button></td></tr>'
         + '<tr id="ms-detail-' + i + '" style="display:none"><td colspan="7"></td></tr>';
     });
-    if (!servers.length) h += '<tr><td colspan="7" class="empty">无 MCP server</td></tr>';
+    if (!servers.length) h += '<tr><td colspan="7" class="empty">无 MCP 服务</td></tr>';
     h += '</tbody></table></div>';
     $("#ms-list").innerHTML = h;
     $("#ms-list").querySelectorAll(".ms-row").forEach(tr =>
@@ -97,7 +97,7 @@ export async function loadMcpServers(view) {
     $("#ms-list").querySelectorAll(".ms-del").forEach(b =>
       b.addEventListener("click", async () => {
         const id = servers[+b.dataset.i].id;
-        if (!confirm("删除 MCP server " + id + "？其工具将从目录移除")) return;
+        if (!confirm("删除 MCP 服务 " + id + "？其工具将从目录移除")) return;
         try { await apiWrite("DELETE", "/admin/mcp-servers/" + encodeURIComponent(id)); await refresh(); }
         catch (e) { alert(e.message); }
       }));
@@ -135,23 +135,23 @@ export async function loadMcpServers(view) {
     let h = '<div class="card" style="margin:4px 0;min-width:0">'
       + line("描述", dash(d.description))
       + line("健康", healthDot(hh) + " " + dash(hh.status)
-        + " · last_check_at " + dash(hh.last_check_at)
-        + " · last_ok_at " + dash(hh.last_ok_at)
-        + " · latency_ms " + dash(hh.latency_ms)
-        + " · consecutive_failures " + dash(hh.consecutive_failures))
-      + (hh.last_error ? line("last_error", '<span style="color:var(--err)">' + esc(hh.last_error) + "</span>") : "")
+        + " · 末次检查 " + dash(hh.last_check_at)
+        + " · 末次正常 " + dash(hh.last_ok_at)
+        + " · 延迟(ms) " + dash(hh.latency_ms)
+        + " · 连续失败 " + dash(hh.consecutive_failures))
+      + (hh.last_error ? line("最近错误", '<span style="color:var(--err)">' + esc(hh.last_error) + "</span>") : "")
       + line("测活", d.health_check_enabled === false ? "关闭" : "开启")
-      + line("限额", "rps " + dash(lim.rps) + " · rpm " + dash(lim.rpm) + " · max_concurrent " + dash(lim.max_concurrent))
-      + line("安全", "integrity_policy " + dash(sec.integrity_policy)
-        + " · defense " + (sec.defense_enabled ? "开" : "关")
-        + " · result_budget_bytes " + dash(sec.result_budget_bytes));
+      + line("限额", "rps " + dash(lim.rps) + " · rpm " + dash(lim.rpm) + " · 最大并发 " + dash(lim.max_concurrent))
+      + line("安全", "完整性策略 " + dash(sec.integrity_policy)
+        + " · 防御 " + (sec.defense_enabled ? "开" : "关")
+        + " · 结果预算 " + dash(sec.result_budget_bytes));
     const tools = Array.isArray(d.tools) ? d.tools : [];
     h += '<h3 style="margin:12px 0 6px">工具（' + tools.length + '）</h3>';
     if (tools.length) {
-      h += '<div class="tablewrap"><table><thead><tr><th>wire_name</th><th>描述（有效）</th><th></th></tr></thead><tbody>';
+      h += '<div class="tablewrap"><table><thead><tr><th>工具名</th><th>描述（有效）</th><th></th></tr></thead><tbody>';
       tools.forEach((t, j) => {
         h += '<tr><td>' + esc(t.wire_name)
-          + (t.description_override ? '<span class="badge" title="原始描述: ' + esc(t.description || "（无）") + '">override</span>' : "")
+          + (t.description_override ? '<span class="badge" title="原始描述: ' + esc(t.description || "（无）") + '">已覆盖</span>' : "")
           + '</td><td>' + esc(t.description_override || t.description || "") + '</td>'
           + '<td><button class="mt-meta" data-j="' + j + '">介绍</button> '
           + '<button class="mt-dbg" data-j="' + j + '">调试</button></td></tr>'
@@ -190,34 +190,34 @@ export async function loadMcpServers(view) {
     const applyRow = (!editing && preset && preset.apply_url)
       ? '<div class="hint" style="padding:0 0 8px;text-align:left">配置 ' + esc(preset.id)
         + ' 需要 API key：<a href="' + esc(preset.apply_url) + '" target="_blank" rel="noopener">申请 key</a>'
-        + '，拿到后在下方直接填入 key 或 secret 引用（secret://…）</div>'
+        + '，拿到后在下方直接填入即可</div>'
       : "";
     f.innerHTML = '<div class="card" style="margin:8px 0">'
       + applyRow
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
       + '<label>ID<br><input id="ms-id" size="12" value="' + val(s.id) + '"' + (editing ? " disabled" : "") + '></label>'
-      + '<label>Domain<br><input id="ms-domain" size="10" value="' + val(s.domain) + '"></label>'
-      + '<label>Provider<br><input id="ms-provider" size="10" value="' + val(s.provider) + '"></label>'
+      + '<label>领域<br><input id="ms-domain" size="10" value="' + val(s.domain) + '"></label>'
+      + '<label>提供商<br><input id="ms-provider" size="10" value="' + val(s.provider) + '"></label>'
       + '<label>URL<br><input id="ms-url" size="28" value="' + val(s.url) + '"></label>'
       + '<label>描述<br><input id="ms-desc" size="18" value="' + val(s.description) + '"></label>'
-      + '<label>Auth<br><select id="ms-auth">'
+      + '<label>认证<br><select id="ms-auth">'
       + ["none", "bearer", "header"].map(t => '<option' + (s.auth_type === t ? " selected" : "") + '>' + t + '</option>').join("")
       + '</select></label>'
-      + '<label id="ms-l-token">Token<br><input id="ms-token" size="24" placeholder="sk-… 或 secret://env/NAME"></label>'
+      + '<label id="ms-l-token">Token<br><input id="ms-token" size="24" placeholder="sk-…"></label>'
       + '<label id="ms-l-hname">Header 名<br><input id="ms-hname" size="10" placeholder="x-api-key"></label>'
-      + '<label id="ms-l-hval">Header 值<br><input id="ms-hval" size="24" placeholder="sk-… 或 secret://env/NAME"></label>'
+      + '<label id="ms-l-hval">Header 值<br><input id="ms-hval" size="24" placeholder="sk-…"></label>'
       + '<label>测活<br><input type="checkbox" id="ms-hc"' + (s.health_check_enabled === false ? "" : " checked") + '></label>'
       + '<label>rps<br><input id="ms-rps" size="4" value="' + val(lim.rps) + '"></label>'
       + '<label>rpm<br><input id="ms-rpm" size="4" value="' + val(lim.rpm) + '"></label>'
-      + '<label>max_concurrent<br><input id="ms-conc" size="4" value="' + val(lim.max_concurrent) + '"></label>'
-      + '<label>integrity_policy<br><select id="ms-ipol">'
+      + '<label>最大并发<br><input id="ms-conc" size="4" value="' + val(lim.max_concurrent) + '"></label>'
+      + '<label>完整性策略<br><select id="ms-ipol">'
       + ["warn", "quarantine", "block"].map(t => '<option' + (ipol === t ? " selected" : "") + '>' + t + '</option>').join("")
       + '</select></label>'
-      + '<label>defense<br><input type="checkbox" id="ms-def"' + (sec.defense_enabled ? " checked" : "") + '></label>'
-      + '<label>result_budget_bytes<br><input id="ms-rbb" size="8" value="' + val(sec.result_budget_bytes) + '"></label>'
+      + '<label>防御<br><input type="checkbox" id="ms-def"' + (sec.defense_enabled ? " checked" : "") + '></label>'
+      + '<label>结果预算<br><input id="ms-rbb" size="8" value="' + val(sec.result_budget_bytes) + '"></label>'
       + '<button id="ms-save">' + (editing ? "保存" : "创建") + '</button><button id="ms-cancel">取消</button></div>'
-      + '<div class="hint" style="padding:6px 0 0;text-align:left">凭据支持直接填写明文 key 或 secret 引用（secret://env/NAME）'
-      + (editing ? '；编辑不回显既有凭据，auth 为 bearer/header 时需重新填写' : "") + '</div></div>';
+      + '<div class="hint" style="padding:6px 0 0;text-align:left">直接填写 API key 即可'
+      + (editing ? '；编辑不回显既有凭据，认证为 bearer/header 时需重新填写' : "") + '</div></div>';
     const syncAuth = () => {
       const t = $("#ms-auth").value;
       $("#ms-l-token").style.display = t === "bearer" ? "" : "none";
@@ -237,7 +237,6 @@ export async function loadMcpServers(view) {
     }
     $("#ms-cancel").addEventListener("click", () => { f.innerHTML = ""; });
     $("#ms-save").addEventListener("click", async () => {
-      const toRef = r => r.startsWith("secret://") ? r : "secret://inline/" + r;
       const body = {
         domain: $("#ms-domain").value.trim(),
         provider: $("#ms-provider").value.trim(),
@@ -250,14 +249,14 @@ export async function loadMcpServers(view) {
       if (desc) body.description = desc;
       const at = $("#ms-auth").value;
       if (at === "bearer") {
-        const raw = $("#ms-token").value.trim();
-        if (!raw) { alert("Token 不能为空"); return; }
-        body.auth = { type: "bearer", token_ref: toRef(raw) };
+        const v = $("#ms-token").value.trim();
+        if (!v) { alert("Token 不能为空"); return; }
+        body.auth = { type: "bearer", token_ref: v };
       } else if (at === "header") {
-        const name = $("#ms-hname").value.trim(), raw = $("#ms-hval").value.trim();
+        const name = $("#ms-hname").value.trim(), v = $("#ms-hval").value.trim();
         if (!name) { alert("Header 名不能为空"); return; }
-        if (!raw) { alert("Header 值不能为空"); return; }
-        body.auth = { type: "header", name, value_ref: toRef(raw) };
+        if (!v) { alert("Header 值不能为空"); return; }
+        body.auth = { type: "header", name, value_ref: v };
       } else body.auth = { type: "none" };
       const lim2 = {};
       [["rps", "#ms-rps"], ["rpm", "#ms-rpm"], ["max_concurrent", "#ms-conc"]].forEach(([k, sel]) => {

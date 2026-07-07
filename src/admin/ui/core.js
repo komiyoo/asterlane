@@ -44,13 +44,13 @@ export function cellClass(key, v) {
   return /success/i.test(kind) ? "ok" : "err";
 }
 
-export function objTable(rows, order) {
+export function objTable(rows, order, labels) {
   if (!rows || !rows.length) return '<p class="empty">无数据</p>';
   const present = new Set();
   rows.forEach(r => Object.keys(r).forEach(k => present.add(k)));
   const cols = (order || []).filter(k => present.has(k))
     .concat([...present].filter(k => !(order || []).includes(k)));
-  const head = cols.map(c => "<th>" + esc(c) + "</th>").join("");
+  const head = cols.map(c => "<th>" + esc(labels?.[c] ?? c) + "</th>").join("");
   const body = rows.map(r =>
     "<tr>" + cols.map(c =>
       '<td class="' + cellClass(c, r[c]) + '">' + esc(fmtCell(c, r[c])) + "</td>"
@@ -136,12 +136,12 @@ export function toggleMetaPanel(tool, rowEl, onSaved) {
   rowEl.style.display = "";
   const cell = rowEl.querySelector("td");
   cell.innerHTML = '<div class="card" style="margin:4px 0;min-width:0">'
-    + '<div class="hint" style="padding:0 0 6px;text-align:left">介绍 override（覆盖上游 description）· 原始: '
+    + '<div class="hint" style="padding:0 0 6px;text-align:left">介绍覆盖（覆盖上游描述）· 原始: '
     + esc(tool.description || "（无）") + '</div>'
     + '<textarea class="mt-text" rows="3" spellcheck="false" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px">'
     + esc(tool.description_override || "") + '</textarea>'
     + '<div class="toolbar" style="margin:8px 0 0"><button class="mt-save">保存</button>'
-    + '<button class="mt-clear">清除 override</button>'
+    + '<button class="mt-clear">清除覆盖</button>'
     + '<span class="mt-status hint" style="padding:6px;text-align:left"></span></div></div>';
   const st = cell.querySelector(".mt-status");
   cell.querySelector(".mt-save").addEventListener("click", async () => {
@@ -171,9 +171,9 @@ export function toggleEventDetail(ev, rowEl) {
   const pre = v => '<pre style="white-space:pre-wrap;word-break:break-word;max-height:240px;overflow:auto;margin:4px 0 8px">'
     + esc(v || "（未捕获）") + '</pre>';
   let h = '<div class="card" style="margin:4px 0;min-width:0">'
-    + '<div><b>upstream_latency_ms</b>: ' + esc(ev.upstream_latency_ms ?? "—") + '</div>'
-    + '<div style="margin-top:6px"><b>request_args</b>:</div>' + pre(ev.request_args)
-    + '<div><b>response_preview</b>:</div>' + pre(ev.response_preview);
+    + '<div><b>上游延迟(ms)</b>: ' + esc(ev.upstream_latency_ms ?? "—") + '</div>'
+    + '<div style="margin-top:6px"><b>请求参数</b>:</div>' + pre(ev.request_args)
+    + '<div><b>响应预览</b>:</div>' + pre(ev.response_preview);
   if (ev.request_args) h += '<button class="ev-save-default">存为默认参数</button>';
   h += '</div>';
   cell.innerHTML = h;

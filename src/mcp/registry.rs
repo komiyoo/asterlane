@@ -356,11 +356,14 @@ pub(super) async fn transport_config<S: SecretStore>(
 }
 
 async fn resolve_secret<S: SecretStore>(
-    secret_ref: &str,
+    raw: &str,
     secrets: &S,
 ) -> Result<crate::secrets::SecretString, McpError> {
-    let secret_ref = SecretRef::from_str(secret_ref)?;
-    Ok(secrets.resolve(&secret_ref).await?)
+    if let Ok(secret_ref) = SecretRef::from_str(raw) {
+        Ok(secrets.resolve(&secret_ref).await?)
+    } else {
+        Ok(crate::secrets::SecretString::new(raw.to_string()))
+    }
 }
 
 /// 将上游 rmcp `Tool` 列表包装为 `WrappedTool`（catalog 用）与

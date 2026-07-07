@@ -2,9 +2,9 @@ import { $, api, esc, cellClass, fmtCell, toggleEventDetail } from "../core.js";
 
 export async function loadEvents(view) {
   view.innerHTML = '<div class="toolbar">'
-    + '<input id="ev-key" placeholder="proxy_key_id" size="14">'
-    + '<input id="ev-res" placeholder="resource_id" size="14">'
-    + '<input id="ev-tool" placeholder="tool_name" size="18">'
+    + '<input id="ev-key" placeholder="代理密钥 ID" size="14">'
+    + '<input id="ev-res" placeholder="资源 ID" size="14">'
+    + '<input id="ev-tool" placeholder="工具名" size="18">'
     + '<input type="datetime-local" id="ev-from" title="起始时间">'
     + '<input type="datetime-local" id="ev-to" title="结束时间">'
     + '<input id="ev-limit" value="50" size="5">'
@@ -12,11 +12,14 @@ export async function loadEvents(view) {
     + '<button id="ev-more" disabled>加载更多</button></div><div id="ev-table"></div>';
   const COLS = ["timestamp", "proxy_key_id", "resource_id", "tool_name", "status",
     "latency_ms", "retry_count", "rate_limited", "queued_ms", "upstream_key_ref", "request_id"];
+  const COL_LABELS = {timestamp: "时间", proxy_key_id: "代理密钥", resource_id: "资源",
+    tool_name: "工具", status: "状态", latency_ms: "延迟(ms)", retry_count: "重试",
+    rate_limited: "限流", queued_ms: "排队(ms)", upstream_key_ref: "上游密钥", request_id: "请求 ID"};
   let acc = [];      // 累积行（加载更多在此追加）
   let cursor = null; // 时间游标 = 上一页末行 timestamp（events 按时间降序）
   const renderRows = () => {
     let h = '<div class="tablewrap"><table><thead><tr>'
-      + COLS.map(c => '<th>' + esc(c) + '</th>').join("") + '<th></th></tr></thead><tbody>';
+      + COLS.map(c => '<th>' + esc(COL_LABELS[c] || c) + '</th>').join("") + '<th></th></tr></thead><tbody>';
     acc.forEach((r, i) => {
       h += '<tr>' + COLS.map(c =>
         '<td class="' + cellClass(c, r[c]) + '">' + esc(fmtCell(c, r[c])) + '</td>').join("")

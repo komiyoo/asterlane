@@ -7,11 +7,11 @@ export async function loadTools(view) {
     const rows = data.tools.filter(t => !f
       || [t.name, t.resource_id, t.description, t.description_override]
         .some(v => (v || "").toLowerCase().includes(f)));
-    let h = '<div class="tablewrap"><table><thead><tr><th>name</th><th>resource_id</th><th>description</th><th></th></tr></thead><tbody>';
+    let h = '<div class="tablewrap"><table><thead><tr><th>名称</th><th>资源</th><th>描述</th><th></th></tr></thead><tbody>';
     rows.forEach((t, i) => {
       // 有效描述 = override ?? 上游原始；override 徽标悬浮可见原始描述
       const badge = t.description_override
-        ? '<span class="badge" title="原始描述: ' + esc(t.description || "（无）") + '">override</span>' : "";
+        ? '<span class="badge" title="原始描述: ' + esc(t.description || "（无）") + '">已覆盖</span>' : "";
       h += '<tr><td>' + esc(t.name) + '</td><td>' + esc(t.resource_id || "") + '</td>'
         + '<td>' + esc(t.description_override || t.description || "") + badge + '</td>'
         + '<td><button class="tool-debug" data-name="' + esc(t.name) + '" data-i="' + i + '">调试</button></td></tr>'

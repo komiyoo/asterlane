@@ -3,7 +3,7 @@ import { $, api, esc, fmtCell } from "../core.js";
 // 审计 tab：security-events 按 kind 过滤；admin_audit 字段可能平铺在行上或嵌在 details 内，防御式取
 export async function loadAudit(view) {
   view.innerHTML = '<div class="toolbar">'
-    + '<select id="au-kind"><option value="admin_audit">admin_audit</option><option value="">全部 kind</option></select>'
+    + '<select id="au-kind"><option value="admin_audit">admin_audit</option><option value="">全部类型</option></select>'
     + '<input id="au-limit" value="100" size="5" title="limit">'
     + '<button id="au-go">查询</button></div><div id="au-table"></div>';
   const run = async () => {
@@ -19,7 +19,7 @@ export async function loadAudit(view) {
         }
         return "";
       };
-      let h = '<div class="tablewrap"><table><thead><tr><th>时间</th><th>kind</th><th>admin</th><th>action</th><th>target</th><th>details</th></tr></thead><tbody>';
+      let h = '<div class="tablewrap"><table><thead><tr><th>时间</th><th>类型</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead><tbody>';
       rows.forEach(r => {
         let det = r.details;
         if (typeof det === "string") { try { det = JSON.parse(det); } catch { det = {}; } }

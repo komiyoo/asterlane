@@ -26,7 +26,6 @@ use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
 use crate::limits::LimitRegistry;
 use crate::mcp::{McpServerRegistry, ServerHealth, ToolDescriptor};
-use crate::secrets::SecretRef;
 use crate::store::{McpServerRecord, McpServerRepository};
 
 use super::auth::AdminKeyId;
@@ -44,7 +43,7 @@ pub(super) struct McpServerInput {
     pub url: String,
     #[serde(default)]
     pub description: String,
-    /// auth 同配置 schema tagged 形态；ref 必须是合法 `secret://` 引用。
+    /// auth 同配置 schema tagged 形态；支持明文 key 或 `secret://` 引用。
     #[serde(default)]
     pub auth: Option<UpstreamAuth>,
     #[serde(default)]
@@ -96,22 +95,26 @@ fn not_found(id: &str) -> AsterlaneError {
     )
 }
 
-/// auth ref 必须是合法 `secret://backend/path` 引用。
-/// 错误消息不回显输入（ref 路径段按脱敏红线不外露）。
+/// auth 字段校验：bearer/header 凭据不能为空，header name 不能为空。
 fn validate_auth(auth: &UpstreamAuth) -> Result<(), AsterlaneError> {
-    let secret_ref = match auth {
-        UpstreamAuth::None => return Ok(()),
-        UpstreamAuth::Bearer { token_ref } => token_ref,
+    match auth {
+        UpstreamAuth::None => Ok(()),
+        UpstreamAuth::Bearer { token_ref } => {
+            if token_ref.trim().is_empty() {
+                return Err(invalid("auth.token_ref is required for bearer auth"));
+            }
+            Ok(())
+        }
         UpstreamAuth::Header { name, value_ref } => {
             if name.trim().is_empty() {
                 return Err(invalid("auth.name is required for header auth"));
             }
-            value_ref
+            if value_ref.trim().is_empty() {
+                return Err(invalid("auth.value_ref is required for header auth"));
+            }
+            Ok(())
         }
-    };
-    SecretRef::from_str(secret_ref)
-        .map(|_| ())
-        .map_err(|_| invalid("auth ref must be a valid 'secret://backend/path' reference"))
+    }
 }
 
 /// limits 0 值等非法配置借 `LimitRegistry::from_config` 校验，在 registry
@@ -708,11 +711,6 @@ mcp_servers:
             (
                 "missing id",
                 r#"{"domain":"d","provider":"p","url":"http://u"}"#,
-            ),
-            (
-                "invalid auth ref",
-                r#"{"id":"x1","domain":"d","provider":"p","url":"http://u",
-                    "auth":{"type":"bearer","token_ref":"not-a-ref"}}"#,
             ),
             (
                 "duplicate id",
