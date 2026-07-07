@@ -27,6 +27,18 @@ docs-check:
 # 提交前的完整本地验证
 check: fmt-check lint test docs-check
 
+# 构建(debug)
+build:
+    cargo build
+
+# 构建(release)
+build-release:
+    cargo build --release
+
+# 启动网关(内存 SQLite)
+serve config="examples/gateway.yaml" bind="127.0.0.1:3000":
+    cargo run -- serve --config {{config}} --bind {{bind}} --database-url sqlite::memory:
+
 # 供应链检查(需要 cargo install cargo-deny)
 deny:
     cargo deny check
