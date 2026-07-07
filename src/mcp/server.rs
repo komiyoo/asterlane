@@ -801,9 +801,12 @@ mod tests {
             .expect("call_tool");
 
         assert_ne!(result.is_error, Some(true));
-        let calls = exa.calls.lock().expect("peer lock");
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "neural_search");
+        // 作用域内释放 MutexGuard，避免跨 await 持锁（clippy await_holding_lock）
+        {
+            let calls = exa.calls.lock().expect("peer lock");
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].0, "neural_search");
+        }
 
         let _ = client.cancel().await;
         server_task.abort();
