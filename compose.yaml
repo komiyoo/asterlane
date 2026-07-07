@@ -1,0 +1,26 @@
+services:
+  gateway:
+    build: .
+    restart: always
+    ports:
+      - "127.0.0.1:3721:3000"
+    volumes:
+      - ./run.yaml:/etc/asterlane/config.yaml:ro
+      - gateway-data:/data
+    environment:
+      - ASTERLANE_ADMIN_TOKEN=${ASTERLANE_ADMIN_TOKEN:-demo-admin-token-2026}
+    command:
+      - serve
+      - --config=/etc/asterlane/config.yaml
+      - --database-url=sqlite:/data/asterlane.db?mode=rwc
+      - --bind=0.0.0.0:3000
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    depends_on:
+      - gateway
+    command: tunnel --no-autoupdate --url http://gateway:3000
+
+volumes:
+  gateway-data:

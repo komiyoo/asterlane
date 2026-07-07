@@ -1,4 +1,4 @@
-FROM rust:1.85-slim-bookworm AS build
+FROM rust:slim-bookworm AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
