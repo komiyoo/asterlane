@@ -100,6 +100,7 @@ fn catalog_extends_with_remote_mcp_tools() {
         http_method: asterlane::config::HttpMethod::Post,
         input_schema: serde_json::json!({"type": "object"}),
         param_locations: None,
+        exposed_name: None,
     }]);
 
     let page = catalog

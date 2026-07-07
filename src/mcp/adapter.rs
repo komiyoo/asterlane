@@ -2,23 +2,19 @@
 //!
 //! 第一阶段不引入 `rmcp`，提供 `PlaceholderAdapter` 作为 `GatewayToolSource`
 //! 的参考实现。`list_tools` 基于注入的 `ToolDescriptor` 列表做过滤；
-//! `call_tool` 解析 wire name 后返回 `McpError::UpstreamNotImplemented`
+//! `call_tool` 按名字查表后返回 `McpError::UpstreamNotImplemented`
 //! （proxy executor 待后续 phase 接入）。
 //!
 //! 未来 `rmcp` 2.1 验证后，可实现 `RmcpAdapter(GatewayToolSource)` 在此
 //! 边界后接入真实 MCP transport（Streamable HTTP client / stdio），
 //! 上层调用方无需改动。
 
-use std::str::FromStr;
-
-use crate::naming::ToolName;
-
 use super::error::McpError;
 use super::model::{GatewayToolSource, ToolCallResult, ToolDescriptor, ToolListFilter};
 
 /// 占位 adapter：持有静态工具列表，不做真实上游调用。
 ///
-/// 用于第一阶段验证 adapter 边界设计。`call_tool` 解析 wire name →
+/// 用于第一阶段验证 adapter 边界设计。`call_tool` 按名字查表
 /// 校验存在性 → 返回 `UpstreamNotImplemented`。
 #[derive(Debug, Clone)]
 pub struct PlaceholderAdapter {
@@ -65,7 +61,11 @@ impl GatewayToolSource for PlaceholderAdapter {
         Ok(visible)
     }
 
-    /// 调用工具：解析 wire name → 校验存在性 → 返回 `UpstreamNotImplemented`。
+    /// 调用工具：按名字查表校验存在性 → 返回 `UpstreamNotImplemented`。
+    ///
+    /// lookup-first：段内可含 `__`（MCP 上游原名），不做 `ToolName` parse，
+    /// 与 executor 的 `resolve_for_key` 语义对齐（见 naming-convention.md
+    /// 「`__` 段内兼容」）。未列出的名字一律 `UnknownTool`。
     ///
     /// TODO(phase 2): 接入 proxy executor，剥前缀后转发到上游 MCP server
     /// 或 HTTP API（见 naming-convention.md「上游转发剥前缀」、
@@ -75,18 +75,13 @@ impl GatewayToolSource for PlaceholderAdapter {
         wire_name: &str,
         _arguments: serde_json::Value,
     ) -> Result<ToolCallResult, McpError> {
-        // 1. 解析 wire name 为 ToolName（校验格式合法性）
-        let _tool_name = ToolName::from_str(wire_name).map_err(|_| {
-            McpError::invalid_tool_call(format!("malformed tool name: {wire_name}"))
-        })?;
-
-        // 2. 校验工具是否存在于列表中
+        // 1. 查表校验工具是否存在于列表中（不 parse，名字即键）
         let exists = self.tools.iter().any(|t| t.name == wire_name);
         if !exists {
             return Err(McpError::unknown_tool(wire_name));
         }
 
-        // 3. 上游调用未实现（proxy executor 待后续 phase）
+        // 2. 上游调用未实现（proxy executor 待后续 phase）
         //    映射到 mcp.upstream_mcp_failure → tool result isError: true
         Err(McpError::upstream_not_implemented(wire_name))
     }
@@ -105,6 +100,7 @@ fn compile_optional_regex(pattern: &Option<String>) -> Result<Option<regex::Rege
 mod tests {
     use super::*;
     use crate::catalog::ToolListQuery;
+    use crate::naming::ToolName;
 
     fn sample_tools() -> Vec<ToolDescriptor> {
         vec![
@@ -203,13 +199,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn call_tool_malformed_name_returns_invalid_tool_call() {
+    async fn call_tool_unlisted_name_returns_unknown_tool() {
+        // lookup-first：非三段名不再报格式错误，查表无命中 → UnknownTool
         let adapter = PlaceholderAdapter::new(sample_tools());
         let err = adapter
             .call_tool("not_a_wire_name", serde_json::json!({}))
             .await
             .unwrap_err();
-        assert!(matches!(err, McpError::InvalidToolCall { .. }));
+        assert!(matches!(err, McpError::UnknownTool { .. }));
     }
 
     #[tokio::test]

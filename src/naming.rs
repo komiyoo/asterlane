@@ -38,6 +38,12 @@ impl ToolName {
 
     /// 输出对外 wire name: `domain__provider__tool`
     ///（双下划线 `__` 分段，段内单词用单下划线如 `web_search`）。
+    ///
+    /// 注意：段内本身可能含 `__`——`normalize_segment` 不拒绝下划线，
+    /// MCP 上游工具原名（registry `wrap_tools` 原样入 tool 段）就常带 `__`。
+    /// 因此 wire name **不保证**能按 `__` 切回三段（`FromStr` 无法 round-trip）。
+    /// 运行时按 wire name 定位工具一律对 catalog 查表（字符串相等），
+    /// 见 `ToolCatalog::resolve_for_key` / `find_by_wire_name`。
     pub fn to_wire_name(&self) -> String {
         format!("{}__{}__{}", self.domain, self.provider, self.tool)
     }
@@ -49,6 +55,9 @@ impl Display for ToolName {
     }
 }
 
+/// 仅用于解析**管理员书写的规范三段名**（配置、CLI 参数）：按 `__`
+/// 切分且要求恰好三段。段内含 `__` 的工具（MCP 上游原名）经此解析会
+/// 误切或报错——匹配运行时 wire name 一律查表，不要用 `FromStr` round-trip。
 impl FromStr for ToolName {
     type Err = ToolNameError;
 

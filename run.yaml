@@ -24,6 +24,20 @@ api_resources:
         method: POST
         path: /anything
         description: Returns anything passed to it.
+  - id: httpbingo
+    domain: test
+    provider: httpbingo
+    base_url: https://httpbingo.org
+    description: HTTPBingo test endpoints (alias 演示:get_ip 与 httpbin 碰撞 → 两段名;get_uuid 唯一 → 裸名)
+    endpoints:
+      - tool: get_ip
+        method: GET
+        path: /ip
+        description: Returns origin IP (httpbingo).
+      - tool: get_uuid
+        method: GET
+        path: /uuid
+        description: Returns a new UUID.
 
 proxy_keys:
   - id: demo

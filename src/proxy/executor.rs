@@ -11,13 +11,12 @@
 //! 错误消息不含 Authorization header、Bearer token 或上游响应体。
 
 use crate::WrappedTool;
-use crate::catalog::ToolCatalog;
+use crate::catalog::{CatalogError, ToolCatalog, ToolQualifiers};
 use crate::config::{GatewayConfig, ProxyKey, SecurityConfig};
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
 use crate::limits::{LimitRegistry, QueuePermit};
 use crate::mcp::McpServerRegistry;
-use crate::naming::ToolName;
 use crate::observability::{
     BucketGranularity, RequestEvent, RequestStatus, UsageBucket, bucket_start, record_request_event,
 };
@@ -26,7 +25,6 @@ use crate::render::ResponseFormat;
 use crate::secrets::SecretStore;
 use crate::shaping::ResultCache;
 use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
-use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -191,8 +189,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         self
     }
 
-    /// 注入隔离集合（可选）。注入后每次 `invoke` 前检查 wire name 是否被隔离，
-    /// 被 `Quarantine`/`Block` 的 tool 直接拒绝调用（返回 `ProxyError`）。
+    /// 注入隔离集合（可选）。注入后每次 `invoke` 解析后按 canonical wire name
+    /// 检查是否被隔离（经 alias 调用同样被拦），被 `Quarantine`/`Block` 的
+    /// tool 直接拒绝调用（返回 `ProxyError`）。
     pub fn with_quarantined(mut self, quarantined: QuarantinedTools) -> Self {
         self.quarantined = Some(quarantined);
         self
@@ -253,8 +252,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
     /// 调用上游工具。
     ///
     /// 流程见 `docs/architecture.md` Data Flow：
-    /// 1. 解析 wire name → 校验格式
-    /// 2. catalog 查找工具
+    /// 1. catalog 三级解析（canonical → `provider__tool` → 裸名，lookup-first；
+    ///    段内可含 `__`，不做 parse，见 docs/naming-convention.md）
+    /// 2. canonical 贯穿下游：quarantine、registry、事件与日志键一律用 canonical
     /// 3. config 查找 resource
     /// 4. policy 校验 scope
     /// 5. (可选) 统一限额准入（key rps/rpm/max_calls → 上游 rps/rpm → 并发队列）
@@ -267,6 +267,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
     #[tracing::instrument(skip_all, fields(
         wire_name = %wire_name,
         proxy_key_id = %proxy_key.id,
+        canonical_name = tracing::field::Empty,
         resource_id = tracing::field::Empty,
         request_id = tracing::field::Empty,
     ))]
@@ -276,27 +277,35 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         args: serde_json::Value,
         proxy_key: &ProxyKey,
     ) -> Result<InvokeResult, ProxyError> {
-        // 1. 解析 wire name（校验格式）
-        let tool_name: ToolName = ToolName::from_str(wire_name).map_err(|_| {
-            ProxyError::InvalidToolCall(format!("malformed tool name: {wire_name}"))
-        })?;
+        // 1. catalog 三级解析（alias 只命中 key 可见工具；scope 外 → 视为不存在）
+        let tool: &WrappedTool =
+            match self
+                .catalog
+                .resolve_for_key(wire_name, ToolQualifiers::default(), proxy_key)
+            {
+                Ok(Some(tool)) => tool,
+                Ok(None) => return Err(ProxyError::UnknownTool(wire_name.to_string())),
+                // scope 正则等策略错误保持既有错误码（config.invalid_regex）
+                Err(CatalogError::Policy(err)) => return Err(ProxyError::Policy(err)),
+                // 歧义（消息已含候选 canonical，agent 换长名可自愈）及其余解析错误
+                Err(err) => return Err(ProxyError::InvalidToolCall(err.to_string())),
+            };
+        // 2. canonical 贯穿下游：所有按名字键控处（quarantine/registry/事件）用 canonical，
+        //    面向用户的错误消息保留调用方输入名
+        let canonical = tool.name.to_wire_name();
 
-        // 2. catalog 查找工具
-        let tool: &WrappedTool = self
-            .catalog
-            .find_by_wire_name(wire_name)
-            .ok_or_else(|| ProxyError::UnknownTool(wire_name.to_string()))?;
-
+        tracing::Span::current().record("canonical_name", canonical.as_str());
         tracing::Span::current().record("resource_id", tool.resource_id.as_str());
 
         // 负载捕获：调用参数只序列化一次（截断 + 脱敏；capture_payloads=false 时 None）
         let captured_args = self.capture_args(&args);
 
         // 3. Integrity 隔离检查：被隔离（Quarantine/Block）的 tool 拒绝调用。
-        //    Warn 策略不隔离，不在此拦截。检查发生在 catalog 查找之后、
-        //    上游分流之前（MCP 与 HTTP API 共用同一隔离集合）。
+        //    Warn 策略不隔离，不在此拦截。检查发生在 catalog 解析之后、
+        //    上游分流之前（MCP 与 HTTP API 共用同一隔离集合），键为 canonical——
+        //    经 alias 调用的隔离工具同样被拦。
         if let Some(quarantined) = &self.quarantined {
-            if let Some(policy) = quarantined.read().await.get(wire_name).copied() {
+            if let Some(policy) = quarantined.read().await.get(canonical.as_str()).copied() {
                 let msg = match policy {
                     IntegrityPolicy::Quarantine => {
                         format!("tool quarantined due to integrity drift: {wire_name}")
@@ -317,22 +326,22 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
         // 4. remote MCP tool 分流：catalog/policy/limits/observability 仍统一生效。
         if let Some(registry) = &self.mcp_registry
-            && registry.contains_tool(wire_name)
+            && registry.contains_tool(&canonical)
         {
-            if !policy::key_can_use_tool(proxy_key, &tool_name, &tool.resource_id)? {
+            if !policy::key_can_use_tool(proxy_key, &tool.name, &tool.resource_id)? {
                 return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
             }
 
             // 统一准入管线；permit（若有）在上游调用期间持有
             let _permit = self
-                .admit_or_record(proxy_key, &tool.resource_id, wire_name, &captured_args)
+                .admit_or_record(proxy_key, &tool.resource_id, &canonical, &captured_args)
                 .await?;
 
             let request_id = next_request_id();
             tracing::Span::current().record("request_id", request_id.as_str());
             let start = Instant::now();
             let result = registry
-                .call_tool(wire_name, args)
+                .call_tool(&canonical, args)
                 .await
                 .map_err(ProxyError::from);
             let elapsed = start.elapsed();
@@ -346,7 +355,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         &request_id,
                         &proxy_key.id,
                         &tool.resource_id,
-                        wire_name,
+                        &canonical,
                         "<mcp>",
                         RequestStatus::Success,
                         latency_ms,
@@ -366,7 +375,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         .shape_remote_mcp_result(
                             tool_result,
                             &tool.resource_id,
-                            wire_name,
+                            &canonical,
                             &proxy_key.id,
                             &security,
                         )
@@ -380,7 +389,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         &request_id,
                         &proxy_key.id,
                         &tool.resource_id,
-                        wire_name,
+                        &canonical,
                         "<mcp>",
                         request_status,
                         latency_ms,
@@ -402,14 +411,14 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             .ok_or_else(|| ProxyError::UnknownResource(tool.resource_id.clone()))?;
 
         // 6. policy 校验 scope
-        if !policy::key_can_use_tool(proxy_key, &tool_name, &tool.resource_id)? {
+        if !policy::key_can_use_tool(proxy_key, &tool.name, &tool.resource_id)? {
             return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
         }
 
         // 7. 统一准入管线（scope 之后、secret 解析之前：被限流的请求不触碰
         //    secret backend）；permit 在上游调用期间持有
         let _permit = self
-            .admit_or_record(proxy_key, &resource.id, wire_name, &captured_args)
+            .admit_or_record(proxy_key, &resource.id, &canonical, &captured_args)
             .await?;
 
         // 8. resolve secret：有 key pool 的资源在重试循环内 per-key 解析，
@@ -452,7 +461,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     &request_id,
                     &proxy_key.id,
                     &resource.id,
-                    wire_name,
+                    &canonical,
                     &upstream_key_ref,
                     RequestStatus::Success,
                     latency_ms,
@@ -467,7 +476,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     .apply_defense_and_shaping(
                         result,
                         &resource.id,
-                        wire_name,
+                        &canonical,
                         &proxy_key.id,
                         &resource.security,
                     )
@@ -481,7 +490,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     &request_id,
                     &proxy_key.id,
                     &resource.id,
-                    wire_name,
+                    &canonical,
                     &exec_err.upstream_key_ref,
                     request_status,
                     latency_ms,
@@ -506,7 +515,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         &self,
         proxy_key: &ProxyKey,
         resource_id: &str,
-        wire_name: &str,
+        canonical_name: &str,
         captured_args: &Option<String>,
     ) -> Result<Option<QueuePermit>, ProxyError> {
         let Some(limits) = &self.limits else {
@@ -520,7 +529,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                 tracing::warn!(
                     proxy_key_id = %proxy_key.id,
                     resource_id,
-                    tool_name = wire_name,
+                    tool_name = canonical_name,
                     error.message = %err,
                     "request rejected by limit admission"
                 );
@@ -531,7 +540,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     request_id: request_id.clone(),
                     proxy_key_id: proxy_key.id.clone(),
                     resource_id: resource_id.to_string(),
-                    tool_name: wire_name.to_string(),
+                    tool_name: canonical_name.to_string(),
                     upstream_key_ref: "<limited>".to_string(),
                     status: RequestStatus::Limited,
                     latency_ms: 0,
@@ -703,6 +712,34 @@ mod tests {
             Box::pin(async {
                 Ok(rmcp::model::CallToolResult::success(vec![
                     rmcp::model::ContentBlock::text(r#"{"answer":42,"tags":["a","b"]}"#),
+                ]))
+            })
+        }
+    }
+
+    /// 上游原名含 `__` 的 MCP 工具（wire name 无法按 `__` 切回三段）。
+    #[derive(Debug)]
+    struct DoubleUnderscoreMcpPeer;
+
+    impl RemoteMcpPeer for DoubleUnderscoreMcpPeer {
+        fn list_tools(&self) -> TestFuture<'_, Result<Vec<rmcp::model::Tool>, McpError>> {
+            Box::pin(async {
+                Ok(vec![rmcp::model::Tool::new(
+                    "get__issue",
+                    "Upstream tool name with double underscore",
+                    serde_json::Map::new(),
+                )])
+            })
+        }
+
+        fn call_tool(
+            &self,
+            _name: &str,
+            _arguments: serde_json::Value,
+        ) -> TestFuture<'_, Result<rmcp::model::CallToolResult, McpError>> {
+            Box::pin(async {
+                Ok(rmcp::model::CallToolResult::success(vec![
+                    rmcp::model::ContentBlock::text("issue body"),
                 ]))
             })
         }
@@ -941,7 +978,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invoke_invalid_tool_name_returns_invalid_tool_call() {
+    async fn invoke_unresolvable_name_returns_unknown_tool() {
+        // lookup-first：非三段乱名不再报格式错误，而是查表无命中 → UnknownTool
         let config = tavily_config();
         let secrets = Arc::new(MockSecretStore::default());
         let exec = executor(config, secrets);
@@ -951,10 +989,14 @@ mod tests {
             .invoke("not-a-valid-wire-name", serde_json::json!({}), &key)
             .await
             .unwrap_err();
+        match &err {
+            ProxyError::UnknownTool(name) => assert_eq!(name, "not-a-valid-wire-name"),
+            other => panic!("expected UnknownTool, got {other:?}"),
+        }
         let asterlane: crate::error::AsterlaneError = err.into();
         assert_eq!(
             asterlane.error_code(),
-            crate::error::ErrorCode::McpInvalidToolCall
+            crate::error::ErrorCode::CatalogUnknownTool
         );
     }
 
@@ -1069,6 +1111,216 @@ mod tests {
         assert_eq!(result.status, 200);
         assert_eq!(result.body, mock_body);
         assert_eq!(result.content_type.as_deref(), Some("application/json"));
+    }
+
+    // ── alias 解析（lookup-first，见 naming-convention.md「Alias 与最短无歧义暴露名」）──
+
+    #[tokio::test]
+    async fn invoke_bare_name_resolves_and_succeeds() {
+        let mock_body = br#"{"ok":true}"#.to_vec();
+        let addr = start_mock_upstream(200, mock_body.clone()).await;
+        let config = mock_config(format!("http://{addr}"));
+
+        let exec = executor(config, Arc::new(MockSecretStore::default()));
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        // 裸名 "search"（catalog 内唯一）→ canonical search__mock__search
+        let result = exec
+            .invoke("search", serde_json::json!({}), &key)
+            .await
+            .expect("bare-name invoke should succeed");
+        assert_eq!(result.status, 200);
+        assert_eq!(result.body, mock_body);
+    }
+
+    #[tokio::test]
+    async fn invoke_two_segment_name_resolves_and_succeeds() {
+        let mock_body = br#"{"ok":true}"#.to_vec();
+        let addr = start_mock_upstream(200, mock_body.clone()).await;
+        let config = mock_config(format!("http://{addr}"));
+
+        let exec = executor(config, Arc::new(MockSecretStore::default()));
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let result = exec
+            .invoke("mock__search", serde_json::json!({}), &key)
+            .await
+            .expect("two-segment invoke should succeed");
+        assert_eq!(result.status, 200);
+    }
+
+    #[tokio::test]
+    async fn invoke_ambiguous_bare_name_returns_invalid_tool_call_with_candidates() {
+        // 两个 provider 暴露同名 tool → 裸名歧义，消息列出候选 canonical
+        let mut config = mock_config("https://unused.example.com".to_string());
+        let mut second = config.api_resources[0].clone();
+        second.id = "mock2".to_string();
+        second.provider = "mock2".to_string();
+        config.api_resources.push(second);
+
+        let exec = executor(config, Arc::new(MockSecretStore::default()));
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let err = exec
+            .invoke("search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        match err {
+            ProxyError::InvalidToolCall(msg) => {
+                assert!(msg.contains("ambiguous"), "msg: {msg}");
+                assert!(msg.contains("search__mock__search"), "msg: {msg}");
+                assert!(msg.contains("search__mock2__search"), "msg: {msg}");
+            }
+            other => panic!("expected InvalidToolCall for ambiguous name, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn invoke_alias_to_scope_denied_tool_returns_unknown_tool() {
+        // exa_config 的 key 拒绝 ^search:exa:.*；裸名只匹配 scope 外工具 →
+        // 视为不存在（不泄漏存在性），而非 ForbiddenTool
+        let config = exa_config();
+        let secrets =
+            Arc::new(MockSecretStore::default().insert("secret://exa/default", "sk-test"));
+        let exec = executor(config, secrets);
+        let key = proxy_key(&exec.config, "agent-search").clone();
+
+        let err = exec
+            .invoke("neural_search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        match err {
+            ProxyError::UnknownTool(name) => assert_eq!(name, "neural_search"),
+            other => panic!("expected UnknownTool for scope-denied alias, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn invoke_tool_with_double_underscore_callable_via_canonical_and_bare_name() {
+        // 回归验证：上游原名含 `__` 的 MCP 工具（wire name 四段以上）
+        // parse-first 下"可列出不可调用"，lookup-first 下 canonical 与裸名均可调用
+        let config = GatewayConfig {
+            defaults: Default::default(),
+            admin: Default::default(),
+            semantic_search: None,
+            observability: Default::default(),
+            builtin_mcp: Vec::new(),
+            api_resources: Vec::new(),
+            mcp_servers: vec![McpServerConfig {
+                id: "remote".to_string(),
+                domain: "tools".to_string(),
+                provider: "remote".to_string(),
+                url: "https://mcp.example.test".to_string(),
+                description: "remote MCP".to_string(),
+                auth: UpstreamAuth::None,
+                security: SecurityConfig::default(),
+                health_check: crate::config::HealthCheckConfig::default(),
+                limits: None,
+            }],
+            proxy_keys: vec![ProxyKey {
+                id: "agent-test".to_string(),
+                display_name: "Test Agent".to_string(),
+                allowed_tools: vec![r"^tools:.*".to_string()],
+                denied_tools: vec![],
+                default_tool_page_size: 20,
+                discovery_mode: None,
+                response_format: None,
+                allowed_servers: Vec::new(),
+                allowed_tool_names: Vec::new(),
+                limits: None,
+                token_ref: None,
+                token_digest: None,
+                expires_at: None,
+            }],
+        };
+        let registry = Arc::new(
+            McpServerRegistry::from_peers(
+                &config.mcp_servers,
+                vec![Arc::new(DoubleUnderscoreMcpPeer)],
+            )
+            .await
+            .unwrap(),
+        );
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
+        let repo = Arc::new(CapturingEventRepository::default());
+        let exec = ProxyExecutor::new(
+            Arc::new(config),
+            Arc::new(catalog),
+            Arc::new(MockSecretStore::default()),
+            no_proxy_client(),
+        )
+        .with_mcp_registry(registry)
+        .with_event_repository(repo.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        for name in ["tools__remote__get__issue", "get__issue"] {
+            let result = exec
+                .invoke(name, serde_json::json!({}), &key)
+                .await
+                .unwrap_or_else(|e| panic!("invoke via {name} should succeed, got {e:?}"));
+            let tool_result: crate::mcp::model::ToolCallResult =
+                serde_json::from_slice(&result.body).expect("body is ToolCallResult");
+            assert!(!tool_result.is_error);
+        }
+        // 两次调用的事件键均为 canonical
+        let events = repo.events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(
+            events
+                .iter()
+                .all(|e| e.tool_name == "tools__remote__get__issue"),
+            "events keyed by canonical"
+        );
+    }
+
+    #[tokio::test]
+    async fn invoke_blocks_quarantined_tool_via_bare_name() {
+        // 隔离集合按 canonical 键控：经裸名 alias 调用同样被拦
+        let config = mock_config("https://unused.example.com".to_string());
+        let exec = executor(config, Arc::new(MockSecretStore::default()));
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let quarantined: crate::integrity::QuarantinedTools =
+            Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+        quarantined.write().await.insert(
+            "search__mock__search".to_string(),
+            crate::integrity::IntegrityPolicy::Quarantine,
+        );
+        let exec = exec.with_quarantined(quarantined);
+
+        let err = exec
+            .invoke("search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        match err {
+            ProxyError::InvalidToolCall(msg) => {
+                assert!(msg.contains("quarantined"), "msg: {msg}");
+            }
+            other => panic!("expected InvalidToolCall for quarantined alias, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn invoke_via_alias_records_canonical_in_event() {
+        let mock_body = br#"{"ok":true}"#.to_vec();
+        let addr = start_mock_upstream(200, mock_body).await;
+        let config = mock_config(format!("http://{addr}"));
+
+        let repo = Arc::new(CapturingEventRepository::default());
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_event_repository(repo.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        exec.invoke("search", serde_json::json!({}), &key)
+            .await
+            .expect("bare-name invoke should succeed");
+
+        let events = repo.events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].tool_name, "search__mock__search");
+        let buckets = repo.buckets.lock().unwrap();
+        assert_eq!(buckets[0].tool_name, "search__mock__search");
     }
 
     #[tokio::test]

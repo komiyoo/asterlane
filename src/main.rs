@@ -63,6 +63,11 @@ struct ServeArgs {
     bind: String,
     #[arg(long)]
     database_url: Option<String>,
+    /// `/mcp` 接受的 Host 白名单（逗号分隔；不带端口的条目匹配任意端口）。
+    /// 缺省不限制请求来源 Host；显式传入才启用白名单
+    /// （DNS rebinding 防护加固，如 `example.com:8080,localhost`）。
+    #[arg(long, value_delimiter = ',')]
+    mcp_allowed_hosts: Vec<String>,
 }
 
 #[tokio::main]
@@ -395,7 +400,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
     }
     axum::serve(
         listener,
-        asterlane::http::build_app_with_ct(state, ct.clone()),
+        asterlane::http::build_app_with_ct(state, ct.clone(), &args.mcp_allowed_hosts),
     )
     .with_graceful_shutdown(async move { ct.cancelled().await })
     .await?;

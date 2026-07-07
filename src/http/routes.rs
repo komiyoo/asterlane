@@ -6,13 +6,13 @@
 //! - `GET /config` — 配置概要（脱敏）
 //! - `GET /v1/tools` — 工具列表（按 key scope + query 过滤）
 
-use crate::catalog::ToolListQuery;
+use crate::catalog::{ToolListQuery, ToolQualifiers};
 use crate::config::{GatewayConfig, ProxyKey};
 use crate::discovery::{self, DiscoveryMode};
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::state::AppState;
 use crate::mcp::model::{ToolCallResult, ToolContent};
-use crate::proxy::{InvokeResult, ProxyExecutor};
+use crate::proxy::{InvokeResult, ProxyError, ProxyExecutor};
 use crate::render::{self, ResponseFormat};
 use crate::shaping::ShapingConfig;
 use axum::Json;
@@ -180,6 +180,16 @@ pub struct LazyToolEntry {
     pub input_schema: serde_json::Value,
 }
 
+/// Full 模式响应：catalog 分页 + 始终可发现的 meta-tool。
+/// meta-tool 是扁平名（`asterlane__*`），与结构化 `WrappedTool` 形状不同，
+/// 放独立字段而非混入 `tools` 数组。
+#[derive(Debug, Serialize)]
+pub struct FullToolPage {
+    #[serde(flatten)]
+    pub page: crate::catalog::ToolPage,
+    pub meta_tools: Vec<LazyToolEntry>,
+}
+
 struct MetaToolInvokeResult {
     result: ToolCallResult,
     content_defense_flag: bool,
@@ -237,7 +247,15 @@ pub async fn list_tools(
         .read()
         .await
         .list_for_key(proxy_key, &tool_query)?;
-    let body = serde_json::to_vec(&page).unwrap_or_default();
+    let meta_tools = discovery::meta_tool_descriptors()
+        .into_iter()
+        .map(|d| LazyToolEntry {
+            name: d.name,
+            description: d.description,
+            input_schema: d.input_schema,
+        })
+        .collect();
+    let body = serde_json::to_vec(&FullToolPage { page, meta_tools }).unwrap_or_default();
     Ok(json_response(body))
 }
 
@@ -400,16 +418,38 @@ async fn handle_meta_tool_with_proxy(
                 )
             })?;
             let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
+            // 可选 domain/provider 限定字段，与 MCP server 层同口径
+            // （见 docs/api-discovery.md「asterlane__call_tool 参数」）：
+            // 先解析出 canonical，remote MCP 判定与 invoke 都用 canonical。
+            let qualifiers = ToolQualifiers {
+                domain: args.get("domain").and_then(|v| v.as_str()),
+                provider: args.get("provider").and_then(|v| v.as_str()),
+            };
+            let canonical = match state
+                .catalog
+                .read()
+                .await
+                .resolve_for_key(tool_name, qualifiers, proxy_key)
+            {
+                Ok(Some(tool)) => tool.name.to_wire_name(),
+                // 带限定字段的未命中不回退 executor 解析（qualifiers 可能
+                // 滤掉无限定时可命中的候选），按既有 unknown tool 口径报错
+                Ok(None) => {
+                    return Err(ProxyError::UnknownTool(tool_name.to_string()).into());
+                }
+                // 歧义 → catalog.ambiguous_tool_name（HTTP 400，既有映射）
+                Err(e) => return Err(e.into()),
+            };
             let inner_is_remote_mcp = state
                 .mcp_registry
                 .as_ref()
-                .is_some_and(|registry| registry.contains_tool(tool_name));
+                .is_some_and(|registry| registry.contains_tool(&canonical));
 
             // Proxy to real upstream
             let invoke_result = execute_invoke(
                 state,
                 config.clone(),
-                tool_name,
+                &canonical,
                 tool_args,
                 proxy_key,
                 format,

@@ -285,12 +285,11 @@ async fn mcp_required_mode_binds_key_and_filters_scope() {
 
     let tools = client.peer().list_all_tools().await.expect("list tools");
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
+    // tools/list 暴露 key 可见集内最短无歧义名（docs/naming-convention.md）：
+    // scope 内唯一裸名 "search" 可见；scope 外 docs 工具任何形式不得泄漏
+    assert!(names.contains(&"search"), "scope 内工具应可见: {names:?}");
     assert!(
-        names.contains(&"search__mock__search"),
-        "scope 内工具应可见: {names:?}"
-    );
-    assert!(
-        !names.contains(&"docs__mock__lookup"),
+        !names.iter().any(|n| n.contains("lookup")),
         "scope 外工具不得泄漏: {names:?}"
     );
 

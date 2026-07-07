@@ -31,17 +31,29 @@ async fn metrics_handler(
 
 /// 构建 Axum 应用 Router，包含 REST API 和 MCP Server 端点。
 pub fn build_app(state: AppState) -> Router {
-    build_app_with_ct(state, CancellationToken::new())
+    build_app_with_ct(state, CancellationToken::new(), &[])
 }
 
 /// 带 CancellationToken 构建，用于 graceful shutdown。
-pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
+///
+/// `mcp_allowed_hosts` 设置 rmcp streamable http 的 Host 白名单。
+/// 缺省（空切片）**不限制请求来源 Host**——覆盖掉 rmcp 的 localhost 默认，
+/// 公网/隧道部署即插即用；显式传入列表才启用白名单
+/// （DNS rebinding 防护，作为可选加固项，主要防开放模式下的本地浏览器攻击）。
+pub fn build_app_with_ct(
+    state: AppState,
+    ct: CancellationToken,
+    mcp_allowed_hosts: &[String],
+) -> Router {
+    let transport_config = StreamableHttpServerConfig::default()
+        .with_cancellation_token(ct.child_token())
+        .with_allowed_hosts(mcp_allowed_hosts.to_vec());
     let mcp_state = state.clone();
     let mcp_service: StreamableHttpService<AsterlaneToolServer, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(AsterlaneToolServer::new(mcp_state.clone())),
             Arc::new(LocalSessionManager::default()),
-            StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
+            transport_config,
         );
     // /mcp gateway key 认证：required 模式（任一 key 配 token）校验 Bearer 并注入
     // GatewayKeyId extension；开放模式放行（见 docs/key-credentials-and-persistence.md K1）

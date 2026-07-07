@@ -394,6 +394,7 @@ pub(super) fn wrap_tools(
             http_method: crate::config::HttpMethod::Post,
             input_schema: input_schema.clone(),
             param_locations: None,
+            exposed_name: None,
         });
         descriptors.push(ToolDescriptor {
             name: wire_name,

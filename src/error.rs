@@ -43,6 +43,8 @@ pub enum ErrorCode {
     CatalogUnknownTool,
     /// cursor 非法或 limit 越界。
     CatalogInvalidPagination,
+    /// 工具名在同一解析层匹配到多个候选，需用更长形式或限定段。
+    CatalogAmbiguousToolName,
 
     // ── store ──
     /// 数据库迁移失败。
@@ -110,6 +112,7 @@ impl ErrorCode {
             Self::AuthMissingUpstreamSecret => "auth.missing_upstream_secret",
             Self::CatalogUnknownTool => "catalog.unknown_tool",
             Self::CatalogInvalidPagination => "catalog.invalid_pagination",
+            Self::CatalogAmbiguousToolName => "catalog.ambiguous_tool_name",
             Self::StoreMigrationFailed => "store.migration_failed",
             Self::StoreUnavailable => "store.unavailable",
             Self::ProxyUpstreamTimeout => "proxy.upstream_timeout",
@@ -144,7 +147,9 @@ impl ErrorCode {
             | Self::AuthExpiredGatewayKey
             | Self::AuthForbiddenTool
             | Self::AuthMissingUpstreamSecret => "auth",
-            Self::CatalogUnknownTool | Self::CatalogInvalidPagination => "catalog",
+            Self::CatalogUnknownTool
+            | Self::CatalogInvalidPagination
+            | Self::CatalogAmbiguousToolName => "catalog",
             Self::StoreMigrationFailed | Self::StoreUnavailable => "store",
             Self::ProxyUpstreamTimeout
             | Self::ProxyRetryExhausted
@@ -234,6 +239,7 @@ impl AsterlaneError {
                 CatalogError::Regex(_) => ErrorCode::ConfigInvalidRegex,
                 CatalogError::Policy(_) => ErrorCode::ConfigInvalidRegex,
                 CatalogError::OpenApi(_) => ErrorCode::ConfigInvalidYaml,
+                CatalogError::AmbiguousToolName { .. } => ErrorCode::CatalogAmbiguousToolName,
             },
             Self::Policy(_) => ErrorCode::ConfigInvalidRegex,
             Self::Internal { code, .. } => *code,
@@ -292,10 +298,10 @@ impl AsterlaneError {
         match code {
             // 未知工具 → Method not found
             ErrorCode::CatalogUnknownTool => McpErrorForm::JsonRpc(-32601, message),
-            // 参数错误 → Invalid params
-            ErrorCode::CatalogInvalidPagination | ErrorCode::McpInvalidToolCall => {
-                McpErrorForm::JsonRpc(-32602, message)
-            }
+            // 参数错误 / 歧义工具名（客户端换更长形式重试）→ Invalid params
+            ErrorCode::CatalogInvalidPagination
+            | ErrorCode::CatalogAmbiguousToolName
+            | ErrorCode::McpInvalidToolCall => McpErrorForm::JsonRpc(-32602, message),
             // 上游类错误 / 配额限流 → tool result isError: true
             ErrorCode::ProxyUpstreamTimeout
             | ErrorCode::ProxyRetryExhausted
@@ -369,7 +375,9 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::AuthMissingUpstreamSecret => 503,
         ErrorCode::CatalogUnknownTool => 404,
         ErrorCode::McpUpstreamMcpFailure => 502,
-        ErrorCode::CatalogInvalidPagination | ErrorCode::McpInvalidToolCall => 400,
+        ErrorCode::CatalogInvalidPagination
+        | ErrorCode::CatalogAmbiguousToolName
+        | ErrorCode::McpInvalidToolCall => 400,
         ErrorCode::StoreMigrationFailed | ErrorCode::StoreUnavailable => 503,
         ErrorCode::ProxyUpstreamTimeout | ErrorCode::ProxyConnectionFailed => 504,
         ErrorCode::ProxyRetryExhausted | ErrorCode::ProxyUpstreamError => 502,
@@ -561,6 +569,25 @@ mod tests {
         let regex_err = regex::Regex::new(&bad_pattern).unwrap_err();
         let err = AsterlaneError::from(CatalogError::Policy(PolicyError::InvalidRegex(regex_err)));
         assert_eq!(err.error_code(), ErrorCode::ConfigInvalidRegex);
+    }
+
+    #[test]
+    fn catalog_ambiguous_tool_name_maps_to_stable_code_400_and_invalid_params() {
+        let err = AsterlaneError::from(CatalogError::AmbiguousToolName {
+            name: "web_search".to_string(),
+            candidates: vec![
+                "search__exa__web_search".to_string(),
+                "search__tavily__web_search".to_string(),
+            ],
+        });
+        assert_eq!(err.error_code(), ErrorCode::CatalogAmbiguousToolName);
+        assert_eq!(
+            ErrorCode::CatalogAmbiguousToolName.as_str(),
+            "catalog.ambiguous_tool_name"
+        );
+        assert_eq!(err.http_response().status, 400);
+        assert!(matches!(err.mcp_error(), McpErrorForm::JsonRpc(-32602, _)));
+        assert_eq!(err.exit_code(), 4);
     }
 
     // ── exit_code ──

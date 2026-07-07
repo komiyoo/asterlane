@@ -85,7 +85,9 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: CALL_TOOL.to_string(),
-            description: "Call a previously discovered tool by its wire name. \
+            description: "Call a previously discovered tool by name. The name accepts \
+                          the canonical wire name (domain__provider__tool), a \
+                          provider__tool pair, or a bare tool name when unambiguous. \
                           Pass the tool name and its arguments as JSON."
                 .to_string(),
             input_schema: json!({
@@ -93,11 +95,19 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "Wire name of the tool to call (e.g. search__tavily__web_search)."
+                        "description": "Tool name: canonical wire name (e.g. search__tavily__web_search), provider__tool, or bare tool name when unambiguous."
                     },
                     "arguments": {
                         "type": "object",
                         "description": "Arguments to pass to the tool, matching its input schema."
+                    },
+                    "domain": {
+                        "type": "string",
+                        "description": "Optional: disambiguate short tool names by domain"
+                    },
+                    "provider": {
+                        "type": "string",
+                        "description": "Optional: disambiguate short tool names by provider"
                     }
                 },
                 "required": ["name", "arguments"],
@@ -328,6 +338,20 @@ mod tests {
         assert!(names.contains(&SEARCH_TOOLS));
         assert!(names.contains(&CALL_TOOL));
         assert!(names.contains(&FETCH_RESULT));
+    }
+
+    #[test]
+    fn call_tool_descriptor_has_qualifier_fields() {
+        let descs = meta_tool_descriptors();
+        let call_tool = descs.iter().find(|d| d.name == CALL_TOOL).unwrap();
+        let props = &call_tool.input_schema["properties"];
+        assert_eq!(props["domain"]["type"], "string");
+        assert_eq!(props["provider"]["type"], "string");
+        // 限定字段可选：required 仍只有 name/arguments
+        assert_eq!(
+            call_tool.input_schema["required"],
+            json!(["name", "arguments"])
+        );
     }
 
     #[test]

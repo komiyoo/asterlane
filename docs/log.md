@@ -1,5 +1,15 @@
 # Documentation Update Log
 
+## 2026-07-07（命名定案：alias 最短无歧义暴露名 + call_tool 限定字段 + `__` 段内修复）
+
+- **决策（`naming-convention.md` 新增「Alias 与最短无歧义暴露名」节）**：64 字符硬限制（Anthropic/OpenAI `^[a-zA-Z0-9_-]{1,64}$` + Claude Code `mcp__<server>__<tool>` 展开）只作用于 `tools/list` 进 LLM tool definitions 的名字，故引入 alias——canonical `domain__provider__tool` 仍是唯一持久标识（配置/policy/日志/事件/admin/quarantine 一律 canonical），暴露名取 key scope 可见全集（请求过滤前）内最短无歧义形式（裸名 → `provider__tool` → canonical），候选须不撞任何 canonical wire name（影子保护）且不以 `asterlane__` 开头。
+- **调用解析三级优先**：所有调用路径共用 catalog `resolve_for_key(name, qualifiers, key)`——Tier0 canonical 精确匹配（全目录，scope 拒绝走 policy 权限错误）→ Tier1 `provider__tool` → Tier2 裸名（后两层限 key 可见集）；同层多候选报错列候选 canonical（截 8 个）一轮自愈；alias 只命中 scope 外 → 视为不存在。`asterlane__call_tool` 增可选 `domain`/`provider` 限定字段（`api-discovery.md` 增参数表），网关不维护 session 级过滤状态。
+- **不变量与修复**：「过滤不改名、视图才改名」——请求级过滤只筛条目不改名字，更窄视图内裸名留给连接级视图（endpoint URL query 叠加 key scope、session 不可变，未来方向，记入演进路径）；上游工具名可含 `__` 故解析一律 lookup-first 查 catalog 表、`from_str` 仅用于管理员书写三段名，修复此前 executor parse-first 导致的"可列出不可调用"；meta-tool 渐进发现路径（search_tools 结果、事件）保持 canonical。
+- **顺带更正**：`api-discovery.md` 路径 A 命名小节残留旧四段 `{domain}__{provider}__{tool}__{method}` 写法，就地更正为三段（腐烂信号修复）。
+- **部署面（`src/main.rs` + `src/http/mod.rs`）**：`serve` 新增 `--mcp-allowed-hosts`（逗号分隔，穿给 rmcp `StreamableHttpServerConfig.allowed_hosts`）。rmcp 2.1 streamable http 默认 Host 白名单只有 localhost/127.0.0.1/::1（DNS rebinding 防护），frp/公网部署的 `/mcp` 请求 403 "Host header is not allowed"（admin/REST 路由不经 rmcp 服务不受影响）。**产品决策：缺省不限制请求来源 Host**（传空列表覆盖 rmcp 默认，公网/隧道即插即用），显式传入才启用白名单，作为开放模式下防本地浏览器 DNS rebinding 的可选加固。
+- **meta-tool 始终可发现（`src/mcp/server.rs` + `src/http/routes.rs`）**：此前 `asterlane__*` meta-tool 仅 lazy 模式列出、Full 模式只能带外发现（e2e 验证发现的缺口）。改为 MCP `tools/list` 最后一页追加 meta-tool descriptor（不占 catalog 游标空间）；`GET /v1/tools` Full 响应增设独立 `meta_tools` 字段（扁平名不混入结构化 `tools` 数组）；lazy 模式不变。`api-discovery.md` 同步。
+- **验证**：`python3 scripts/check_okf_docs.py` 通过；alias 全链路 mini 构建机 `cargo fmt -- --check` + `cargo test` 全绿（687 单元 + 52 集成）；线上（compose 重建后）`tools/list` 暴露裸名/两段名符合设计，裸名调用直达上游，歧义错误文本含候选 canonical。
+
 ## 2026-07-07（MCP registry 始终初始化：零配置也可运行时接入上游）
 
 - **修复（`src/main.rs`）**：MCP registry 不再按 `config.mcp_servers.is_empty()` gate（旧逻辑空配置 → `mcp_registry = None`，运行时经 admin API 加/启用/probe 首个上游 MCP server 报 "mcp registry unavailable" 503、需重启）。改为始终 `connect_all(&config.mcp_servers)`（空 slice = 空 registry）并 `Some(...)` 挂上；空 registry 刷新任务每轮 no-op，integrity baseline 以空 tools pin（`pinned=0`），运行时加的 server 进同一 registry Arc、自动纳入周期刷新/drift 检测。

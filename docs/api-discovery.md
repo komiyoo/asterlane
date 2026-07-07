@@ -4,7 +4,7 @@ title: API 自动发现与 MCP 转换
 description: 定义从 OpenAPI spec 自动生成 endpoint 目录、HTTP API 转 MCP tool、第三方 MCP server 代理发现与缓存失效的机制。
 resource: docs/api-discovery.md
 tags: [discovery, openapi, mcp, architecture]
-timestamp: 2026-07-04T00:00:00Z
+timestamp: 2026-07-07T00:00:00Z
 ---
 
 # 背景
@@ -28,8 +28,7 @@ timestamp: 2026-07-04T00:00:00Z
 - `operationId` 存在时，作为 `tool` 段（归一化为 `[a-z0-9_]`）。
 - `operationId` 缺失时，回退到 `{method}_{path_slug}`，如 `get_search`、`post_users_query`。
 - `domain` 与 `provider` 由资源配置指定（spec 不决定）。
-- `method` 段取 HTTP method 小写（`get`/`post`/`put`/`patch`/`delete`）。
-- 最终 wire name：`{domain}__{provider}__{tool}__{method}`，受长度预算约束（见 [Naming Convention](naming-convention.md)）。
+- 最终 wire name：`{domain}__{provider}__{tool}`（HTTP method 是路由层细节，不进名字），受长度预算约束（见 [Naming Convention](naming-convention.md)）。
 
 ### 参数合并
 
@@ -115,6 +114,20 @@ api_resources:
 - 过滤参数走 `_meta` 扩展通道（键名带反向域名前缀 `asterlane.dev/*`），因为 MCP 规范未定义 `tools/list` 的自定义参数，通用客户端不会传。
 - 服务端按 proxy key scope 预收窄默认视图（规范支持：tools MAY vary by authorization）。
 - 可选提供 `asterlane__search_tools` meta-tool（受 SEP-1923 summary/get 两段式启发），让只支持标准 `tools/list` 的客户端也能按正则搜索工具。
+- **meta-tool 始终可发现**（as-built 2026-07-07）：`asterlane__*` meta-tool 是网关自身的发现面，不依赖带外知识——MCP `tools/list` 在最后一页把 meta-tool descriptor 追加到 `tools` 数组（不占 catalog 分页游标空间）；HTTP `GET /v1/tools` Full 模式响应携带独立 `meta_tools` 字段（meta-tool 是扁平名，与结构化 `WrappedTool` 形状不同，不混入 `tools` 数组）；lazy 模式行为不变（仅返回 meta-tool）。
+
+## `asterlane__call_tool` 参数
+
+meta-tool `asterlane__call_tool` 间接调用已发现工具，参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `name` | string | 是 | 目标工具名。接受 canonical wire name 或 key 可见范围内的最短无歧义 alias；普通字符串，无 64 字符限制 |
+| `arguments` | object | 是 | 透传给目标工具的参数，匹配其 inputSchema |
+| `domain` | string | 否 | 可选限定字段，无状态收窄 `name` 的解析歧义 |
+| `provider` | string | 否 | 同上，按 provider 收窄 |
+
+`name` 按三级优先解析（canonical 精确匹配 → `provider__tool` → 裸 tool 名，见 [Naming Convention – 调用解析三级优先](naming-convention.md)）。同层多候选时报歧义错误并列出候选 canonical（截断 8 个），agent 补 `domain`/`provider` 限定或改用 canonical 重试即可自愈；alias 只匹配到 key scope 外工具时视为不存在（不泄漏存在性）。网关不维护 session 级过滤状态，限定字段每次调用显式传入。
 
 `_meta` 扩展示例：
 
