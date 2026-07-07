@@ -5,7 +5,7 @@
 //! 所有响应脱敏，不暴露密钥或 auth 配置。
 //!
 //! 数据端点全部经 [`auth::require_admin`] Bearer 校验；
-//! `/ui` 页面本身无数据，公开返回（登录引导页）。
+//! `/ui` 外壳与 `/ui/*` 前端静态资源本身无数据，公开返回（登录引导页）。
 
 pub mod auth;
 mod crud;
@@ -16,9 +16,9 @@ mod tokens;
 
 pub use auth::{AdminAuth, AdminKeyId};
 
-use axum::extract::{Query, State};
-use axum::http::header;
-use axum::response::{Html, IntoResponse};
+use axum::extract::{Path, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
@@ -94,12 +94,53 @@ pub fn router(state: &AppState) -> Router<AppState> {
             state.clone(),
             auth::require_admin,
         ));
-    Router::new().route("/ui", get(console)).merge(api)
+    Router::new()
+        .route("/ui", get(console))
+        .route("/ui/{*path}", get(ui_asset))
+        .merge(api)
 }
 
-/// `GET /admin/ui` — 单文件控制台页面（编译期嵌入）。
+/// `GET /admin/ui` — 控制台外壳页面（编译期嵌入，公开）。
+///
+/// 页面本身无数据；前端逻辑与样式经 `/admin/ui/*` 静态资源以免构建
+/// ES module 加载（见 [`ui_asset`] 与 docs/admin-console.md）。
 async fn console() -> Html<&'static str> {
-    Html(include_str!("console.html"))
+    Html(include_str!("ui/console.html"))
+}
+
+/// `GET /admin/ui/{*path}` — 控制台前端静态资源（编译期嵌入，公开）。
+///
+/// 资源表用 `include_str!` 内联，零运行时文件系统依赖；命中返回资源体与
+/// 对应 `Content-Type`（JS 必须为 `text/javascript`，否则浏览器拒绝加载
+/// module），未命中 404。相对 import（如 app.js → ./tabs/mcp.js）解析出的
+/// 每条路径都必须在表内。
+async fn ui_asset(Path(path): Path<String>) -> Response {
+    const JS: &str = "text/javascript; charset=utf-8";
+    const CSS: &str = "text/css; charset=utf-8";
+    const ASSETS: &[(&str, &str, &str)] = &[
+        ("styles.css", CSS, include_str!("ui/styles.css")),
+        ("core.js", JS, include_str!("ui/core.js")),
+        ("app.js", JS, include_str!("ui/app.js")),
+        ("tabs/overview.js", JS, include_str!("ui/tabs/overview.js")),
+        ("tabs/usage.js", JS, include_str!("ui/tabs/usage.js")),
+        (
+            "tabs/resources.js",
+            JS,
+            include_str!("ui/tabs/resources.js"),
+        ),
+        ("tabs/tools.js", JS, include_str!("ui/tabs/tools.js")),
+        ("tabs/mcp.js", JS, include_str!("ui/tabs/mcp.js")),
+        ("tabs/keys.js", JS, include_str!("ui/tabs/keys.js")),
+        ("tabs/keypools.js", JS, include_str!("ui/tabs/keypools.js")),
+        ("tabs/events.js", JS, include_str!("ui/tabs/events.js")),
+        ("tabs/security.js", JS, include_str!("ui/tabs/security.js")),
+        ("tabs/audit.js", JS, include_str!("ui/tabs/audit.js")),
+        ("tabs/config.js", JS, include_str!("ui/tabs/config.js")),
+    ];
+    match ASSETS.iter().find(|(p, _, _)| *p == path) {
+        Some((_, ct, body)) => ([(header::CONTENT_TYPE, *ct)], *body).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 // ── handlers ──
@@ -225,12 +266,19 @@ async fn tools(State(state): State<AppState>) -> Json<Value> {
 /// `enabled` = 该 id 出现在配置快照的 `mcp_servers`（serve 时 preset 已展开
 /// 进该列表）或 `builtin_mcp` 中（见 docs/tool-debugging-and-cli.md）。
 async fn mcp_presets(State(state): State<AppState>) -> Json<Value> {
+    use crate::presets::PresetAuth;
     let config = state.config_snapshot().await;
     let list: Vec<Value> = crate::presets::builtin_presets()
         .iter()
         .map(|p| {
             let enabled =
                 config.mcp_server(p.id).is_some() || config.builtin_mcp.iter().any(|id| id == p.id);
+            // auth 只回显形态与 header 名，绝不含 ref 或明文；控制台据此预填添加表单
+            let auth = match p.auth {
+                PresetAuth::None => json!({ "type": "none" }),
+                PresetAuth::Bearer => json!({ "type": "bearer" }),
+                PresetAuth::Header { name } => json!({ "type": "header", "name": name }),
+            };
             json!({
                 "id": p.id,
                 "domain": p.domain,
@@ -238,6 +286,9 @@ async fn mcp_presets(State(state): State<AppState>) -> Json<Value> {
                 "url": p.url,
                 "description": p.description,
                 "enabled": enabled,
+                "auth": auth,
+                "requires_key": p.requires_key(),
+                "apply_url": p.apply_url,
             })
         })
         .collect();
@@ -530,6 +581,16 @@ mod tests {
         assert_eq!(exa["domain"], "search");
         assert_eq!(exa["url"], "https://mcp.exa.ai/mcp");
         assert!(exa["description"].as_str().is_some_and(|d| !d.is_empty()));
+        // keyless preset：免鉴权、无申请地址
+        assert_eq!(exa["auth"]["type"], "none");
+        assert_eq!(exa["requires_key"], false);
+        assert_eq!(exa["apply_url"], Value::Null);
+        // keyed preset：Bearer + 申请地址，供控制台「配置 key 启用」
+        let hotel = preset_entry(&list, "rollinggo-hotel");
+        assert_eq!(hotel["auth"]["type"], "bearer");
+        assert_eq!(hotel["requires_key"], true);
+        assert_eq!(hotel["apply_url"], "https://rollinggo.store/apply");
+        assert_eq!(hotel["enabled"], false);
     }
 
     #[tokio::test]

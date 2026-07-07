@@ -166,7 +166,10 @@ impl GatewayConfig {
     /// - 显式 `mcp_servers` 已有同 id 条目时跳过该 preset（显式配置优先，
     ///   可用于覆盖 security 等字段）；`builtin_mcp` 列表内重复 id 只展开一次；
     /// - 未知 preset id 返回 `config.unknown_resource` 错误 fail fast，
-    ///   错误信息列出可用 preset id。
+    ///   错误信息列出可用 preset id；
+    /// - `builtin_mcp` 简写仅对 keyless preset 合法；引用 keyed preset
+    ///   （`auth ≠ none`）返回 `config.invalid_yaml` 错误 fail fast——避免静默
+    ///   生成一个无凭据的坏 server，需改用 `mcp_servers` 显式配置 secret ref。
     pub fn expand_builtin_mcp(&mut self) -> Result<(), AsterlaneError> {
         for id in &self.builtin_mcp {
             let preset = crate::presets::builtin_presets()
@@ -185,6 +188,18 @@ impl GatewayConfig {
                         ),
                     )
                 })?;
+            // keyed preset 不能经 builtin_mcp 简写零配置启用（会生成 auth:none 的坏
+            // server）；须在 mcp_servers 显式配置 auth: bearer/header + secret ref
+            if preset.requires_key() {
+                return Err(AsterlaneError::internal(
+                    ErrorCode::ConfigInvalidYaml,
+                    format!(
+                        "builtin_mcp preset '{id}' requires a key: configure it under \
+                         mcp_servers with `auth: bearer` and a `secret://…` ref instead of \
+                         listing it in builtin_mcp"
+                    ),
+                ));
+            }
             // 显式同 id 条目优先；首次展开后 id 已入列，天然去重列表内重复
             if self.mcp_servers.iter().any(|s| s.id == preset.id) {
                 continue;
@@ -755,5 +770,24 @@ proxy_keys:
             }
             other => panic!("unexpected error variant: {other}"),
         }
+    }
+
+    #[test]
+    fn keyed_preset_in_builtin_mcp_fails_fast() {
+        let mut config = parse("builtin_mcp: [rollinggo-hotel]");
+        let err = config
+            .expand_builtin_mcp()
+            .expect_err("keyed preset must fail");
+        match err {
+            AsterlaneError::Internal { code, message, .. } => {
+                assert_eq!(code, ErrorCode::ConfigInvalidYaml);
+                assert!(message.contains("rollinggo-hotel"));
+                assert!(message.contains("requires a key"));
+                assert!(message.contains("mcp_servers"));
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+        // 未静默生成坏 server
+        assert!(config.mcp_servers.is_empty());
     }
 }

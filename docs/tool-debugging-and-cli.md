@@ -27,27 +27,33 @@ timestamp: 2026-07-05T00:00:00Z
 - 新模块 `src/presets.rs`（纯数据，无框架依赖）：
 
 ```rust
+pub enum PresetAuth { None, Bearer, Header { name: &'static str } } // 默认所需凭据形态
 pub struct McpPreset {
     pub id: &'static str,        // preset id，也用作 McpServerConfig.id
     pub domain: &'static str,
     pub provider: &'static str,
     pub url: &'static str,
     pub description: &'static str,
+    pub auth: PresetAuth,                // None=免费匿名可用；Bearer/Header=需 key
+    pub apply_url: Option<&'static str>, // 申请原始 key 的地址（keyless 为 None）
 }
+impl McpPreset { pub fn requires_key(&self) -> bool { /* auth != None */ } }
 pub fn builtin_presets() -> &'static [McpPreset];
 ```
 
-- 初始表（全部免鉴权，`auth: none`；后续按需扩充）：
+- 初始表（keyless=免费匿名 `auth: none`；keyed=需 key，`apply_url` 指向申请地址）：
 
-| id | domain | provider | url |
-| --- | --- | --- | --- |
-| `exa` | search | exa | `https://mcp.exa.ai/mcp` |
-| `deepwiki` | docs | deepwiki | `https://mcp.deepwiki.com/mcp` |
-| `context7` | docs | context7 | `https://mcp.context7.com/mcp` |
+| id | domain | provider | url | auth |
+| --- | --- | --- | --- | --- |
+| `exa` | search | exa | `https://mcp.exa.ai/mcp` | none（免费匿名，配 `x-api-key` header 提额） |
+| `deepwiki` | docs | deepwiki | `https://mcp.deepwiki.com/mcp` | none |
+| `context7` | docs | context7 | `https://mcp.context7.com/mcp` | none |
+| `rollinggo-hotel` | hotel | rollinggo | `https://mcp.rollinggo.cn/mcp` | bearer（key `mcp_…`，申请 `rollinggo.store/apply`） |
+| `rollinggo-flight` | flight | rollinggo | `https://mcp.rollinggo.cn/mcp/flight` | bearer（同上） |
 
-- 配置形态：顶层 `builtin_mcp: [exa, deepwiki]`（字符串列表，缺省空）。
-- 展开语义：`GatewayConfig::expand_builtin_mcp()` 在配置加载后调用（`main.rs` 的 `load_config` 内），把 preset 展开为 `McpServerConfig` 追加到 `mcp_servers`；显式 `mcp_servers` 中已有同 id 条目时 preset 跳过（显式配置优先，可用于覆盖 security 等字段）；未知 preset id 报 `config.*` 错误 fail fast。
-- 可见性：`GET /admin/mcp-presets` 返回 `[{id, domain, provider, url, description, enabled}]`，`enabled` = 出现在 `builtin_mcp` 或 `mcp_servers` 中。
+- 配置形态：顶层 `builtin_mcp: [exa, deepwiki]`（字符串列表，缺省空）——**仅接受 keyless preset**。
+- 展开语义：`GatewayConfig::expand_builtin_mcp()` 在配置加载后调用（`main.rs` 的 `load_config` 内），把 preset 展开为 `McpServerConfig` 追加到 `mcp_servers`；显式 `mcp_servers` 中已有同 id 条目时 preset 跳过（显式配置优先，可用于覆盖 security 等字段）；未知 preset id 报 `config.*` 错误 fail fast。**keyed preset（auth≠none）出现在 `builtin_mcp` 简写里直接 fail-fast**（`ConfigInvalidYaml`，提示改用 `mcp_servers` + `auth: bearer` + secret ref），不生成 auth:none 的坏 server。
+- 可见性与「只配 key」：`GET /admin/mcp-presets` 返回 `[{id, domain, provider, url, description, enabled, auth, requires_key, apply_url}]`（`auth`={type: none|bearer|header, name?}，`enabled`=出现在 `builtin_mcp` 或 `mcp_servers`）。控制台 MCP Servers 页顶「内置集成」区始终可见地列出全部 preset + 状态 + 凭据标记：keyless 一键「启用」（POST auth:none）；keyed「配置 key 启用」预填 url/domain/provider/auth 类型，只需填 secret ref（红线不变：收 `secret://…` 不收明文，附申请 key 链接）。详见 [Admin Console](admin-console.md) MCP Servers 行。
 
 # 2. 请求负载捕获与上游观测
 

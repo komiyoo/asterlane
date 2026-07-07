@@ -26,8 +26,8 @@ timestamp: 2026-07-06T00:00:00Z
 | --- | --- | --- |
 | 部署形态 | 与网关同进程同端口，`GET /admin/ui` 返回页面 | 单二进制交付；同源部署免 CORS |
 | 认证 | 独立 admin key（Bearer），与 proxy key 物理分离 | 架构护栏：admin key 与 proxy key 不得混用（NyaProxy 混用是反模式） |
-| C1 技术栈 | 单文件静态 HTML + vanilla JS，`include_str!` 嵌入 | 零新 crate、零 node 工具链；只读页面不需要框架 |
-| C3 升级条件 | 出现表单编辑、多步交互、客户端状态管理需求时，再引入构建式前端（Vite + 轻框架，产物经 `rust-embed` 嵌入） | 遵循 [Development Workflow – Admin Console Strategy](development-workflow.md)：数据模型稳定前不承诺重前端 |
+| C1 技术栈 | vanilla JS + 静态 CSS，源码按 tab 拆为 `src/admin/ui/` 下免构建 ES module（`app.js` 入口 + 共享 `core.js` + `tabs/*.js` + `styles.css`），逐个 `include_str!` 嵌入，`GET /admin/ui/{*path}` 静态服务 | 零新 crate、零 node 工具链；每个 tab 独立文件，按需只改一个 tab |
+| C3 升级条件 | 表单编辑、多步交互、客户端状态需求以**模块化**应对（per-tab ES module + 共享 `core.js`，仍免构建、仍 `include_str!` 嵌入），不迁 Vite/重框架；单二进制交付不变 | 遵循 [Development Workflow – Admin Console Strategy](development-workflow.md)：数据模型稳定前不承诺重前端 |
 | token 传递 | 浏览器端 admin key 手输、存 sessionStorage、随 fetch 走 `Authorization: Bearer` | 不写 cookie，同源 + Bearer 天然免 CSRF |
 
 `/admin/ui` 页面本身不含敏感数据，可不带鉴权返回（登录引导页）；所有数据请求必须带 admin key。
@@ -65,7 +65,7 @@ admin:
 | Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中） | `/admin/usage?group_by=&from=&to=` | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
 | Config | 配置校验报告、资源与 key 的 CRUD | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3） |
 | （跨页面）Tool Defaults | 工具默认调用参数全量列表（Tools 调试面板与 CLI 消费） | `GET /admin/tool-defaults` | 已上线（C4） |
-| MCP Servers | MCP 供应商列表（健康状态、builtin/requires_key 标记、tool_count、探测按钮）；行展开详情 = 元信息 + 健康 + 限额 + security + 工具表（介绍编辑、行内调试）+ server 增删改表单 | `GET/POST /admin/mcp-servers`、`GET/PUT/DELETE /admin/mcp-servers/{id}`、`POST /admin/mcp-servers/{id}/probe` | 已上线（C5，2026-07-06）：JSON 形状钉死于 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §6 |
+| MCP Servers | MCP 供应商列表（健康状态、builtin/requires_key 标记、tool_count、探测按钮）；页顶「内置集成」区始终可见地列出全部 preset（状态 + 免费/需 key 标记 + 申请 key 链接）：keyless 一键「启用」、keyed「配置 key 启用」预填 url/domain/provider/auth 类型只需填 secret ref；行展开详情 = 元信息 + 健康 + 限额 + security + 工具表（介绍编辑、行内调试）；server 增删改表单创建/编辑均可编辑 security（`integrity_policy` warn/quarantine/block、`defense.enabled`、`result_budget_bytes`；注意写入嵌套 `defense:{enabled}`、读出扁平 `defense_enabled`，无 `deny_unknown_fields`） | `GET/POST /admin/mcp-servers`、`GET/PUT/DELETE /admin/mcp-servers/{id}`、`POST /admin/mcp-servers/{id}/probe`、`GET /admin/mcp-presets` | 已上线（C5，2026-07-06；security 编辑 2026-07-06；内置集成可见区 + 只配 key + rollinggo/exa 预集成 2026-07-07）：JSON 形状钉死于 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §6 |
 | （跨页面）Tool Metadata | 工具介绍 override（覆盖上游 description；agent 可见描述 = override ?? 原始）；`/admin/tools` 行含 `resource_id`/`description_override` | `GET /admin/tool-metadata`、`GET/PUT/DELETE /admin/tools/{name}/metadata` | 已上线（C5，2026-07-06） |
 | Proxy Keys（token 签发） | key 行「签发/轮换」「吊销」按钮 + token 一次性弹窗（明文仅此一次）、`auth_mode` 徽标、过期时间输入、总量/当日配额进度条；列表行含 `auth_mode`/`expires_at`/`usage`，永不回显摘要或明文 | `POST/DELETE /admin/proxy-keys/{id}/token`、`/admin/proxy-keys` | 已上线（C6，2026-07-06） |
 | 审计 | AdminAudit 审计流水（时间/admin_key_id/action/target），预置 kind=admin_audit，沿用事件页分页；非法 kind 400 `admin.invalid_query` | `/admin/security-events?kind=` | 已上线（C6，2026-07-06） |
@@ -76,7 +76,7 @@ admin:
 # 分阶段路线
 
 - **C0 admin 认证（已交付 2026-07-05）**：如上节。无认证不上任何 UI。
-- **C1 只读控制台（已交付 2026-07-05）**：单文件 `src/admin/console.html`（`GET /admin/ui`，`include_str!` 嵌入），页面 = Overview / Resources / Tools / Proxy Keys / Events / Security Events。表格 + 过滤输入框，无图表，零新依赖。Key Pools 页推迟至 C2（见上表）。
+- **C1 只读控制台（已交付 2026-07-05；源码 2026-07-06 拆为 `src/admin/ui/` 免构建 ES module）**：`GET /admin/ui`（`include_str!` 嵌入），页面 = Overview / Resources / Tools / Proxy Keys / Events / Security Events。表格 + 过滤输入框，无图表，零新依赖。Key Pools 页推迟至 C2（见上表）。
 - **C2 用量聚合（已交付 2026-07-05）**：`/admin/usage` 暴露 `store::AggregationRepository::summarize_by`（五个维度）；`/admin/events` 补 `from`/`to` 时间过滤与时间游标分页；`/admin/stats` 升级为 SQL 聚合（`overall_stats`，返回字段扩展为含 `unique_resources`/`avg_latency_ms`/`total_rate_limit_hits`）；控制台新增「用量」页（CSS 条形图 + 表格，错误占比着色）；key pool 接入请求路径后补齐 `/admin/key-pools` 与 Key Pools 页。时间桶趋势随 `usage_buckets` 写入路径接通交付：`group_by=bucket` 返回 hour 粒度升序序列（默认 168 桶/一周，上限 744），用量页「按小时（趋势）」维度渲染。
 - **C3 配置管理（已交付 2026-07-05）**：resources / proxy keys CRUD（`POST/PUT/DELETE`）、`/admin/config/validate` 配置校验报告、热更新（`Arc<RwLock<Arc<GatewayConfig>>>` 原子替换 + catalog 重建）。所有写操作落审计事件（`SecurityEventKind::AdminAudit`）。admin middleware 注入 `AdminKeyId`，audit 记录含 admin_key_id/action/target。控制台「配置管理」页含 Create/Delete + 校验按钮，单文件仍可承受。
 - **C4 调试调用与默认参数（已交付 2026-07-05）**：设计契约见 [Tool Debugging And CLI](tool-debugging-and-cli.md) 第 3 节。五个新端点（`src/admin/defaults.rs`，store 层 `ToolDefaultsRepository` 于 `src/store/tool_defaults.rs`，表 `tool_defaults`）：

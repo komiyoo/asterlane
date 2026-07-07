@@ -771,6 +771,43 @@ mcp_servers:
     }
 
     #[tokio::test]
+    async fn security_round_trips_on_create_and_defaults_on_update_omit() {
+        // 空 registry：连接立即失败但配置仍落地，足以验证 security 输入/输出往返
+        let registry = McpServerRegistry::from_peers(&[], vec![]).await.unwrap();
+        let config: GatewayConfig = serde_norway::from_str("{}").unwrap();
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let state = with_store(
+            AppState::new(config, catalog)
+                .with_admin_auth(admin_auth())
+                .with_mcp_registry(Arc::new(registry)),
+        )
+        .await;
+
+        // 控制台以 SecurityConfig serde 形态发送：defense 嵌套 enabled（输出侧为扁平 defense_enabled）
+        let input = r#"{"id":"sec","domain":"d","provider":"p","url":"http://127.0.0.1:9/mcp",
+            "security":{"integrity_policy":"block","defense":{"enabled":true},"result_budget_bytes":2048}}"#;
+        let (status, body) = send(&state, "POST", "/admin/mcp-servers", Some(input)).await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(body["security"]["integrity_policy"], "block");
+        assert_eq!(body["security"]["defense_enabled"], true);
+        assert_eq!(body["security"]["result_budget_bytes"], 2048);
+
+        // GET 详情反映已持久化的 security
+        let (_, detail) = send(&state, "GET", "/admin/mcp-servers/sec", None).await;
+        assert_eq!(detail["security"]["integrity_policy"], "block");
+        assert_eq!(detail["security"]["defense_enabled"], true);
+        assert_eq!(detail["security"]["result_budget_bytes"], 2048);
+
+        // PUT 省略 security → 全量替换语义下回落默认（与 limits/health_check 一致）
+        let put = r#"{"domain":"d","provider":"p","url":"http://127.0.0.1:9/mcp"}"#;
+        let (status, body) = send(&state, "PUT", "/admin/mcp-servers/sec", Some(put)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["security"]["integrity_policy"], "warn");
+        assert_eq!(body["security"]["defense_enabled"], false);
+        assert_eq!(body["security"]["result_budget_bytes"], Value::Null);
+    }
+
+    #[tokio::test]
     async fn put_updates_server_and_returns_health() {
         let peer = FakePeer::new(vec![vec![make_tool("web_search_exa", "d")]]);
         let state = with_store(state_with_registry(ONE_SERVER_YAML, vec![peer]).await).await;

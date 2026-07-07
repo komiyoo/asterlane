@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asterlane 控制台</title>
+<link rel="stylesheet" href="/admin/ui/styles.css">
+</head>
+<body>
+<header>
+  <h1><span>✳</span> Asterlane 控制台</h1>
+  <div id="auth">
+    <input type="password" id="token" placeholder="Admin token" size="24">
+    <button id="connect">连接</button>
+    <span id="conn">未连接</span>
+  </div>
+</header>
+<nav id="nav"></nav>
+<main id="view"><p class="hint">输入 admin token 并点击「连接」</p></main>
+<dialog id="tok-dialog"></dialog>
+<script type="module" src="/admin/ui/app.js"></script>
+</body>
+</html>

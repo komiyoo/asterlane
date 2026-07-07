@@ -1,5 +1,35 @@
 # Documentation Update Log
 
+## 2026-07-07（内置 MCP preset：可见集成区 + 只配 key + rollinggo 预集成 + 控制台密度重调）
+
+两个 subagent 在互不重叠文件上并行（P: presets.rs/config.rs/mod.rs/tabs/mcp.js；D: styles.css），主代理调研 + 集成验收：
+
+- **preset 模型扩展（`src/presets.rs`）**：`McpPreset` 加 `auth: PresetAuth`（`None`/`Bearer`/`Header{name}`）+ `apply_url: Option<&str>` + `requires_key()`；新增 `rollinggo-hotel`（domain hotel/provider rollinggo，`https://mcp.rollinggo.cn/mcp`，Bearer）与 `rollinggo-flight`（domain flight，`.../mcp/flight`，Bearer），key `mcp_…` 申请于 `https://rollinggo.store/apply`；exa/deepwiki/context7 保持 keyless（exa 免费匿名可调，配 `x-api-key` 提额）。
+- **keyed 守卫（`expand_builtin_mcp`）**：`builtin_mcp: [id]` 简写仅接受 keyless preset；keyed preset 出现即 fail-fast（`ConfigInvalidYaml`，提示改用 `mcp_servers` + `auth: bearer` + secret ref），不生成 auth:none 坏 server。
+- **端点（`/admin/mcp-presets`）**：JSON 扩展为 `{id,domain,provider,url,description,enabled,auth,requires_key,apply_url}`（`auth`={type:none|bearer|header,name?}）。
+- **控制台可见集成 + 只配 key（`tabs/mcp.js`）**：MCP 页顶「内置集成」区始终可见地列出全部 preset + 状态 + 凭据标记；keyless 一键「启用」（POST auth:none），keyed「配置 key 启用」预填 url/domain/provider/auth 类型、聚焦 secret ref 输入（placeholder `secret://env/<PROVIDER>_API_KEY`）+ 申请 key 链接。红线不变：收 secret ref 不收明文。删旧的隐藏 add-form preset 下拉。复用既有 class（新增 `mp-key`/`mp-enable` 为 `<button>` 行为钩子，吃通用 button 样式，同 `ms-*`/`mt-*` 模式）。
+- **密度重调（`styles.css`，193→191 行）**：反转上一轮偏空的打磨——body 13px/1.4、表格 `th/td` padding 9/14→4/8px（行高 ~35→24px，单屏多约 30% 行）、Overview 卡片压成紧凑信息条、全局留白/圆角/阴影收紧；保留 token/暗色/hover/focus/危险态，无远程依赖，class 覆盖无遗漏。
+- **调研来源**：exa MCP（免费匿名 + `x-api-key`/`?exaApiKey=`）、RollingGo Flight/Hotel MCP（`.cn` 端点、`Authorization: Bearer`、key `mcp_…`、申请 `rollinggo.store/apply`）。
+- **验证**：mini 上 `cargo fmt -- --check` 干净、`cargo build`、`cargo test` 全绿（含新增 preset/守卫/端点 4 测）；live smoke：`/admin/mcp-presets` 返回 exa(keyless)/rollinggo-hotel(keyed) 正确形状，一键启用 context7 → 201 + `enabled` 翻转。
+
+## 2026-07-06（控制台：MCP preset 消费 + 安全策略编辑 + CSS 打磨）
+
+承接上一条源码拆分，两个 subagent 在互不重叠文件上并行补功能缺口与观感，主代理集成验收：
+
+- **MCP preset 消费（`src/admin/ui/tabs/mcp.js`）**：添加 MCP server 表单顶部新增「从内置 preset 选择」下拉（拉 `GET /admin/mcp-presets`，best-effort：失败则省略下拉、手填不受影响），选中即预填 id/domain/provider/url/desc 并置 auth=none（preset 皆 `auth: none`），已 `enabled` 的 preset 禁选并标「已启用」。仅添加态，编辑态不加。
+- **MCP 安全策略编辑（同文件 + 后端测试）**：创建/编辑表单补 `integrity_policy`（select，warn/quarantine/block，源 `src/integrity.rs` `IntegrityPolicy`）、`defense.enabled`（checkbox）、`result_budget_bytes`（number），拼进 `body.security`。后端 `McpServerInput` 早已接受 `security: Option<SecurityConfig>`（`into_config` 走 `unwrap_or_default`、`to_db_record`/审计已覆盖），本次仅补一条往返集成测试锁死契约。**形状不对称坑**：security 读出扁平（`defense_enabled`），写入嵌套（`defense: { enabled }`），无 `deny_unknown_fields` 故扁平写入会被静默丢弃——前端按嵌套写，与既有 `health_check` 处理一致。
+- **CSS 打磨（`src/admin/ui/styles.css`，77→193 行）**：保留 token 体系与暗色模式，扩展派生 token（accent-weak/阴影/圆角/track 等）；改进字号间距节奏、表格可读性、nav tab 选中下划线、卡片微阴影、按钮 hover/focus/active/危险态、表单控件焦点环、进度条/状态灯/徽标 pill 化。硬约束：不重命名/删除任何 JS 引用的 class（清点核对 JS class 集 ⊆ CSS 选择器集，无遗漏）、无外部/远程依赖（纯手写，`include_str!` 离线嵌入）。纯 CSS，零 DOM 改动。
+- **验证**：mini 上 `cargo fmt -- --check` 干净、`cargo build` 通过、`cargo test` 全绿（lib + 集成 + doctests，0 failed，含新增 `admin::mcp::tests::security_round_trips_on_create_and_defaults_on_update_omit`）。两 agent 文件不重叠（`tabs/mcp.js`+`admin/mcp.rs` vs `styles.css`），无冲突。
+- **未做（按 ROI 明确 defer）**：no-build 微框架（表单尚未多到需要）、resource 全字段表单、key pool CRUD——高级配置仍走 YAML + `config/export`/`validate`。
+
+## 2026-07-06（控制台源码拆分：免构建 per-tab ES module）
+
+纯结构性重构，行为零变更（同 11 个 tab、同功能、同端点、同 class）：
+
+- **拆分**：单文件 `src/admin/console.html`（~1000 行）拆为 `src/admin/ui/` 下免构建 ES module——外壳 `console.html` + `styles.css` + 共享 `core.js`（跨切面 helper：`esc`/`api`/`apiWrite`/`objTable`/`healthDot`/`authBadge`/`usageBars`/`openTokenDialog`/`toggle*Panel` 等）+ `app.js`（TABS 注册表 + 导航/连接引导）+ `tabs/*.js`（11 个 `loadX`，各自从 `../core.js` import）。动机：单 ~30K token 文件编辑代价过高，拆分后按需只读一个 tab。
+- **服务**：`src/admin/mod.rs` `console()` 返回 `ui/console.html` 外壳；新增 `ui_asset` handler + 通配路由 `GET /admin/ui/{*path}`，`include_str!` 内联资源表查表返回（JS 用 `text/javascript; charset=utf-8`，CSS 用 `text/css`），未命中 404。外壳与 `/ui/*` 资源保持 public（在 `require_admin` route_layer 之外），数据端点鉴权不变。零新 crate、零构建工具。
+- **文档**：admin-console.md C1 技术栈/C3 升级条件两行更新（模块化应对表单/多步/客户端状态，不迁 Vite，单二进制不变）。
+
 ## 2026-07-06（Key 凭据化与配置持久化闭环交付）
 
 按 `docs/key-credentials-and-persistence.md` 契约，K-W0 地基主代理先行，五个 subagent 两波交付，主代理验收：
