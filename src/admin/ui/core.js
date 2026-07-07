@@ -232,3 +232,24 @@ export function openTokenDialog(key, onDone) {
     $("#tok-close").addEventListener("click", () => dlg.close());
   });
 }
+
+export function enableColResize(table) {
+  table.style.tableLayout = "fixed";
+  const ths = table.querySelectorAll("th");
+  ths.forEach(th => { th.style.width = th.offsetWidth + "px"; });
+  ths.forEach(th => {
+    th.style.position = "relative";
+    const h = document.createElement("div");
+    h.className = "col-handle";
+    th.appendChild(h);
+    h.addEventListener("mousedown", e => {
+      e.preventDefault();
+      const x0 = e.clientX, w0 = th.offsetWidth;
+      h.classList.add("active");
+      const move = ev => { th.style.width = Math.max(40, w0 + ev.clientX - x0) + "px"; };
+      const up = () => { h.classList.remove("active"); document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    });
+  });
+}

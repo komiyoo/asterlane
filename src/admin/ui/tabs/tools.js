@@ -1,4 +1,4 @@
-import { $, api, esc, toggleDebugPanel } from "../core.js";
+import { $, api, esc, toggleDebugPanel, enableColResize } from "../core.js";
 
 export async function loadTools(view) {
   const data = await api("/admin/tools");
@@ -23,6 +23,8 @@ export async function loadTools(view) {
     $("#tools-count").textContent = rows.length + " / " + data.total_count;
     $("#tools-table").querySelectorAll(".tool-debug").forEach(b =>
       b.addEventListener("click", () => toggleDebugPanel(b.dataset.name, $("#dbg-" + b.dataset.i))));
+    const tbl = $("#tools-table").querySelector("table");
+    if (tbl) enableColResize(tbl);
   };
   view.innerHTML = '<div class="toolbar"><input id="tools-filter" placeholder="按名称/资源/描述过滤" size="32">'
     + '<span id="tools-count" class="hint" style="padding:6px"></span></div><div id="tools-table"></div>';

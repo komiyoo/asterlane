@@ -142,9 +142,9 @@ export async function loadMcpServers(view) {
       + (hh.last_error ? line("最近错误", '<span style="color:var(--err)">' + esc(hh.last_error) + "</span>") : "")
       + line("测活", d.health_check_enabled === false ? "关闭" : "开启")
       + line("限额", "rps " + dash(lim.rps) + " · rpm " + dash(lim.rpm) + " · 最大并发 " + dash(lim.max_concurrent))
-      + line("安全", "完整性策略 " + dash(sec.integrity_policy)
-        + " · 防御 " + (sec.defense_enabled ? "开" : "关")
-        + " · 结果预算 " + dash(sec.result_budget_bytes));
+      + line("安全", '<span title="工具 schema 变化时：warn 仅记录 / quarantine 暂停 / block 拒绝">完整性策略</span> ' + dash(sec.integrity_policy)
+        + ' · <span title="扫描返回内容，检测 prompt 注入等恶意负载">防御</span> ' + (sec.defense_enabled ? "开" : "关")
+        + ' · <span title="单次调用返回结果字节上限，超出截断分页">结果预算</span> ' + dash(sec.result_budget_bytes));
     const tools = Array.isArray(d.tools) ? d.tools : [];
     h += '<h3 style="margin:12px 0 6px">工具（' + tools.length + '）</h3>';
     if (tools.length) {
@@ -210,11 +210,11 @@ export async function loadMcpServers(view) {
       + '<label>rps<br><input id="ms-rps" size="4" value="' + val(lim.rps) + '"></label>'
       + '<label>rpm<br><input id="ms-rpm" size="4" value="' + val(lim.rpm) + '"></label>'
       + '<label>最大并发<br><input id="ms-conc" size="4" value="' + val(lim.max_concurrent) + '"></label>'
-      + '<label>完整性策略<br><select id="ms-ipol">'
+      + '<label title="工具 schema 发生变化时的处理策略：warn 仅记录，quarantine 暂停该工具，block 拒绝所有调用">完整性策略<br><select id="ms-ipol">'
       + ["warn", "quarantine", "block"].map(t => '<option' + (ipol === t ? " selected" : "") + '>' + t + '</option>').join("")
       + '</select></label>'
-      + '<label>防御<br><input type="checkbox" id="ms-def"' + (sec.defense_enabled ? " checked" : "") + '></label>'
-      + '<label>结果预算<br><input id="ms-rbb" size="8" value="' + val(sec.result_budget_bytes) + '"></label>'
+      + '<label title="启用后扫描工具返回内容，检测 prompt 注入等恶意负载">防御<br><input type="checkbox" id="ms-def"' + (sec.defense_enabled ? " checked" : "") + '></label>'
+      + '<label title="单次工具调用返回结果的字节上限，超出则截断并分页；留空不限制">结果预算<br><input id="ms-rbb" size="8" value="' + val(sec.result_budget_bytes) + '"></label>'
       + '<button id="ms-save">' + (editing ? "保存" : "创建") + '</button><button id="ms-cancel">取消</button></div>'
       + '<div class="hint" style="padding:6px 0 0;text-align:left">直接填写 API key 即可'
       + (editing ? '；编辑不回显既有凭据，认证为 bearer/header 时需重新填写' : "") + '</div></div>';

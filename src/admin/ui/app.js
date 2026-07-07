@@ -32,13 +32,21 @@ let current = "overview";
 function buildNav() {
   const nav = $("#nav");
   nav.innerHTML = "";
+  if (sessionStorage.getItem("nav-collapsed") === "true") nav.classList.add("collapsed");
   for (const [key, tab] of Object.entries(TABS)) {
     const b = document.createElement("button");
     b.textContent = tab.label;
+    b.title = tab.label;
     b.className = key === current ? "active" : "";
     b.addEventListener("click", () => { current = key; buildNav(); loadCurrent(); });
     nav.appendChild(b);
   }
+  const t = document.createElement("button");
+  t.id = "nav-toggle";
+  const upd = () => { const c = nav.classList.contains("collapsed"); t.textContent = c ? "»" : "«"; t.title = c ? "展开侧栏" : "收起侧栏"; };
+  t.addEventListener("click", () => { nav.classList.toggle("collapsed"); upd(); sessionStorage.setItem("nav-collapsed", nav.classList.contains("collapsed")); });
+  nav.appendChild(t);
+  upd();
 }
 
 async function loadCurrent() {
