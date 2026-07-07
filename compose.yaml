@@ -15,12 +15,5 @@ services:
       - --database-url=sqlite:/data/asterlane.db?mode=rwc
       - --bind=0.0.0.0:3000
 
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    restart: always
-    depends_on:
-      - gateway
-    command: tunnel --no-autoupdate --url http://gateway:3000
-
 volumes:
   gateway-data:

@@ -59,7 +59,10 @@ pub fn build_app_with_ct(state: AppState, ct: CancellationToken) -> Router {
         .merge(mcp_router);
     // admin API 仅在配置了 admin key 时挂载（见 docs/admin-console.md C0）
     if state.admin_auth.is_some() {
-        router = router.nest("/admin", crate::admin::router(&state));
+        router = router.nest("/admin", crate::admin::router(&state)).route(
+            "/",
+            get(|| async { axum::response::Redirect::permanent("/admin/ui") }),
+        );
     }
     router
         .layer(tower_http::trace::TraceLayer::new_for_http())
