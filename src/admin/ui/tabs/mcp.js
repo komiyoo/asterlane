@@ -194,7 +194,7 @@ export async function loadMcpServers(view) {
       : "";
     f.innerHTML = '<div class="card" style="margin:8px 0">'
       + applyRow
-      + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end">'
+      + '<div class="form-row">'
       + '<label>ID<br><input id="ms-id" size="12" value="' + val(s.id) + '"' + (editing ? " disabled" : "") + '></label>'
       + '<label>领域<br><input id="ms-domain" size="10" value="' + val(s.domain) + '"></label>'
       + '<label>提供商<br><input id="ms-provider" size="10" value="' + val(s.provider) + '"></label>'

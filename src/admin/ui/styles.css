@@ -59,6 +59,36 @@ input[type=checkbox] {
 }
 label { display: inline-block; font-size: 12px; color: var(--muted); line-height: 1.35; }
 
+/* 表单行（自适应换行 + 字段卡片） */
+.form-row {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: end;
+}
+.form-row > label {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 11px; color: var(--muted);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 5px 8px 6px;
+  transition: border-color .15s, background .15s;
+}
+.form-row > label br { display: none; }
+.form-row > label:focus-within {
+  border-color: var(--accent); background: var(--accent-weak);
+}
+.form-row > label input:not([type=checkbox]),
+.form-row > label select:not([multiple]) {
+  border: none; background: transparent; padding: 2px 0;
+}
+.form-row > label input:not([type=checkbox]):focus-visible,
+.form-row > label select:not([multiple]):focus-visible {
+  outline: none; box-shadow: none;
+}
+.form-row > button:first-of-type {
+  border-color: var(--accent); color: var(--accent); font-weight: 600;
+}
+.form-row > button:first-of-type:hover {
+  background: var(--accent); color: var(--accent-fg);
+}
+
 /* 按钮 */
 button { cursor: pointer; background: var(--card); font-weight: 500; }
 button:hover { border-color: var(--accent); background: var(--accent-weak); }
@@ -83,7 +113,7 @@ nav button.active { color: var(--accent); background: none; border-bottom-color:
 nav button.active:hover { background: var(--accent-weak); border-bottom-color: var(--accent); }
 
 /* 主区与分节标题 */
-main { padding: 12px 16px 28px; max-width: 1240px; }
+main { padding: 12px 16px 28px; max-width: 1800px; }
 main h3 {
   font-size: 13px; font-weight: 600; margin: 16px 0 7px;
   padding-left: 8px; border-left: 3px solid var(--accent); line-height: 1.25;
