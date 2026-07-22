@@ -175,6 +175,11 @@ mod tests {
             .tools
     }
 
+    fn parse_err(args: &[&str]) {
+        TestCli::try_parse_from(std::iter::once("tools").chain(args.iter().copied()))
+            .expect_err("args should fail to parse");
+    }
+
     #[test]
     fn parses_list_call_search_and_global_flags() {
         assert!(matches!(
@@ -188,13 +193,25 @@ mod tests {
         let args = parse(&["call", "search", "--args", "{}", "-f", "yaml"]);
         assert_eq!(args.format.as_deref(), Some("yaml"));
         assert!(matches!(args.command, ToolsCommand::Call { .. }));
+
+        let args = parse(&[
+            "list",
+            "--server",
+            "http://gw:9000",
+            "--token-env",
+            "MY_TOKEN",
+        ]);
+        assert_eq!(args.server.as_deref(), Some("http://gw:9000"));
+        assert_eq!(args.token_env, "MY_TOKEN");
+
+        parse_err(&["call", "search", "--args", "{}", "--args-file", "a.json"]);
     }
 
     #[test]
     fn list_query_skips_none_and_keeps_all_filters() {
         let query = list_query(
             Some("a".into()),
-            None,
+            Some("x".into()),
             Some("d".into()),
             Some("p".into()),
             Some("t".into()),
@@ -205,6 +222,7 @@ mod tests {
             query,
             vec![
                 ("include", "a".into()),
+                ("exclude", "x".into()),
                 ("domain", "d".into()),
                 ("provider", "p".into()),
                 ("tool", "t".into()),
@@ -221,5 +239,18 @@ mod tests {
             normalize_search_result(body).unwrap(),
             json!([{"name": "search"}])
         );
+    }
+
+    #[test]
+    fn search_result_rejects_invalid_gateway_responses() {
+        for body in [
+            json!({"content": [{"Text": "failure"}], "is_error": true}),
+            json!({"content": [{}], "is_error": false}),
+            json!({"content": [{"Text": 1}], "is_error": false}),
+            json!({"content": [{"Text": "not json"}], "is_error": false}),
+            json!({"content": [{"Text": "{}"}], "is_error": false}),
+        ] {
+            assert!(normalize_search_result(body).is_err());
+        }
     }
 }
