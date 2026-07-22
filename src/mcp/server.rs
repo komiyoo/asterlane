@@ -18,7 +18,7 @@ use crate::gateway_auth::GatewayKeyId;
 use crate::http::AppState;
 use crate::http::ToolListChangedPeers;
 use crate::proxy::ProxyExecutor;
-use crate::render::{self, ResponseFormat};
+use crate::render::ResponseFormat;
 use crate::shaping::{ResultCache, ShapingConfig};
 
 /// 默认分页大小。
@@ -61,8 +61,7 @@ impl AsterlaneToolServer {
     /// 把 [`GatewayKeyId`] 写入 http request extensions；rmcp streamable http
     /// service 将 `http::request::Parts` 注入 `RequestContext.extensions`
     /// （rmcp 2.1.0 `streamable_http_server/tower.rs`「inject request part to
-    /// extensions」），此处逐层读出并按 id 取真实 ProxyKey（scope/限额/
-    /// response_format 随之生效）。
+    /// extensions」），此处逐层读出并按 id 取真实 ProxyKey（scope/限额生效）。
     ///
     /// 开放模式（无 key 配置 token）无绑定 → 返回全放行 mcp_default_key，
     /// 维持向后兼容；required 模式下缺绑定为防御分支（middleware 必已拦截）。
@@ -189,19 +188,11 @@ impl ServerHandler for AsterlaneToolServer {
 
         let config = self.state.config_snapshot().await;
 
-        // 认证绑定的真实 key（开放模式为全放行 mcp_default_key）；
-        // scope / per-key 限额 / response_format 随之生效
+        // 认证绑定的真实 key（开放模式为全放行 mcp_default_key）；scope / per-key 限额生效。
         let key = self.resolve_proxy_key(&config, &context).await?;
 
-        // 响应格式：`_meta["asterlane.dev/format"]` 请求级 override（见
-        // docs/response-rendering.md），未知值按 INVALID_PARAMS fail fast。
-        let format_override = meta_str(request.meta.as_ref(), "asterlane.dev/format");
-        let format = render::resolve_format(
-            format_override.as_deref(),
-            key.response_format,
-            config.defaults.response_format,
-        )
-        .map_err(|e| ErrorData::new(rmcp::model::ErrorCode::INVALID_PARAMS, e.to_string(), None))?;
+        // MCP 只传输工具结果；终端展示由客户端边界处理。
+        let format = ResponseFormat::Json;
 
         // Meta-tool 路径
         if crate::discovery::is_meta_tool(wire_name) {
@@ -600,7 +591,11 @@ mod tests {
                 .lock()
                 .expect("peer lock")
                 .push((name.to_string(), arguments));
-            Box::pin(async { Ok(CallToolResult::success(vec![ContentBlock::text("ok")])) })
+            Box::pin(async {
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    r#"{"ok":true}"#,
+                )]))
+            })
         }
     }
 
@@ -625,7 +620,9 @@ mod tests {
         let tavily = Arc::new(StaticPeer::new(vec!["web_search"]));
         let exa = Arc::new(StaticPeer::new(vec!["web_search", "neural_search"]));
         let config = GatewayConfig {
-            defaults: Default::default(),
+            defaults: crate::config::GatewayDefaults {
+                response_format: Some(ResponseFormat::Markdown),
+            },
             admin: Default::default(),
             semantic_search: None,
             observability: Default::default(),
@@ -738,6 +735,25 @@ mod tests {
             assert_eq!(calls.len(), 1);
             assert_eq!(calls[0].0, "neural_search");
         }
+
+        let _ = client.cancel().await;
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn call_tool_ignores_mcp_rendering_preferences() {
+        let (state, _tavily, _exa) = ambiguous_search_state().await;
+        let (client, server_task) = serve_pair(state).await;
+        let mut params = CallToolRequestParams::new("neural_search");
+        params.meta = Some(rmcp::model::Meta(
+            [("asterlane.dev/format".to_string(), json!("yaml"))]
+                .into_iter()
+                .collect(),
+        ));
+
+        let result = client.call_tool(params).await.expect("call_tool");
+        let text = result.content[0].as_text().expect("text content");
+        assert_eq!(text.text, r#"{"ok":true}"#);
 
         let _ = client.cancel().await;
         server_task.abort();
