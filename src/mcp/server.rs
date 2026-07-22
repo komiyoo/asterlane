@@ -93,6 +93,75 @@ impl AsterlaneToolServer {
             None => Ok(mcp_default_key()),
         }
     }
+
+    async fn call_regular_tool(
+        &self,
+        wire_name: &str,
+        arguments: serde_json::Value,
+        config: Arc<GatewayConfig>,
+        key: &ProxyKey,
+        format: ResponseFormat,
+    ) -> Result<CallToolResult, ErrorData> {
+        // 名字先经 resolve_for_key 三级解析（canonical / provider__tool / 裸名，
+        // 见 docs/naming-convention.md），后续 remote MCP 判定与 invoke 一律用
+        // canonical。clone catalog 构造 executor（不持锁跨 await）。
+        let catalog_snapshot = self.state.catalog.read().await.clone();
+        let canonical =
+            match catalog_snapshot.resolve_for_key(wire_name, ToolQualifiers::default(), key) {
+                Ok(Some(tool)) => tool.name.to_wire_name(),
+                // 工具不存在（alias 只命中 scope 外工具也视为不存在）
+                Ok(None) => {
+                    return Err(ErrorData::new(
+                        rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+                        format!("unknown tool: {wire_name}"),
+                        None,
+                    ));
+                }
+                // 歧义对 agent 可见、可自愈：走 tool error 而非协议错
+                Err(e @ CatalogError::AmbiguousToolName { .. }) => {
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(
+                        e.to_string(),
+                    )]));
+                }
+                Err(e) => return Err(ErrorData::internal_error(e.to_string(), None)),
+            };
+        let is_remote_mcp = self
+            .state
+            .mcp_registry
+            .as_ref()
+            .is_some_and(|reg| reg.contains_tool(&canonical));
+        let mut executor = ProxyExecutor::new(
+            config,
+            Arc::new(catalog_snapshot),
+            self.state.secrets.clone(),
+            self.state.http_client.clone(),
+        );
+        if let Some(reg) = &self.state.mcp_registry {
+            executor = executor.with_mcp_registry(reg.clone());
+        }
+        executor = executor.with_limits(self.state.limit_registry_snapshot().await);
+        if let Some(pools) = &self.state.key_pools {
+            executor = executor.with_key_pools(pools.clone());
+        }
+        executor = executor
+            .with_quarantined(self.state.quarantined_tools.clone())
+            .with_result_cache(self.state.result_cache.clone())
+            .with_response_format(format);
+        let invoke_result = if let Some(repo) = &self.state.event_repo {
+            executor
+                .with_event_repository(repo.clone())
+                .invoke(&canonical, arguments, key)
+                .await
+        } else {
+            executor.invoke(&canonical, arguments, key).await
+        };
+        match invoke_result {
+            Ok(result) => Ok(invoke_result_to_mcp(result, is_remote_mcp)),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
+                e.to_string(),
+            )])),
+        }
+    }
 }
 
 impl ServerHandler for AsterlaneToolServer {
@@ -246,65 +315,8 @@ impl ServerHandler for AsterlaneToolServer {
         }
 
         // 普通工具调用路径（HTTP API 与 remote MCP 统一经 ProxyExecutor）。
-        // 名字先经 resolve_for_key 三级解析（canonical / provider__tool / 裸名，
-        // 见 docs/naming-convention.md），后续 remote MCP 判定与 invoke 一律用
-        // canonical。clone catalog 构造 executor（不持锁跨 await）。
-        let catalog_snapshot = self.state.catalog.read().await.clone();
-        let canonical =
-            match catalog_snapshot.resolve_for_key(wire_name, ToolQualifiers::default(), &key) {
-                Ok(Some(tool)) => tool.name.to_wire_name(),
-                // 工具不存在（alias 只命中 scope 外工具也视为不存在）
-                Ok(None) => {
-                    return Err(ErrorData::new(
-                        rmcp::model::ErrorCode::METHOD_NOT_FOUND,
-                        format!("unknown tool: {wire_name}"),
-                        None,
-                    ));
-                }
-                // 歧义对 agent 可见、可自愈：走 tool error 而非协议错
-                Err(e @ CatalogError::AmbiguousToolName { .. }) => {
-                    return Ok(CallToolResult::error(vec![ContentBlock::text(
-                        e.to_string(),
-                    )]));
-                }
-                Err(e) => return Err(ErrorData::internal_error(e.to_string(), None)),
-            };
-        let is_remote_mcp = self
-            .state
-            .mcp_registry
-            .as_ref()
-            .is_some_and(|reg| reg.contains_tool(&canonical));
-        let mut executor = ProxyExecutor::new(
-            config.clone(),
-            Arc::new(catalog_snapshot),
-            self.state.secrets.clone(),
-            self.state.http_client.clone(),
-        );
-        if let Some(reg) = &self.state.mcp_registry {
-            executor = executor.with_mcp_registry(reg.clone());
-        }
-        executor = executor.with_limits(self.state.limit_registry_snapshot().await);
-        if let Some(pools) = &self.state.key_pools {
-            executor = executor.with_key_pools(pools.clone());
-        }
-        executor = executor
-            .with_quarantined(self.state.quarantined_tools.clone())
-            .with_result_cache(self.state.result_cache.clone())
-            .with_response_format(format);
-        let invoke_result = if let Some(repo) = &self.state.event_repo {
-            executor
-                .with_event_repository(repo.clone())
-                .invoke(&canonical, arguments, &key)
-                .await
-        } else {
-            executor.invoke(&canonical, arguments, &key).await
-        };
-        match invoke_result {
-            Ok(result) => Ok(invoke_result_to_mcp(result, is_remote_mcp)),
-            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
-                e.to_string(),
-            )])),
-        }
+        self.call_regular_tool(wire_name, arguments, config, &key, format)
+            .await
     }
 }
 
