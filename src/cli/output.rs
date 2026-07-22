@@ -28,7 +28,16 @@ pub(super) fn format_value(value: &Value, format: ResponseFormat) -> String {
 }
 
 pub(super) fn emit(value: &Value, format: ResponseFormat) {
-    println!("{}", format_value(value, format));
+    print!("{}", output_with_newline(value, format));
+}
+
+fn output_with_newline(value: &Value, format: ResponseFormat) -> String {
+    let output = format_value(value, format);
+    if output.ends_with('\n') {
+        output
+    } else {
+        format!("{output}\n")
+    }
 }
 
 pub(super) fn pretty(value: &Value) -> String {
@@ -67,5 +76,17 @@ mod tests {
         assert!(format_value(&value, ResponseFormat::Json).contains("\"ok\""));
         assert!(format_value(&value, ResponseFormat::Yaml).contains("ok: true"));
         assert!(format_value(&value, ResponseFormat::Markdown).contains("**ok**"));
+    }
+
+    #[test]
+    fn output_has_one_trailing_newline() {
+        assert_eq!(
+            output_with_newline(&json!({"ok": true}), ResponseFormat::Yaml),
+            "ok: true\n"
+        );
+        assert_eq!(
+            output_with_newline(&json!({"ok": true}), ResponseFormat::Json),
+            "{\n  \"ok\": true\n}\n"
+        );
     }
 }
