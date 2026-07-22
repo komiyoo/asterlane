@@ -1,4 +1,4 @@
-//! admin API HTTP 客户端层：连接解析、认证、URL/query 组装、
+//! API HTTP 客户端层：连接解析、认证、URL/query 组装、
 //! 响应体解析、错误与退出码映射（docs/error-model.md「CLI 边界」）。
 //!
 //! token 以 [`SecretString`] 持有且不实现 Debug；任何输出不回显 token。
@@ -8,7 +8,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-/// 缺省 admin API 地址（`serve` 的默认 bind）。
+/// 缺省 API 地址（`serve` 的默认 bind）。
 const DEFAULT_SERVER: &str = "http://127.0.0.1:3000";
 /// 非 JSON 响应体的 stderr 预览预算（字符数，UTF-8 安全）。
 const RAW_BODY_PREVIEW_CHARS: usize = 2000;
@@ -67,15 +67,15 @@ pub(super) fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
-/// admin API HTTP 客户端。
-pub(super) struct AdminClient {
+/// API HTTP 客户端。
+pub(super) struct ApiClient {
     http: reqwest::Client,
     /// 服务器地址，末尾无 `/`。
     base: String,
     token: SecretString,
 }
 
-impl AdminClient {
+impl ApiClient {
     pub(super) fn new(server: Option<String>, token_env: &str) -> Result<Self> {
         let base = resolve_server(server, std::env::var("ASTERLANE_SERVER").ok());
         let token = std::env::var(token_env)
@@ -83,8 +83,8 @@ impl AdminClient {
             .filter(|t| !t.trim().is_empty())
             .ok_or_else(|| {
                 anyhow!(
-                    "admin token not found: set env {token_env} \
-                     (token is only read from the environment; \
+                    "credential not found: set env {token_env} \
+                     (credentials are only read from the environment; \
                      there is no --token flag because argv is visible via ps)"
                 )
             })?;
@@ -138,12 +138,9 @@ impl AdminClient {
             .bearer_auth(self.token.expose_secret())
             .send()
             .await
-            .context("admin api request failed (is the gateway running?)")?;
+            .context("api request failed (is the gateway running?)")?;
         let status = resp.status().as_u16();
-        let text = resp
-            .text()
-            .await
-            .context("failed to read admin api response")?;
+        let text = resp.text().await.context("failed to read api response")?;
         let body = parse_body(status, &text);
         if (200..300).contains(&status) {
             Ok(body)
@@ -163,27 +160,31 @@ fn build_url(base: &str, path: &str, query: &[(&'static str, String)]) -> String
         url.push(if i == 0 { '?' } else { '&' });
         url.push_str(key);
         url.push('=');
-        url.push_str(&encode_query_component(value));
+        url.push_str(&encode_component(value));
     }
     url
 }
 
-/// query 组件百分号编码：RFC 3986 unreserved 之外的字节全部 `%XX` 编码
+/// URL 组件百分号编码：RFC 3986 unreserved 之外的字节全部 `%XX` 编码
 /// （过度编码无害；RFC3339 时间戳里的 `+`/`:` 必须编码才能安全过服务端解码）。
-fn encode_query_component(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
+pub(super) fn encode_path_segment(value: &str) -> String {
+    encode_component(value)
+}
+
+fn encode_component(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
     for byte in value.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
+                output.push(byte as char);
             }
             _ => {
-                out.push('%');
-                out.push_str(&format!("{byte:02X}"));
+                output.push('%');
+                output.push_str(&format!("{byte:02X}"));
             }
         }
     }
-    out
+    output
 }
 
 /// server 解析优先级：`--server` > env `ASTERLANE_SERVER` > 默认；去掉尾部 `/`。
@@ -194,7 +195,7 @@ fn resolve_server(flag: Option<String>, env: Option<String>) -> String {
         .to_string()
 }
 
-/// 响应体解析：空体 → `{"ok": …}`；非 JSON 体截断预览后按 status 包装。
+/// 响应体解析：空体 → `{"ok": …}`；成功非 JSON 体原样保留，错误体截断预览。
 fn parse_body(status: u16, text: &str) -> Value {
     if text.trim().is_empty() {
         return json!({ "ok": status < 400, "http_status": status });
@@ -202,10 +203,10 @@ fn parse_body(status: u16, text: &str) -> Value {
     if let Ok(value) = serde_json::from_str(text) {
         return value;
     }
-    let preview: String = text.chars().take(RAW_BODY_PREVIEW_CHARS).collect();
     if status < 400 {
-        json!({ "raw": preview })
+        Value::String(text.to_string())
     } else {
+        let preview: String = text.chars().take(RAW_BODY_PREVIEW_CHARS).collect();
         json!({ "error": { "code": "internal.unexpected", "message": preview, "http_status": status } })
     }
 }
@@ -250,10 +251,10 @@ mod tests {
     }
 
     #[test]
-    fn encode_query_component_covers_reserved_and_utf8() {
-        assert_eq!(encode_query_component("abc-_.~09"), "abc-_.~09");
-        assert_eq!(encode_query_component("a b&c=d"), "a%20b%26c%3Dd");
-        assert_eq!(encode_query_component("时"), "%E6%97%B6");
+    fn encode_component_covers_reserved_and_utf8() {
+        assert_eq!(encode_component("abc-_.~09"), "abc-_.~09");
+        assert_eq!(encode_component("a b&c=d"), "a%20b%26c%3Dd");
+        assert_eq!(encode_component("时"), "%E6%97%B6");
     }
 
     #[test]
@@ -290,9 +291,23 @@ mod tests {
             parse_body(204, "  "),
             json!({"ok": true, "http_status": 204})
         );
-        assert_eq!(parse_body(200, "plain"), json!({"raw": "plain"}));
+        assert_eq!(parse_body(200, "plain"), Value::String("plain".into()));
         let wrapped = parse_body(502, "bad gateway");
         assert_eq!(wrapped["error"]["code"], "internal.unexpected");
         assert_eq!(wrapped["error"]["http_status"], 502);
+    }
+
+    #[test]
+    fn successful_raw_body_is_not_truncated() {
+        let raw = "x".repeat(RAW_BODY_PREVIEW_CHARS + 10);
+        assert_eq!(parse_body(200, &raw), Value::String(raw));
+    }
+
+    #[test]
+    fn path_segment_encoding_blocks_reserved_bytes() {
+        assert_eq!(
+            encode_path_segment("exa/tool name?x=1"),
+            "exa%2Ftool%20name%3Fx%3D1"
+        );
     }
 }

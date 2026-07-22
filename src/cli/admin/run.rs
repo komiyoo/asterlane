@@ -1,7 +1,7 @@
 use super::{
     AdminArgs, AdminCommand, DefaultsCommand, McpServersCommand, MetadataCommand, ProxyKeysCommand,
 };
-use crate::cli::client::{AdminClient, CliError, pretty};
+use crate::cli::client::{ApiClient, CliError, encode_path_segment, pretty};
 use crate::cli::input::load_json_object;
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
@@ -18,7 +18,7 @@ pub async fn run_admin(args: AdminArgs) -> i32 {
 }
 
 async fn execute(args: AdminArgs) -> Result<Value, CliError> {
-    let client = AdminClient::new(args.server, &args.token_env)?;
+    let client = ApiClient::new(args.server, &args.token_env)?;
     match args.command {
         AdminCommand::Stats => client.get("/admin/stats", &[]).await,
         AdminCommand::Resources => client.get("/admin/resources", &[]).await,
@@ -28,11 +28,20 @@ async fn execute(args: AdminArgs) -> Result<Value, CliError> {
         AdminCommand::McpServers { command } => match command {
             None => client.get("/admin/mcp-servers", &[]).await,
             Some(McpServersCommand::Get { id }) => {
-                client.get(&format!("/admin/mcp-servers/{id}"), &[]).await
+                client
+                    .get(
+                        &format!("/admin/mcp-servers/{}", encode_path_segment(&id)),
+                        &[],
+                    )
+                    .await
             }
             Some(McpServersCommand::Probe { id }) => {
                 client
-                    .post_json(&format!("/admin/mcp-servers/{id}/probe"), &[], &json!({}))
+                    .post_json(
+                        &format!("/admin/mcp-servers/{}/probe", encode_path_segment(&id)),
+                        &[],
+                        &json!({}),
+                    )
                     .await
             }
         },
@@ -79,14 +88,18 @@ async fn execute(args: AdminArgs) -> Result<Value, CliError> {
                 ("save", save_defaults.to_string()),
             ];
             client
-                .post_json(&format!("/admin/tools/{tool}/invoke"), &query, &body)
+                .post_json(
+                    &format!("/admin/tools/{}/invoke", encode_path_segment(&tool)),
+                    &query,
+                    &body,
+                )
                 .await
         }
     }
 }
 
 async fn run_proxy_keys(
-    client: &AdminClient,
+    client: &ApiClient,
     command: Option<ProxyKeysCommand>,
 ) -> Result<Value, CliError> {
     match command {
@@ -97,54 +110,73 @@ async fn run_proxy_keys(
                 None => json!({}),
             };
             let result = client
-                .post_json(&format!("/admin/proxy-keys/{id}/token"), &[], &body)
+                .post_json(
+                    &format!("/admin/proxy-keys/{}/token", encode_path_segment(&id)),
+                    &[],
+                    &body,
+                )
                 .await?;
             eprintln!("note: the token plaintext is shown only once; store it now");
             Ok(result)
         }
         Some(ProxyKeysCommand::RevokeToken { id }) => {
             client
-                .delete(&format!("/admin/proxy-keys/{id}/token"))
+                .delete(&format!(
+                    "/admin/proxy-keys/{}/token",
+                    encode_path_segment(&id)
+                ))
                 .await
         }
     }
 }
 
-async fn run_metadata(client: &AdminClient, command: MetadataCommand) -> Result<Value, CliError> {
+async fn run_metadata(client: &ApiClient, command: MetadataCommand) -> Result<Value, CliError> {
     match command {
         MetadataCommand::List => client.get("/admin/tool-metadata", &[]).await,
         MetadataCommand::Get { tool } => {
             client
-                .get(&format!("/admin/tools/{tool}/metadata"), &[])
+                .get(
+                    &format!("/admin/tools/{}/metadata", encode_path_segment(&tool)),
+                    &[],
+                )
                 .await
         }
         MetadataCommand::Set { tool, description } => {
             client
                 .put_json(
-                    &format!("/admin/tools/{tool}/metadata"),
+                    &format!("/admin/tools/{}/metadata", encode_path_segment(&tool)),
                     &json!({ "description": description }),
                 )
                 .await
         }
         MetadataCommand::Rm { tool } => {
             client
-                .delete(&format!("/admin/tools/{tool}/metadata"))
+                .delete(&format!(
+                    "/admin/tools/{}/metadata",
+                    encode_path_segment(&tool)
+                ))
                 .await
         }
     }
 }
 
-async fn run_defaults(client: &AdminClient, command: DefaultsCommand) -> Result<Value, CliError> {
+async fn run_defaults(client: &ApiClient, command: DefaultsCommand) -> Result<Value, CliError> {
     match command {
         DefaultsCommand::List => client.get("/admin/tool-defaults", &[]).await,
         DefaultsCommand::Get { tool } => {
             client
-                .get(&format!("/admin/tools/{tool}/defaults"), &[])
+                .get(
+                    &format!("/admin/tools/{}/defaults", encode_path_segment(&tool)),
+                    &[],
+                )
                 .await
         }
         DefaultsCommand::Rm { tool } => {
             client
-                .delete(&format!("/admin/tools/{tool}/defaults"))
+                .delete(&format!(
+                    "/admin/tools/{}/defaults",
+                    encode_path_segment(&tool)
+                ))
                 .await
         }
         DefaultsCommand::Set {
@@ -161,13 +193,16 @@ async fn run_defaults(client: &AdminClient, command: DefaultsCommand) -> Result<
                 })?
             };
             client
-                .put_json(&format!("/admin/tools/{tool}/defaults"), &body)
+                .put_json(
+                    &format!("/admin/tools/{}/defaults", encode_path_segment(&tool)),
+                    &body,
+                )
                 .await
         }
     }
 }
 
-async fn last_event_args(client: &AdminClient, tool: &str) -> Result<Value, CliError> {
+async fn last_event_args(client: &ApiClient, tool: &str) -> Result<Value, CliError> {
     let events = client
         .get(
             "/admin/events",
