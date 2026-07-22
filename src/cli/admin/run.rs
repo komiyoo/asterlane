@@ -1,16 +1,21 @@
 use super::{
     AdminArgs, AdminCommand, DefaultsCommand, McpServersCommand, MetadataCommand, ProxyKeysCommand,
 };
-use crate::cli::client::{ApiClient, CliError, encode_path_segment, pretty};
+use crate::cli::client::{ApiClient, CliError, encode_path_segment};
 use crate::cli::input::load_json_object;
+use crate::cli::output::{emit, resolve_cli_format};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 
 /// Executes an admin subcommand, prints its result, and returns an exit code.
 pub async fn run_admin(args: AdminArgs) -> i32 {
+    let format = match resolve_cli_format(args.format.as_deref()) {
+        Ok(format) => format,
+        Err(error) => return CliError::from(error).report(),
+    };
     match execute(args).await {
         Ok(body) => {
-            println!("{}", pretty(&body));
+            emit(&body, format);
             0
         }
         Err(err) => err.report(),

@@ -6,6 +6,7 @@
 mod admin;
 mod client;
 mod input;
+mod output;
 
 pub use admin::{
     AdminArgs, AdminCommand, DefaultsCommand, McpServersCommand, MetadataCommand, ProxyKeysCommand,

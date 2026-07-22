@@ -8,6 +8,8 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use std::time::Duration;
 
+use super::output::pretty;
+
 /// 缺省 API 地址（`serve` 的默认 bind）。
 const DEFAULT_SERVER: &str = "http://127.0.0.1:3000";
 /// 非 JSON 响应体的 stderr 预览预算（字符数，UTF-8 安全）。
@@ -61,10 +63,6 @@ fn exit_code_for_code(code: &str) -> i32 {
         "transform" => 8,
         _ => 1,
     }
-}
-
-pub(super) fn pretty(value: &Value) -> String {
-    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
 }
 
 /// API HTTP 客户端。

@@ -18,11 +18,14 @@ const DEFAULT_TOKEN_ENV: &str = "ASTERLANE_ADMIN_TOKEN";
 #[derive(Debug, clap::Args)]
 pub struct AdminArgs {
     /// Admin API 地址（缺省取 env `ASTERLANE_SERVER`，再缺省 http://127.0.0.1:3000）
-    #[arg(long)]
+    #[arg(long, global = true)]
     pub server: Option<String>,
     /// 存放 admin token 的环境变量名
-    #[arg(long, default_value = DEFAULT_TOKEN_ENV)]
+    #[arg(long, default_value = DEFAULT_TOKEN_ENV, global = true)]
     pub token_env: String,
+    /// 响应输出格式（json、yaml 或 markdown）
+    #[arg(long, short, global = true)]
+    pub format: Option<String>,
     /// 子命令
     #[command(subcommand)]
     pub command: AdminCommand,
@@ -267,6 +270,18 @@ mod tests {
         ]);
         assert_eq!(args.server.as_deref(), Some("http://gw:9000"));
         assert_eq!(args.token_env, "MY_TOKEN");
+    }
+
+    #[test]
+    fn parses_format_before_or_after_admin_subcommand() {
+        assert_eq!(
+            parse(&["--format", "yaml", "stats"]).format.as_deref(),
+            Some("yaml")
+        );
+        assert_eq!(
+            parse(&["stats", "-f", "json"]).format.as_deref(),
+            Some("json")
+        );
     }
 
     #[test]
