@@ -4,7 +4,7 @@ title: MCP 治理与 Key 限额
 description: MCP 供应商可观测/可管理（详情页、测活、工具介绍、上游限额）与 key 分发的结构化范围选择、rps/rpm/调用次数限额的需求梳理与设计契约。
 resource: docs/mcp-governance-and-key-limits.md
 tags: [mcp, admin, console, limits, keys, health, governance]
-timestamp: 2026-07-06T00:00:00Z
+timestamp: 2026-07-22T00:00:00+08:00
 ---
 
 # 背景
@@ -159,7 +159,7 @@ CREATE TABLE tool_metadata (
 - as-built 偏离（2026-07-06 交付）：POST 重复 id（含与 `api_resources` 撞 id）→ 400 `admin.invalid_query`（未启用 409）；MCP registry 始终初始化（2026-07-07：`main.rs` 不再按 `mcp_servers.is_empty()` gate，空配置也建空 registry，`connect_all(&[])`），零 MCP 配置启动后仍可经 admin API 在线添加/启用/probe 首个 server、无需重启（此前该场景报 registry unavailable 503，已消除）；列表/详情响应不回显 auth ref（控制台编辑 server 时 bearer/header 的 ref 需重新填写）。
 - `/admin/tools` 行扩展为 `{name, resource_id, description, description_override}`：`description` = 上游原始，`description_override` 可空；有效描述 = override ?? 原始（agent 可见路径同口径）。
 - proxy key CRUD（既有端点）输入/输出增加 `allowed_servers`、`allowed_tool_names`、`limits` 字段透传。
-- CLI（`asterlane admin`）同步新增：`mcp-servers [--id ID]`、`mcp-servers probe <id>`、`metadata get/set/rm <tool>`；沿用既有输出与认证约定。
+- CLI（`asterlane admin`）提供：`mcp-servers`（列表）、`mcp-servers get <id>`、`mcp-servers probe <id>`，以及 `metadata list`、`metadata get <tool>`、`metadata set <tool> --description TEXT`、`metadata rm <tool>`。认证仍默认读取 `ASTERLANE_ADMIN_TOKEN`；成功输出支持 `json|yaml|markdown`，优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认，TTY 为 markdown、pipe 为 JSON。
 
 ## 7. 控制台页面增量（console.html）
 

@@ -1,6 +1,6 @@
 ---
 name: asterlane
-description: Operate and extend the Asterlane Rust project for centralized third-party API and MCP resource access. Use when changing gateway config, adding Tavily/Jina/Exa/internal API wrappers, editing proxy key tool scopes, designing MCP tool exposure, inspecting which tools a key can see, operating a running gateway with the asterlane admin CLI (stats, events, tool defaults, debug invocations), or implementing gateway HTTP/MCP credential injection, discovery, policy, logging, and analytics.
+description: Operate and extend the Asterlane Rust project for centralized third-party API and MCP resource access. Use when changing gateway config, adding Tavily/Jina/Exa/internal API wrappers, editing proxy key tool scopes, designing MCP tool exposure, inspecting which tools a key can see, operating a running gateway with the asterlane tools/admin CLI, or implementing gateway HTTP/MCP credential injection, discovery, policy, logging, and analytics.
 ---
 
 # Asterlane
@@ -50,7 +50,7 @@ Preserve the current naming and filtering contract:
 
 ```json
 {
-  "include_regex": "^search:",
+  "include_regex": "^search__",
   "exclude_regex": "delete",
   "limit": 20,
   "cursor": 0
@@ -71,6 +71,20 @@ auth:
 ```
 
 Do not print resolved secrets in CLI output, logs, errors, tests, or docs.
+
+## Use The Gateway Tools CLI
+
+`asterlane tools` 使用 gateway key 调用运行中网关的 `/v1/tools` REST API。gateway key 默认从 `ASTERLANE_KEY` 读取；它与只用于 `/admin/*` 的 `ASTERLANE_ADMIN_TOKEN` 是两套独立凭据，不得混用。
+
+```bash
+export ASTERLANE_KEY=<gateway-key>
+cargo run -- tools list --domain search
+cargo run -- tools search "web search"
+cargo run -- tools call search__exa__web_search_exa --args '{"query":"rust mcp"}'
+cargo run -- tools list --format json | jq '.tools[].name'
+```
+
+成功输出支持 `json|yaml|markdown`，优先级为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。`tools search` 与 `tools call` 始终向 REST 端点请求 JSON，再只在客户端渲染，因此不会改变服务端 REST 默认，也不会影响固定 JSON 的 MCP `tools/call`。
 
 ## Operate The Gateway With The CLI
 
@@ -113,7 +127,7 @@ cargo run -- admin proxy-keys revoke-token agent-a   # key falls back to legacy 
 cargo run -- admin security-events --kind admin_audit  # audit trail of admin writes
 ```
 
-Output is pretty JSON on stdout. Errors print the server error JSON on stderr; exit codes follow the CLI mapping in `docs/error-model.md` (for example `auth.*`/`admin.*` → 3, `proxy.*` → 6).
+成功输出支持 `json|yaml|markdown`，优先级同样为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。服务端错误写入 stderr；退出码遵循 `docs/error-model.md` 的 CLI 映射（例如 `auth.*`/`admin.*` → 3，`proxy.*` → 6）。
 
 ### Configure Tool Default Arguments (AI Workflow)
 
@@ -162,7 +176,7 @@ Run the narrowest relevant command first:
 
 ```bash
 cargo test
-cargo run -- list-tools --config examples/gateway.yaml --key agent-search-basic --include '^search:'
+cargo run -- list-tools --config examples/gateway.yaml --key agent-search-basic --include '^search__'
 cargo fmt -- --check
 ```
 

@@ -4,7 +4,7 @@ title: 后向兼容策略
 description: 定义配置、MCP 工具名、错误码与公共 API 的后向兼容边界与演进准则。
 resource: docs/compatibility-policy.md
 tags: [compatibility, architecture, api, versioning]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-07-22T00:00:00+08:00
 ---
 
 # 背景
@@ -60,6 +60,13 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 - 新增工具：自动进入 catalog，受 proxy key scope 约束，对未授权的 key 不可见。
 - 删除工具：catalog 失效缓存后移除；调用已删除工具返回 `catalog.unknown_tool`。
 - 工具改名：视为删除旧 + 新增新。
+
+# 响应格式兼容性
+
+- 0.x 中已移除非标准 MCP `_meta["asterlane.dev/format"]` override。MCP `tools/call` 固定 JSON，并忽略 proxy key 与全局 `response_format`；这是已登记的行为变更。
+- REST invoke 保留既有兼容面：`?format=` / `Accept` 请求 override > proxy key `response_format` > `defaults.response_format` > `json`。
+- `defaults.response_format` 与 `proxy_keys[].response_format` 字段不删除，继续作为 REST 默认，避免破坏现有 REST 消费者。
+- `asterlane admin` 与 `asterlane tools` 的 `--format` / `ASTERLANE_FORMAT` 只负责客户端成功输出，不改变服务端 REST 或 MCP 协议契约。
 
 # 错误码兼容性
 

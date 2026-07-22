@@ -4,7 +4,7 @@ title: Proxy Key 凭据化与配置持久化闭环
 description: Proxy key 真实 token 签发/吊销/过期与 /mcp 端点认证、在线配置的启动回读与导出、per-key 日配额与用量面板、审计视图的需求与设计契约。
 resource: docs/key-credentials-and-persistence.md
 tags: [keys, auth, tokens, persistence, quota, audit, admin]
-timestamp: 2026-07-06T00:00:00Z
+timestamp: 2026-07-22T00:00:00+08:00
 ---
 
 # 背景
@@ -54,7 +54,7 @@ proxy_keys:
 
 - `GatewayAuth`：摘要 → key id 映射 + 过期表；启动时从配置构建（解析 `token_ref`，fail fast）；运行期签发/吊销经 `Arc<RwLock<GatewayAuth>>` 原子更新，CRUD 配置替换后重建。
 - 请求解析顺序：`Authorization: Bearer alk_*` → 摘要查表 → 得 key id；否则 `?key=<id>` 仅当该 key **未配置任何 token** 时接受（legacy/dev 模式）。带 token 的 key 用 id-only 访问 → 401 `auth.invalid_gateway_key`。过期 → 401 `auth.expired_gateway_key`（新错误码，W0 加入）。
-- `/mcp` 端点：axum middleware 校验并把 principal 注入请求上下文，MCP handler 用真实 ProxyKey 替换 `mcp_default_key()`（scope、per-key 限额、response_format 全部生效）。**模式切换**：任一 proxy key 配置了 token ⇒ `/mcp` 要求 Bearer；全部无 token ⇒ 维持开放模式（向后兼容），serve 启动日志明示当前模式。实现机制（rmcp RequestContext 能否携带 http parts）由实现切片验证后回写本节。
+- `/mcp` 端点：axum middleware 校验并把 principal 注入请求上下文，MCP handler 用真实 ProxyKey 替换 `mcp_default_key()`，因此 scope 与 per-key 限额生效。`response_format` 不作用于 MCP：`tools/call` 固定 JSON；同一 proxy key 的 `response_format` 仍作为 REST invoke 默认。**模式切换**：任一 proxy key 配置了 token ⇒ `/mcp` 要求 Bearer；全部无 token ⇒ 维持开放模式（向后兼容），serve 启动日志明示当前模式。
 - 摘要比较用定长数组 key 查 HashMap（与 admin/auth.rs 相同，不泄漏时序）。
 
 **签发 API（wave 2）**：

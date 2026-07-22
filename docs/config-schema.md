@@ -4,7 +4,7 @@ title: Gateway Configuration Schema
 description: Documents the YAML configuration for upstream API resources, OpenAPI discovery, proxy key scopes, and tool discovery queries.
 resource: docs/config-schema.md
 tags: [configuration, schema, credentials, discovery]
-timestamp: 2026-07-04T00:00:00Z
+timestamp: 2026-07-22T00:00:00+08:00
 ---
 
 # Context
@@ -27,10 +27,10 @@ proxy_keys: []
 
 ```yaml
 defaults:
-  response_format: markdown   # json | yaml | markdown；缺省 json（透传）
+  response_format: markdown   # REST invoke 默认；json | yaml | markdown；缺省 json（透传）
 ```
 
-`response_format` 为全局默认响应格式，可被 proxy key 级 `response_format` 与请求级 override 覆盖（见 [Response Rendering](response-rendering.md)）。
+`defaults.response_format` 仅作为 REST invoke 的全局默认响应格式，可被 proxy key 级 `response_format` 与 REST 请求级 override 覆盖（见 [Response Rendering](response-rendering.md)）。MCP `tools/call` 固定使用 JSON，不读取该字段。
 
 ## Admin
 
@@ -265,7 +265,7 @@ proxy_keys:
     # token_digest: "e3b0c442..."         # 方式二：签发路径写入的 SHA-256 hex（互斥）
     expires_at: 2027-01-01T00:00:00Z      # token 过期时间（可选，UTC）
     default_tool_page_size: 5
-    response_format: yaml           # 渠道级响应格式，缺省继承 defaults.response_format
+    response_format: yaml           # REST invoke 的 key 级默认，缺省继承 defaults.response_format
 ```
 
 凭据语义（见 [Proxy Key 凭据化与配置持久化](key-credentials-and-persistence.md) K1）：配置了 token 的 key 必须以 `Authorization: Bearer alk_*` 认证，`?key=<id>` 仅对无 token 的 key 保留（legacy/dev 模式）；`token_ref` 与 `token_digest` 互斥，摘要必须 64 位小写 hex，非法配置启动 fail fast。
@@ -301,7 +301,7 @@ The gateway first applies the proxy key scope, then applies request-level filter
 
 - `GET /config?key=<proxy-key>` 返回脱敏配置概要；缺失或无效 key 返回 `auth.*` 错误。若应用状态注入 `RateLimits`，该端点按 `GatewayPrincipal(config, key)` 消费配额。
 - `GET /v1/tools?key=<proxy-key>&provider=...` 返回该 key 可见的工具页，并支持 `include`/`exclude` 与结构化过滤。
-- `POST /v1/tools/{wire_name}/invoke?key=<proxy-key>` 解析 JSON body 作为工具参数，经 `ProxyExecutor` 注入上游凭据并转发请求。若应用状态注入 SQLite request event repository，调用事件会写入 `request_events`；content defense 命中时响应带 `x-asterlane-content-defense-flag: true`，result shaping 命中时响应带 `x-asterlane-result-shaped: true`。支持 `?format=yaml|markdown|json` 或 `Accept: application/yaml` / `text/markdown` 指定响应格式，渲染发生时响应带 `x-asterlane-format: <format>`（见 [Response Rendering](response-rendering.md)）；MCP 端点等价能力为 `tools/call` 的 `_meta["asterlane.dev/format"]`。
+- `POST /v1/tools/{wire_name}/invoke?key=<proxy-key>` 解析 JSON body 作为工具参数，经 `ProxyExecutor` 注入上游凭据并转发请求。若应用状态注入 SQLite request event repository，调用事件会写入 `request_events`；content defense 命中时响应带 `x-asterlane-content-defense-flag: true`，result shaping 命中时响应带 `x-asterlane-result-shaped: true`。支持 `?format=yaml|markdown|json` 或 `Accept: application/yaml` / `text/markdown` 指定响应格式，渲染发生时响应带 `x-asterlane-format: <format>`（见 [Response Rendering](response-rendering.md)）。MCP `tools/call` 固定 JSON，忽略 `_meta["asterlane.dev/format"]` 以及 key/global `response_format`。
 - `POST /v1/tools/asterlane__call_tool/invoke?key=<proxy-key>` 在 lazy discovery 模式下间接调用真实工具，复用同一 `ProxyExecutor` 路径。remote MCP 的 `ToolCallResult.is_error` 语义会保留；普通 HTTP API 响应即使 JSON 形态类似 `ToolCallResult`，也只作为文本结果返回。
 
 CLI `serve` 子命令启动 Axum runtime：

@@ -42,7 +42,14 @@ cargo run -- serve --config examples/gateway.yaml \
 # 查看工具列表
 cargo run -- list-tools --config examples/gateway.yaml
 
-# 管理 CLI（需要运行中的网关 + ASTERLANE_ADMIN_TOKEN）
+# 在线工具 CLI（需要运行中的网关；将占位符替换为签发的 gateway key）
+export ASTERLANE_KEY=<gateway-key>
+cargo run -- tools list --domain search
+cargo run -- tools search "web search"
+cargo run -- tools call search__exa__web_search_exa --args '{"query":"rust mcp"}'
+cargo run -- tools list --format json | jq '.tools[].name'
+
+# 管理 CLI（使用独立的 ASTERLANE_ADMIN_TOKEN，不与 gateway key 混用）
 cargo run -- admin stats
 cargo run -- admin invoke search__exa__web_search_exa --use-defaults
 ```

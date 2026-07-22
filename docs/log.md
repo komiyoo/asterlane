@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-07-22（统一 CLI 客户端落地）
+
+- **模块拆分**：CLI 按参数、执行、共享 Bearer 客户端、JSON object 输入与输出渲染拆为 `cli/admin.rs`、`cli/admin/run.rs`、`cli/client.rs`、`cli/input.rs`、`cli/output.rs`、`cli/tools.rs`；MCP 结果转换移入 `mcp/result.rs`，九个生产文件均满足 500 行预算。
+- **命令落地**：新增 gateway-key `asterlane tools list|search|call`；`list` 复用现有过滤/分页，`search` 调用 `asterlane__search_tools` meta-tool，`call` 支持 inline/file JSON object 参数。gateway key 默认读 `ASTERLANE_KEY`，与 admin CLI 的 `ASTERLANE_ADMIN_TOKEN` 独立。
+- **格式边界**：REST invoke 保持 request > key > global > json；MCP `tools/call` 固定 JSON，忽略私有 `_meta["asterlane.dev/format"]` 与 key/global format。非 JSON 上游文本继续透传，REST 仍可渲染 remote MCP 的 JSON 文本内容。
+- **客户端展示**：admin/tools 成功输出支持 `json|yaml|markdown`，优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认；TTY 为 markdown，pipe 为 JSON。tools search/call 传输层显式请求 JSON，格式转换只发生在客户端。
+- **旧事实清理**：经用户授权同步更正 `key-credentials-and-persistence.md` 的 MCP principal 格式说明，以及 `mcp-governance-and-key-limits.md` 的 admin CLI 命令/输出契约；`docs/README.md` 保持不变。
+- **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 与 OKF 检查通过；四个 tools help 无需凭据即可显示，九个生产文件预算检查通过。
+
 ## 2026-07-22（统一 CLI 客户端架构设计）
 
 - **新增** `cli-client-architecture.md`：规划 gateway-key `asterlane tools list|search|call`、admin/tools 共享的 Bearer HTTP 客户端与客户端输出格式化，并按参数、执行、输入、输出职责拆分现有超预算 `cli.rs`。
@@ -56,7 +65,7 @@
 
 按 `docs/key-credentials-and-persistence.md` 契约，K-W0 地基主代理先行，五个 subagent 两波交付，主代理验收：
 
-- **Proxy key 凭据化（K1）**：`ProxyKey.{token_ref, token_digest, expires_at}`（互斥校验接入 load_config）；`src/gateway_auth.rs` `GatewayAuth`（SHA-256 摘要表，模式同 admin/auth.rs）——Bearer `alk_<64hex>` 认证、带 token 的 key 拒绝 `?key=` id-only（错误不区分「不存在/错 token」防枚举）、过期 401 `auth.expired_gateway_key`、legacy（无 token）key 保持 `?key=` 兼容；`/mcp` 端点经 axum middleware + rmcp RequestContext extensions 绑定真实 ProxyKey（scope/限额/format 生效），任一 key 配 token 即强制 Bearer，否则维持开放模式（启动日志明示）；`POST/DELETE /admin/proxy-keys/{id}/token` 签发/轮换/吊销（明文仅返回一次，审计不含 token 材料），swap 统一重建 GatewayAuth（修复运行期 CRUD 增删 key 不更新认证）。
+- **Proxy key 凭据化（K1）**：`ProxyKey.{token_ref, token_digest, expires_at}`（互斥校验接入 load_config）；`src/gateway_auth.rs` `GatewayAuth`（SHA-256 摘要表，模式同 admin/auth.rs）——Bearer `alk_<64hex>` 认证、带 token 的 key 拒绝 `?key=` id-only（错误不区分「不存在/错 token」防枚举）、过期 401 `auth.expired_gateway_key`、legacy（无 token）key 保持 `?key=` 兼容；`/mcp` 端点经 axum middleware + rmcp RequestContext extensions 绑定真实 ProxyKey（scope/限额生效；response format 已于 2026-07-22 改为 MCP 固定 JSON、key 默认仅用于 REST invoke），任一 key 配 token 即强制 Bearer，否则维持开放模式（启动日志明示）；`POST/DELETE /admin/proxy-keys/{id}/token` 签发/轮换/吊销（明文仅返回一次，审计不含 token 材料），swap 统一重建 GatewayAuth（修复运行期 CRUD 增删 key 不更新认证）。
 - **持久化闭环（K2）**：`store/config_merge.rs` `merge_db_into_config`（YAML 胜 + shadowed 警告 + 坏行跳过）+ `merge_db_config` 聚合；serve() 重排为 DB 合并先于 catalog/registry 构建，在线创建的 resources/mcp_servers/proxy_keys 跨重启存活；`GET /admin/config/export` 导出合并快照 YAML；crud 写路径与反向映射补齐凭据字段往返（顺带修复 update_proxy_key 抹掉已签发摘要的问题）。
 - **日配额（K3）**：`KeyLimits.max_calls_per_day`（UTC 零点惰性翻转），准入顺序 …→max_calls→max_calls_per_day→上游…；429 `limit.daily_calls_exhausted` 带距零点 Retry-After；计数改为全 key 统一维护，`KeyUsage` getter 供 `/admin/proxy-keys` 行 `usage` 输出；启动按当天 usage_buckets 回填。
 - **审计视图（K4）**：`/admin/security-events?kind=`；控制台「审计」tab（预置 admin_audit）。
@@ -197,17 +206,17 @@
 ## 2026-07-05（Response Rendering 实现落地）
 
 - **新模块** `src/render.rs`：`ResponseFormat` enum（json/yaml/markdown）+ `render()` / `resolve_format()` / `format_from_accept()` 纯函数。yaml 走 `serde_norway`；markdown 为确定性 value walk（同构扁平对象数组→表格[列=键并集按首次出现序]、标量数组→列表、对象→键值列表、多行字符串→fence、深度>4 或异构数组→子树降级 yaml fence）。
-- **管线接入**：`ProxyExecutor` 新增 `with_response_format`，render 插在 defense 与 shaping 之间（HTTP API 与 remote MCP 两条路径）；`InvokeResult` 新增 `rendered_format`。remote MCP `is_error` 结果与非 JSON body 不渲染。
-- **入口**：HTTP `?format=` > `Accept` header > key 级 `response_format` > `defaults.response_format` > json；MCP `_meta["asterlane.dev/format"]`。未知值报 `mcp.invalid_tool_call`（400 / -32602）。渲染发生时 HTTP 响应带 `x-asterlane-format`。
+- **管线接入**：`ProxyExecutor` 新增 `with_response_format`，render 插在 defense 与 shaping 之间（HTTP API 与 REST invoke 代理 remote MCP 两条路径）；`InvokeResult` 新增 `rendered_format`。remote MCP `is_error` 结果与非 JSON body 不渲染。
+- **入口（历史行为）**：HTTP `?format=` > `Accept` header > key 级 `response_format` > `defaults.response_format` > json；当时 MCP 还读取 `_meta["asterlane.dev/format"]`。该 MCP 私有 override 已于 2026-07-22 移除，当前 MCP 固定 JSON；REST 协商链保持不变。
 - **配置**：顶层 `defaults.response_format` + `proxy_keys[].response_format`（`config-schema.md` 同步）。
 - **延后**：`RequestEvent.response_format` 字段（见 `response-rendering.md` 可观测性）。
 - **验证**：478 tests passed（450 lib + 集成 + doc），`cargo fmt -- --check` 与 clippy 无告警。
 
 ## 2026-07-05（Response Rendering 概念设计）
 
-- **新增** `response-rendering.md`：结果再呈现层设计。网关将上游 JSON tool result 渲染为 markdown/yaml 后返回 agent；格式决定规则为请求级 `_meta["asterlane.dev/format"]` / HTTP `?format=`+`Accept` > proxy key `response_format` > 顶层 `defaults.response_format` > 缺省 `json`（现状透传）。
+- **新增（初始设计）** `response-rendering.md`：结果再呈现层设计。初始格式规则同时包含 MCP `_meta["asterlane.dev/format"]` 与 HTTP `?format=`/`Accept`；其中 MCP 私有 override 已于 2026-07-22 被“固定 JSON”决策 supersede，REST 的 request > key > global > json 保留。
 - **边界**：只转换成功 result 的 content 文本层；错误响应、`structuredContent`、JSON-RPC 协议帧、非 JSON body 一律不动。管线位置 defense → render → shaping，`ResultCache` 存渲染后文本。
-- **动机**：LLM 消费嵌套 JSON token 开销高；MCP 生态无 server 侧格式协商，网关是统一转换的正确位置。
+- **动机（初始设计）**：LLM 消费嵌套 JSON token 开销高；当前只在 REST invoke 服务端保留统一转换，MCP 固定 JSON，终端展示由 CLI 客户端负责。
 
 ## 2026-07-05（命名格式简化：四段→三段）
 

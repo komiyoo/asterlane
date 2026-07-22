@@ -1,10 +1,10 @@
 ---
 type: Design
 title: 内置 MCP、调试调用与配套 CLI
-description: 内置免费 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用与 asterlane admin CLI 的设计契约。
+description: 内置免费 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用，以及 admin/tools CLI 的设计契约。
 resource: docs/tool-debugging-and-cli.md
-tags: [mcp, presets, debugging, defaults, cli, observability, admin]
-timestamp: 2026-07-05T00:00:00Z
+tags: [mcp, presets, debugging, defaults, cli, observability, admin, tools]
+timestamp: 2026-07-22T00:00:00+08:00
 ---
 
 # 背景
@@ -13,7 +13,7 @@ timestamp: 2026-07-05T00:00:00Z
 
 1. 平台内置免费 MCP server（如 Exa hosted MCP），一行配置即可启用。
 2. 每个工具可配置默认调用参数，供控制台/CLI 发起调试调用；默认参数可由 AI 经 admin API 或 CLI 写入，也可从实际调用中保存。
-3. 本项目配套 CLI（`asterlane admin` 子命令组），覆盖平台 admin API，用法沉淀进 `.codex/skills/asterlane` skill。
+3. 本项目配套 CLI：`asterlane admin` 覆盖平台 admin API，`asterlane tools` 供 gateway-key 用户发现和调用工具；用法沉淀进 `.codex/skills/asterlane` skill。
 4. 日志与事件中可见每个请求的调用参数与返回结果（截断 + 脱敏）。
 
 # 非目标
@@ -108,18 +108,25 @@ CREATE TABLE tool_defaults (
   - CLI：`defaults set <tool> --from-last-event`（`GET /admin/events?tool_name=&limit=1` 取 `request_args` 后 PUT）。
 - 控制台 Tools 页每行「调试」：展开面板 = 参数 textarea（预填已存默认）+「调用」+「存为默认」+ 结果/耗时显示。
 
-# 4. 配套 CLI（`asterlane admin`）
+# 4. 管理 CLI（`asterlane admin`）
 
-- 同一二进制新增 `admin` 子命令组；HTTP 客户端逻辑放新模块 `src/cli.rs`（main.rs 只做参数定义与 dispatch，遵守单文件预算）。
+- 同一二进制提供 `admin` 子命令组；参数与执行分别位于 `src/cli/admin.rs`、`src/cli/admin/run.rs`，Bearer HTTP 客户端复用 `src/cli/client.rs`（`main.rs` 只做 dispatch）。
 - 连接与认证：`--server`（缺省取 env `ASTERLANE_SERVER`，再缺省 `http://127.0.0.1:3000`）；admin token 只从环境变量读取（缺省 `ASTERLANE_ADMIN_TOKEN`，`--token-env NAME` 可改名），**不提供**明文 `--token` 参数（argv 经 `ps` 可见）。
-- 命令树（输出统一 pretty JSON 到 stdout；非 2xx 打印错误 JSON 到 stderr，退出码按 [Error Model](error-model.md) CLI 映射）：
+- 成功输出支持 `json|yaml|markdown`：`--format/-f` > `ASTERLANE_FORMAT` > TTY 默认；TTY 默认 markdown，pipe 默认 JSON。非 2xx 错误写入 stderr，退出码按 [Error Model](error-model.md) CLI 映射。
+- 命令树：
 
 ```text
-asterlane admin [--server URL] [--token-env NAME] <command>
-  stats | resources | proxy-keys | key-pools | presets | validate
+asterlane admin [--server URL] [--token-env NAME] [--format json|yaml|markdown] <command>
+  stats | resources | key-pools | presets | validate
+  proxy-keys [issue <id> [--expires-at RFC3339] | revoke-token <id>]
+  mcp-servers [get <id> | probe <id>]
+  metadata list
+  metadata get <tool>
+  metadata set <tool> --description TEXT
+  metadata rm <tool>
   tools [--filter REGEX]
   events [--tool NAME] [--key ID] [--resource ID] [--limit N] [--from RFC3339] [--to RFC3339]
-  security-events [--resource ID]
+  security-events [--resource ID] [--kind KIND]
   usage [--group-by proxy_key|resource|tool|status|domain|bucket] [--from] [--to]
   defaults list
   defaults get <tool>
@@ -130,6 +137,20 @@ asterlane admin [--server URL] [--token-env NAME] <command>
 
 - skill 同步：`.codex/skills/asterlane/SKILL.md` 增加「Operate The Gateway With The CLI」段（含 AI 配置默认参数、读取事件负载、调试调用的完整工作流示例），`docs/agent-skill.md` 同步说明。
 
+# 5. Gateway Tools CLI（`asterlane tools`）
+
+`asterlane tools` 使用 gateway key 访问已有 REST API；默认从 `ASTERLANE_KEY` 读取，不能与 `ASTERLANE_ADMIN_TOKEN` 混用。完整模块与格式责任见 [统一 CLI 客户端架构](cli-client-architecture.md)。
+
+```text
+asterlane tools [--server URL] [--token-env NAME] [--format json|yaml|markdown] <command>
+  list [--include REGEX] [--exclude REGEX] [--domain REGEX]
+       [--provider REGEX] [--tool REGEX] [--limit N] [--cursor N]
+  search <query>
+  call <name> [--args JSON | --args-file PATH]
+```
+
+成功输出沿用 `--format/-f` > `ASTERLANE_FORMAT` > TTY 默认，TTY 为 markdown、pipe 为 JSON。`search` 与 `call` 在传输层显式请求 REST JSON，格式转换只发生在 CLI 客户端；MCP `tools/call` 仍固定 JSON。
+
 # Citations
 
 - [1] [Configuration Schema](config-schema.md)
@@ -137,4 +158,5 @@ asterlane admin [--server URL] [--token-env NAME] <command>
 - [3] [Observability](observability.md)
 - [4] [Error Model](error-model.md)
 - [5] [Agent Skill](agent-skill.md)
-- [6] [Exa hosted MCP](https://mcp.exa.ai/mcp)、[DeepWiki MCP](https://mcp.deepwiki.com/mcp)、[Context7 MCP](https://mcp.context7.com/mcp)
+- [6] [统一 CLI 客户端架构](cli-client-architecture.md)
+- [7] [Exa hosted MCP](https://mcp.exa.ai/mcp)、[DeepWiki MCP](https://mcp.deepwiki.com/mcp)、[Context7 MCP](https://mcp.context7.com/mcp)
