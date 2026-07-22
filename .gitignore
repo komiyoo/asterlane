@@ -33,3 +33,6 @@ tmp/
 
 # task
 task.md
+
+# Local Git worktrees
+/.worktrees/
