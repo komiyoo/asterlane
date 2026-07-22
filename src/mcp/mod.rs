@@ -33,6 +33,7 @@ pub mod error;
 pub mod health;
 pub mod model;
 pub mod registry;
+mod result;
 pub mod server;
 
 pub use adapter::PlaceholderAdapter;

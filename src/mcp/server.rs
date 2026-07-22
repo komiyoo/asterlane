@@ -11,13 +11,13 @@ use rmcp::{Peer, RoleServer, ServerHandler};
 use serde_json::json;
 use tracing::{debug, instrument, warn};
 
+use super::result::{invoke_result_to_mcp, tool_call_result_to_mcp};
 use crate::catalog::{CatalogError, ToolListQuery, ToolQualifiers, WrappedTool};
 use crate::config::{GatewayConfig, ProxyKey};
 use crate::gateway_auth::GatewayKeyId;
 use crate::http::AppState;
 use crate::http::ToolListChangedPeers;
-use crate::mcp::model::{ToolCallResult, ToolContent};
-use crate::proxy::{InvokeResult, ProxyExecutor};
+use crate::proxy::ProxyExecutor;
 use crate::render::{self, ResponseFormat};
 use crate::shaping::{ResultCache, ShapingConfig};
 
@@ -486,56 +486,6 @@ fn fetch_result_meta_tool(
     }
 }
 
-fn tool_call_result_to_mcp(result: crate::mcp::model::ToolCallResult) -> CallToolResult {
-    let content = result
-        .content
-        .into_iter()
-        .map(|c| match c {
-            ToolContent::Text(s) => ContentBlock::text(s),
-        })
-        .collect();
-    if result.is_error {
-        CallToolResult::error(content)
-    } else {
-        CallToolResult::success(content)
-    }
-}
-
-fn invoke_result_to_mcp(result: InvokeResult, is_remote_mcp: bool) -> CallToolResult {
-    if is_remote_mcp && let Ok(tool_result) = serde_json::from_slice::<ToolCallResult>(&result.body)
-    {
-        return tool_call_result_to_mcp(prefix_content_defense(
-            tool_result,
-            result.content_defense_flag,
-        ));
-    }
-
-    let mut body = String::from_utf8_lossy(&result.body).to_string();
-    if result.content_defense_flag {
-        body = format!("[Asterlane content_defense_flag=true]\n{body}");
-    }
-    CallToolResult::success(vec![ContentBlock::text(body)])
-}
-
-fn prefix_content_defense(
-    mut result: ToolCallResult,
-    content_defense_flag: bool,
-) -> ToolCallResult {
-    if !content_defense_flag {
-        return result;
-    }
-
-    if let Some(ToolContent::Text(text)) = result.content.first_mut() {
-        *text = format!("[Asterlane content_defense_flag=true]\n{text}");
-    } else {
-        result.content.insert(
-            0,
-            ToolContent::Text("[Asterlane content_defense_flag=true]".to_string()),
-        );
-    }
-    result
-}
-
 fn peer_debug_key(peer: &Peer<RoleServer>) -> String {
     format!("{peer:?}")
 }
@@ -547,26 +497,7 @@ fn peer_key_is_registered(existing_keys: &[String], key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proxy::InvokeResult;
     use crate::shaping::ResultCache;
-
-    #[test]
-    fn shaped_remote_mcp_invoke_result_preserves_error_result() {
-        let tool_result = ToolCallResult::text_error("truncated error payload");
-        let result = InvokeResult {
-            request_id: String::new(),
-            status: 200,
-            body: serde_json::to_vec(&tool_result).unwrap(),
-            content_type: Some("application/json".to_string()),
-            content_defense_flag: false,
-            shaped: true,
-            rendered_format: None,
-        };
-
-        let mcp_result = invoke_result_to_mcp(result, true);
-
-        assert_eq!(mcp_result.is_error, Some(true));
-    }
 
     #[test]
     fn fetch_result_meta_tool_returns_cached_chunk() {
