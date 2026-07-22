@@ -243,8 +243,11 @@ mod tests {
 
     #[test]
     fn search_result_rejects_invalid_gateway_responses() {
+        let error = normalize_search_result(json!({"content": [{"Text": "[]"}], "is_error": true}))
+            .unwrap_err();
+        assert!(error.to_string().contains("tool search failed"));
+
         for body in [
-            json!({"content": [{"Text": "failure"}], "is_error": true}),
             json!({"content": [{}], "is_error": false}),
             json!({"content": [{"Text": 1}], "is_error": false}),
             json!({"content": [{"Text": "not json"}], "is_error": false}),
