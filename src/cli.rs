@@ -7,8 +7,10 @@ mod admin;
 mod client;
 mod input;
 mod output;
+mod tools;
 
 pub use admin::{
     AdminArgs, AdminCommand, DefaultsCommand, McpServersCommand, MetadataCommand, ProxyKeysCommand,
     run_admin,
 };
+pub use tools::{ToolsArgs, ToolsCommand, run_tools};

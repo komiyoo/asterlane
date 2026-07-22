@@ -31,6 +31,8 @@ enum Command {
     Serve(#[clap(flatten)] Box<ServeArgs>),
     /// Admin API 客户端子命令组（实现见 src/cli.rs）
     Admin(#[clap(flatten)] Box<asterlane::cli::AdminArgs>),
+    /// Gateway-key 工具客户端子命令组。
+    Tools(#[clap(flatten)] Box<asterlane::cli::ToolsArgs>),
 }
 
 #[derive(Debug, clap::Args)]
@@ -108,6 +110,7 @@ async fn main() -> Result<()> {
         Command::Serve(args) => serve(*args).await,
         // run_admin 自行输出结果/错误并给出退出码（映射见 docs/error-model.md）
         Command::Admin(args) => std::process::exit(asterlane::cli::run_admin(*args).await),
+        Command::Tools(args) => std::process::exit(asterlane::cli::run_tools(*args).await),
     }
 }
 
@@ -529,6 +532,31 @@ mod tests {
                 ));
             }
             _ => panic!("expected admin command"),
+        }
+    }
+
+    #[test]
+    fn tools_cli_parses_through_top_level() {
+        let cli = Cli::try_parse_from([
+            "asterlane",
+            "tools",
+            "list",
+            "--domain",
+            "search",
+            "-f",
+            "json",
+        ])
+        .unwrap();
+
+        match cli.command {
+            Command::Tools(args) => {
+                assert_eq!(args.format.as_deref(), Some("json"));
+                assert!(matches!(
+                    args.command,
+                    asterlane::cli::ToolsCommand::List { .. }
+                ));
+            }
+            _ => panic!("expected tools command"),
         }
     }
 }
