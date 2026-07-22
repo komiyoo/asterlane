@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-07-22（统一 CLI 客户端架构设计）
+
+- **新增** `cli-client-architecture.md`：规划 gateway-key `asterlane tools list|search|call`、admin/tools 共享的 Bearer HTTP 客户端与客户端输出格式化，并按参数、执行、输入、输出职责拆分现有超预算 `cli.rs`。
+- **边界决策**：MCP 目标态固定 JSON，终端展示下沉 CLI；REST 保留既有 `?format=`/`Accept`/key/default 格式协商以避免破坏现有消费者。
+- **事实更正**：服务端当前不存在 `/v1/tools?search=`；`tools search` 复用 `asterlane__search_tools` meta-tool，避免复制 catalog/semantic 搜索逻辑。无新依赖，不引入 command trait 或 formatter 框架。
+
 ## 2026-07-07（命名定案：alias 最短无歧义暴露名 + call_tool 限定字段 + `__` 段内修复）
 
 - **决策（`naming-convention.md` 新增「Alias 与最短无歧义暴露名」节）**：64 字符硬限制（Anthropic/OpenAI `^[a-zA-Z0-9_-]{1,64}$` + Claude Code `mcp__<server>__<tool>` 展开）只作用于 `tools/list` 进 LLM tool definitions 的名字，故引入 alias——canonical `domain__provider__tool` 仍是唯一持久标识（配置/policy/日志/事件/admin/quarantine 一律 canonical），暴露名取 key scope 可见全集（请求过滤前）内最短无歧义形式（裸名 → `provider__tool` → canonical），候选须不撞任何 canonical wire name（影子保护）且不以 `asterlane__` 开头。

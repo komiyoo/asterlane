@@ -14,6 +14,7 @@
 - [Response Rendering](response-rendering.md) - 结果再呈现层：JSON 结果转 markdown/yaml 的格式协商、转换边界与管线位置。
 - [Admin Console](admin-console.md) - Web 管理控制台：形态决策、页面地图、admin API 缺口与分阶段路线。
 - [Tool Debugging & CLI](tool-debugging-and-cli.md) - 内置 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用与 `asterlane admin` CLI 的设计契约。
+- [CLI Client Architecture](cli-client-architecture.md) - gateway-key `tools` CLI、admin 输出格式化、共享客户端模块边界与 MCP/REST 格式责任。
 - [MCP Governance & Key Limits](mcp-governance-and-key-limits.md) - MCP 供应商治理（详情、测活、介绍、上游限额）与 key 分发范围/限额的需求与设计契约。
 - [Key Credentials & Persistence](key-credentials-and-persistence.md) - Proxy key 真实 token 签发/过期/吊销、/mcp 认证、在线配置持久化闭环、日配额与审计视图的设计契约。
 - [Product Requirements](product-requirements.md) - 原始产品意图与 agent-native 要求。
