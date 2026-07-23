@@ -107,7 +107,7 @@ asterlane list-tools [--config PATH] --key ID [FILTERS]
 
 1. 优先级：flag 覆盖环境，环境覆盖默认路径。
 2. 空环境变量被忽略；显式/环境路径缺失不会静默回退。
-3. Linux、macOS、Windows 默认路径计算使用注入值验证，不依赖执行测试的宿主平台。
+3. Linux、macOS、Windows 的默认根目录选择使用注入值验证；`asterlane/config.yaml` 后缀由 `PathBuf::join` 负责，并在当前编译目标上验证完整路径，避免用 Unix `PathBuf` 伪模拟 Windows 分隔符。
 4. 没有可用来源时，错误包含三种修复方式与计算出的默认路径。
 5. clap 验证 `serve`/`list-tools` 的 `--config` 可省略，`list-tools --key` 仍必填。
 6. 现有显式路径、catalog 过滤与 server 启动测试保持通过。
