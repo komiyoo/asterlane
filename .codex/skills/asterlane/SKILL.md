@@ -75,7 +75,7 @@ Do not print resolved secrets in CLI output, logs, errors, tests, or docs.
 
 ## Resolve Local Gateway Config
 
-`asterlane serve` 与离线 `asterlane list-tools` 按 `--config PATH`、非空 `ASTERLANE_CONFIG`、OS 用户配置路径的顺序读取单一 YAML。Linux 使用 `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`，macOS 使用 `$HOME/Library/Application Support/asterlane/config.yaml`，Windows 使用 `%APPDATA%\asterlane\config.yaml`。不要假设 CLI 会扫描当前目录或自动使用 `examples/`。
+`asterlane serve` 与离线 `asterlane list-tools` 按 `--config PATH`、非空 `ASTERLANE_CONFIG`、OS 用户配置路径的顺序读取单一 YAML。Linux 使用 `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`，macOS 使用 `$HOME/Library/Application Support/asterlane/config.yaml`，Windows 使用 `%APPDATA%\asterlane\config.yaml`。CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。
 
 `list-tools --key ID` 是启动前的离线 catalog/scope 预览；运行中网关的在线查询使用 `asterlane tools list`。
 

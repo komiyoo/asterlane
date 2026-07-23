@@ -24,7 +24,8 @@ timestamp: 2026-07-23T00:00:00+08:00
 
 - `serve` 与离线 `list-tools` 按 `--config PATH` > 非空 `ASTERLANE_CONFIG` > OS 用户配置路径读取单一 YAML。
 - 默认路径分别为 Linux `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`、macOS `$HOME/Library/Application Support/asterlane/config.yaml`、Windows `%APPDATA%\asterlane\config.yaml`。
-- CLI 不扫描当前目录、不自动使用 `examples/`；`list-tools --key ID` 用于离线 scope 预览，在线查询使用 `tools list`。
+- CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置；`list-tools --key ID` 用于离线 scope 预览，在线查询使用 `tools list`。
+- 在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。
 
 # 凭据边界
 

@@ -13,7 +13,7 @@ timestamp: 2026-07-23T00:00:00+08:00
 
 # 背景
 
-`asterlane serve` 与离线 `asterlane list-tools` 当前都强制要求 `--config PATH`。这让本地开发、安装后的常规启动和文档快速开始重复传入同一路径，也使 CLI 无法采用用户环境或操作系统标准配置目录。
+决策形成前，`asterlane serve` 与离线 `asterlane list-tools` 都强制要求 `--config PATH`。当时，本地开发、安装后的常规启动和文档快速开始都需要重复传入同一路径，CLI 也无法采用用户环境或操作系统标准配置目录。
 
 在线 `asterlane admin` 与 `asterlane tools` 不消费本地 `GatewayConfig`：它们连接已运行的网关，通过 `ASTERLANE_SERVER` 选择地址，并分别从 `ASTERLANE_ADMIN_TOKEN` 与 `ASTERLANE_KEY` 读取凭据。把本地 YAML 发现扩展到这两个在线客户端会混淆网关配置、客户端连接和 secret ref 三种边界，因此不纳入本决策。
 
