@@ -4,7 +4,7 @@ title: 项目内置 Agent Skill
 description: 说明用于操作与扩展 Asterlane 的项目本地 Codex skill。
 resource: docs/agent-skill.md
 tags: [skill, agents, workflow, cli]
-timestamp: 2026-07-22T00:00:00+08:00
+timestamp: 2026-07-23T00:00:00+08:00
 ---
 
 # 背景
@@ -20,6 +20,12 @@ timestamp: 2026-07-22T00:00:00+08:00
 - 实现 gateway HTTP 或 MCP 行为；
 - 使用 `asterlane tools` 或 `asterlane admin` 操作运行中的网关。
 
+# 本地配置边界
+
+- `serve` 与离线 `list-tools` 按 `--config PATH` > 非空 `ASTERLANE_CONFIG` > OS 用户配置路径读取单一 YAML。
+- 默认路径分别为 Linux `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`、macOS `$HOME/Library/Application Support/asterlane/config.yaml`、Windows `%APPDATA%\asterlane\config.yaml`。
+- CLI 不扫描当前目录、不自动使用 `examples/`；`list-tools --key ID` 用于离线 scope 预览，在线查询使用 `tools list`。
+
 # 凭据边界
 
 - `ASTERLANE_KEY` 保存 gateway key，供 `asterlane tools` 访问 `/v1/tools`。
@@ -31,12 +37,18 @@ timestamp: 2026-07-22T00:00:00+08:00
 项目 skill 提供可直接替换占位符后运行的在线工具工作流：
 
 ```bash
-export ASTERLANE_KEY=<gateway-key>
+export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_KEY="$(
+  cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
+    jq -r '.token'
+)"
 cargo run -- tools list --domain search
 cargo run -- tools search "web search"
-cargo run -- tools call search__exa__web_search_exa --args '{"query":"rust mcp"}'
+cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
 cargo run -- tools list --format json | jq '.tools[].name'
 ```
+
+`search__exa__neural_search` 的真实上游调用要求网关进程启动时可读取 `EXA_DEFAULT`；该变量来自示例配置的 `secret://exa/default`，不得把真实值写入文档或仓库。
 
 成功输出格式优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认：交互式终端默认 markdown，pipe 默认 JSON。`tools search` 与 `tools call` 在传输层显式请求 REST JSON，再只在客户端渲染；它们不修改服务端 REST 默认，也不改变 MCP `tools/call` 固定 JSON 的边界。完整架构见 [统一 CLI 客户端架构](cli-client-architecture.md)。
 

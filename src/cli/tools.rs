@@ -208,10 +208,10 @@ mod tests {
     }
 
     #[test]
-    fn list_query_skips_none_and_keeps_all_filters() {
+    fn list_query_skips_none_and_keeps_present_filters() {
         let query = list_query(
             Some("a".into()),
-            Some("x".into()),
+            None,
             Some("d".into()),
             Some("p".into()),
             Some("t".into()),
@@ -222,7 +222,6 @@ mod tests {
             query,
             vec![
                 ("include", "a".into()),
-                ("exclude", "x".into()),
                 ("domain", "d".into()),
                 ("provider", "p".into()),
                 ("tool", "t".into()),

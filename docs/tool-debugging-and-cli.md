@@ -4,7 +4,7 @@ title: 内置 MCP、调试调用与配套 CLI
 description: 内置免费 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用，以及 admin/tools CLI 的设计契约。
 resource: docs/tool-debugging-and-cli.md
 tags: [mcp, presets, debugging, defaults, cli, observability, admin, tools]
-timestamp: 2026-07-22T00:00:00+08:00
+timestamp: 2026-07-23T00:00:00+08:00
 ---
 
 # 背景
@@ -127,7 +127,7 @@ asterlane admin [--server URL] [--token-env NAME] [--format json|yaml|markdown] 
   tools [--filter REGEX]
   events [--tool NAME] [--key ID] [--resource ID] [--limit N] [--from RFC3339] [--to RFC3339]
   security-events [--resource ID] [--kind KIND]
-  usage [--group-by proxy_key|resource|tool|status|domain|bucket] [--from] [--to]
+  usage [--group-by proxy_key|resource|tool|status|domain|bucket] [--from RFC3339] [--to RFC3339]
   defaults list
   defaults get <tool>
   defaults set <tool> (--args JSON | --args-file PATH | --from-last-event)

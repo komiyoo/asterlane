@@ -1,10 +1,12 @@
 # Documentation Update Log
 
-## 2026-07-23（CLI 配置发现设计）
+## 2026-07-23（CLI 配置发现落地）
 
-- **决策**：`serve` 与离线 `list-tools` 按 `--config` > `ASTERLANE_CONFIG` > OS 用户配置路径发现单一 YAML；不扫描当前目录、不自动创建配置，也不让在线 `admin`/`tools` 读取本地 GatewayConfig。
-- **离线定位**：保留 `list-tools` 作为启动前按 proxy key 预览 catalog 的兼容命令，`--key` 继续必填；在线目录查询仍由 `tools list` 负责。
-- **实现约束**：路径解析收敛到二进制私有具体函数，使用标准库实现 Linux/macOS/Windows 路径，不新增依赖；显式或环境路径错误不静默回退。
+- **配置发现**：`serve` 与离线 `list-tools` 按 `--config` > `ASTERLANE_CONFIG` > OS 用户配置路径读取单一 YAML；Linux/macOS/Windows 默认目录由标准库解析，不扫描当前目录、不自动创建配置。
+- **命令边界**：`list-tools --key` 继续作为启动前的离线 catalog/scope 预览；在线目录查询仍由 `tools list` 负责，`admin`/`tools` 继续只读取 server/token 环境变量。
+- **错误边界**：显式或环境路径命中后不回退；默认文件缺失时错误同时列出 `--config`、`ASTERLANE_CONFIG` 和本平台默认位置。
+- **文档**：README 与项目 skill 提供可执行的配置发现、token 签发和 `search__exa__neural_search` 工作流；统一 CLI 架构背景改为历史语态，usage 补齐 RFC3339 值类型。
+- **验证**：fmt、clippy、全量测试、OKF、帮助文本、离线显式/环境路径 smoke 与生产文件预算检查通过。
 
 ## 2026-07-22（统一 CLI 客户端落地）
 
@@ -12,7 +14,7 @@
 - **命令落地**：新增 gateway-key `asterlane tools list|search|call`；`list` 复用现有过滤/分页，`search` 调用 `asterlane__search_tools` meta-tool，`call` 支持 inline/file JSON object 参数。gateway key 默认读 `ASTERLANE_KEY`，与 admin CLI 的 `ASTERLANE_ADMIN_TOKEN` 独立。
 - **格式边界**：REST invoke 保持 request > key > global > json；MCP `tools/call` 固定 JSON，忽略私有 `_meta["asterlane.dev/format"]` 与 key/global format。非 JSON 上游文本继续透传，REST 仍可渲染 remote MCP 的 JSON 文本内容。
 - **客户端展示**：admin/tools 成功输出支持 `json|yaml|markdown`，优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认；TTY 为 markdown，pipe 为 JSON。tools search/call 传输层显式请求 JSON，格式转换只发生在客户端。
-- **旧事实清理**：经用户授权同步更正 `key-credentials-and-persistence.md` 的 MCP principal 格式说明，以及 `mcp-governance-and-key-limits.md` 的 admin CLI 命令/输出契约；`docs/README.md` 保持不变。
+- **文档校正**：更正 `key-credentials-and-persistence.md` 的 MCP principal 格式说明，以及 `mcp-governance-and-key-limits.md` 的 admin CLI 命令/输出契约。
 - **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 与 OKF 检查通过；四个 tools help 无需凭据即可显示，九个生产文件预算检查通过。
 
 ## 2026-07-22（统一 CLI 客户端架构设计）

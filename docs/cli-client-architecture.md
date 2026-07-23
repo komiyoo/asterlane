@@ -4,16 +4,16 @@ title: 统一 CLI 客户端架构
 description: 定义 gateway-key tools CLI、admin 输出格式化、共享客户端模块边界，以及 MCP 与 REST 的格式责任。
 resource: docs/cli-client-architecture.md
 tags: [cli, architecture, tools, admin, rendering, mcp]
-timestamp: 2026-07-22T00:00:00+08:00
+timestamp: 2026-07-23T00:00:00+08:00
 ---
 
 # 背景
 
 **实现状态：已落地（2026-07-22）。**
 
-Asterlane 已提供 `/mcp`、`GET /v1/tools`、`POST /v1/tools/{name}/invoke` 和 `asterlane admin`，但 gateway-key 用户没有对应的在线 CLI。现有 `src/cli.rs` 同时容纳 admin 参数、执行逻辑和测试，生产代码已触及项目 500 行预算；继续在该文件追加 tools 命令会扩大职责混杂。
+决策形成前，Asterlane 已提供 `/mcp`、`GET /v1/tools`、`POST /v1/tools/{name}/invoke` 和 `asterlane admin`，但当时 gateway-key 用户还没有对应的在线 CLI。当时的 `src/cli.rs` 同时容纳 admin 参数、执行逻辑和测试，生产代码已触及项目 500 行预算；继续在该文件追加 tools 命令会扩大职责混杂。
 
-本决策以现有服务端能力为基础增加 `asterlane tools`，并把结果展示收敛到 CLI 边界。它取代“所有改动继续放入 `src/cli.rs`、复用 `AdminClient`、通过不存在的 `GET /v1/tools?search=` 搜索”的原始实现草案。
+本决策以当时已有的服务端能力为基础增加 `asterlane tools`，并把结果展示收敛到 CLI 边界。它取代“所有改动继续放入 `src/cli.rs`、复用 `AdminClient`、通过不存在的 `GET /v1/tools?search=` 搜索”的原始实现草案。
 
 # 决策
 

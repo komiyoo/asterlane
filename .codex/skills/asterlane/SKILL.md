@@ -34,14 +34,15 @@ Before changing behavior, read only the closest documents needed for the task:
 1. Add an `api_resources` entry in `examples/gateway.yaml`.
 2. Use `auth.type: bearer`, `auth.type: header`, or `auth.type: none`.
 3. Add endpoint entries with stable `tool`, `method`, and `path` values.
-4. Run `cargo run -- list-tools --config examples/gateway.yaml --key <key> --include '<domain-or-tool-regex>'`.
-5. Add tests in `src/catalog.rs` or `src/config.rs` when the change requires new behavior.
+4. Set `ASTERLANE_CONFIG=examples/gateway.yaml` or pass `--config PATH`.
+5. Run `cargo run -- list-tools --key <key> --include '<domain-or-tool-regex>'`.
+6. Add tests in `src/catalog.rs` or `src/config.rs` when the change requires new behavior.
 
 ### Change A Proxy Key Scope
 
 1. Edit `allowed_tools` and `denied_tools` with explicit regexes.
 2. Prefer anchored regexes such as `^search:tavily:.*$`.
-3. Validate the visible catalog with `cargo run -- list-tools`.
+3. Validate the visible catalog with `cargo run -- list-tools --key <key>`.
 4. Add or update policy tests when changing rule semantics.
 
 ### Implement MCP Exposure
@@ -72,15 +73,25 @@ auth:
 
 Do not print resolved secrets in CLI output, logs, errors, tests, or docs.
 
+## Resolve Local Gateway Config
+
+`asterlane serve` 与离线 `asterlane list-tools` 按 `--config PATH`、非空 `ASTERLANE_CONFIG`、OS 用户配置路径的顺序读取单一 YAML。Linux 使用 `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`，macOS 使用 `$HOME/Library/Application Support/asterlane/config.yaml`，Windows 使用 `%APPDATA%\asterlane\config.yaml`。不要假设 CLI 会扫描当前目录或自动使用 `examples/`。
+
+`list-tools --key ID` 是启动前的离线 catalog/scope 预览；运行中网关的在线查询使用 `asterlane tools list`。
+
 ## Use The Gateway Tools CLI
 
 `asterlane tools` 使用 gateway key 调用运行中网关的 `/v1/tools` REST API。gateway key 默认从 `ASTERLANE_KEY` 读取；它与只用于 `/admin/*` 的 `ASTERLANE_ADMIN_TOKEN` 是两套独立凭据，不得混用。
 
 ```bash
-export ASTERLANE_KEY=<gateway-key>
+export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_KEY="$(
+  cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
+    jq -r '.token'
+)"
 cargo run -- tools list --domain search
 cargo run -- tools search "web search"
-cargo run -- tools call search__exa__web_search_exa --args '{"query":"rust mcp"}'
+cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
 cargo run -- tools list --format json | jq '.tools[].name'
 ```
 
@@ -104,8 +115,10 @@ admin:
 ```
 
 ```bash
-export ASTERLANE_ADMIN_TOKEN=<your-admin-token>
-cargo run -- serve --config examples/gateway.yaml --database-url sqlite://asterlane.db?mode=rwc
+export ASTERLANE_CONFIG=examples/gateway.yaml
+export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export EXA_DEFAULT=replace-me-exa-api-key
+cargo run -- serve --database-url sqlite://asterlane.db?mode=rwc
 ```
 
 ### Connect The CLI
@@ -176,7 +189,7 @@ Run the narrowest relevant command first:
 
 ```bash
 cargo test
-cargo run -- list-tools --config examples/gateway.yaml --key agent-search-basic --include '^search__'
+ASTERLANE_CONFIG=examples/gateway.yaml cargo run -- list-tools --key agent-search-basic --include '^search__'
 cargo fmt -- --check
 ```
 
