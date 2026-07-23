@@ -1,6 +1,8 @@
 // CLI 边界: stdout 是面向用户的输出通道
 #![allow(clippy::print_stdout)]
 
+mod config_path;
+
 use anyhow::{Context, Result, bail};
 use asterlane::{GatewayConfig, ToolCatalog, ToolListQuery};
 use clap::{Parser, Subcommand};
