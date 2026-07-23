@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-07-23（CLI 配置发现设计）
+
+- **决策**：`serve` 与离线 `list-tools` 按 `--config` > `ASTERLANE_CONFIG` > OS 用户配置路径发现单一 YAML；不扫描当前目录、不自动创建配置，也不让在线 `admin`/`tools` 读取本地 GatewayConfig。
+- **离线定位**：保留 `list-tools` 作为启动前按 proxy key 预览 catalog 的兼容命令，`--key` 继续必填；在线目录查询仍由 `tools list` 负责。
+- **实现约束**：路径解析收敛到二进制私有具体函数，使用标准库实现 Linux/macOS/Windows 路径，不新增依赖；显式或环境路径错误不静默回退。
+
 ## 2026-07-22（统一 CLI 客户端落地）
 
 - **模块拆分**：CLI 按参数、执行、共享 Bearer 客户端、JSON object 输入与输出渲染拆为 `cli/admin.rs`、`cli/admin/run.rs`、`cli/client.rs`、`cli/input.rs`、`cli/output.rs`、`cli/tools.rs`；MCP 结果转换移入 `mcp/result.rs`，九个生产文件均满足 500 行预算。
