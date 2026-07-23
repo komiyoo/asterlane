@@ -29,6 +29,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Plan,
+    /// 离线 catalog 预览；在线查询使用 `asterlane tools list`。
     ListTools(#[clap(flatten)] Box<ListToolsArgs>),
     Serve(#[clap(flatten)] Box<ServeArgs>),
     /// Admin API 客户端子命令组（实现见 src/cli.rs）
@@ -39,8 +40,9 @@ enum Command {
 
 #[derive(Debug, clap::Args)]
 struct ListToolsArgs {
-    #[arg(long)]
-    config: PathBuf,
+    /// Gateway YAML 路径；缺省读取 ASTERLANE_CONFIG 或 OS 用户配置目录。
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
     #[arg(long)]
     key: String,
     #[arg(long)]
@@ -61,8 +63,9 @@ struct ListToolsArgs {
 
 #[derive(Debug, clap::Args)]
 struct ServeArgs {
-    #[arg(long)]
-    config: PathBuf,
+    /// Gateway YAML 路径；缺省读取 ASTERLANE_CONFIG 或 OS 用户配置目录。
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
     #[arg(long, default_value = "127.0.0.1:3000")]
     bind: String,
     #[arg(long)]
@@ -86,7 +89,8 @@ async fn main() -> Result<()> {
         }
         Command::ListTools(args) => {
             let args = *args;
-            let config = load_config(&args.config)?;
+            let config_path = config_path::resolve_config_path(args.config)?;
+            let config = load_config(&config_path)?;
             let proxy_key = config
                 .proxy_key(&args.key)
                 .with_context(|| format!("unknown proxy key: {}", args.key))?;
@@ -190,13 +194,14 @@ fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
 }
 
 async fn serve(args: ServeArgs) -> Result<()> {
+    let config_path = config_path::resolve_config_path(args.config)?;
     let _otlp_guard = init_tracing()?;
 
     let prometheus_handle = metrics_exporter_prometheus::PrometheusBuilder::new()
         .install_recorder()
         .context("failed to install prometheus metrics recorder")?;
 
-    let mut config = parse_config_file(&args.config)?;
+    let mut config = parse_config_file(&config_path)?;
 
     // 持久化 store 前移到 catalog 装配前：启动合并需要在 preset 展开与
     // catalog/registry 构建之前把 DB 条目并入配置（K2 闭环——在线添加的
@@ -215,7 +220,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         }
         None => None,
     };
-    expand_builtin(&mut config, &args.config)?;
+    expand_builtin(&mut config, &config_path)?;
 
     let mut catalog = ToolCatalog::from_config(&config)?;
     // registry 始终初始化：即便零 MCP 配置也建空 registry，使运行时经 admin API
@@ -488,6 +493,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn serve_cli_allows_discovered_config() {
+        assert!(Cli::try_parse_from(["asterlane", "serve"]).is_ok());
+    }
+
+    #[test]
+    fn list_tools_cli_allows_discovered_config_but_requires_key() {
+        assert!(
+            Cli::try_parse_from(["asterlane", "list-tools", "--key", "agent-search-research",])
+                .is_ok()
+        );
+
+        let error = Cli::try_parse_from(["asterlane", "list-tools"]).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        assert!(error.to_string().contains("--key <KEY>"));
+    }
+
+    #[test]
+    fn list_tools_help_distinguishes_offline_and_online_commands() {
+        let help = Cli::try_parse_from(["asterlane", "list-tools", "--help"])
+            .unwrap_err()
+            .to_string();
+        assert!(help.contains("离线 catalog 预览"));
+        assert!(help.contains("asterlane tools list"));
+    }
+
+    #[test]
     fn serve_cli_parses_config_and_bind() {
         let cli = Cli::try_parse_from([
             "asterlane",
@@ -503,7 +537,7 @@ mod tests {
 
         match cli.command {
             Command::Serve(args) => {
-                assert_eq!(args.config, PathBuf::from("examples/gateway.yaml"));
+                assert_eq!(args.config, Some(PathBuf::from("examples/gateway.yaml")));
                 assert_eq!(args.bind, "127.0.0.1:0");
                 assert_eq!(args.database_url.as_deref(), Some("sqlite::memory:"));
             }
