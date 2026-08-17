@@ -4,7 +4,7 @@ title: Crate 选型矩阵
 description: 基于 2026-07 官方文档与 crates.io 核实，确定 Asterlane 各能力维度的 Rust crate 选型与版本。
 resource: docs/crate-selection.md
 tags: [crates, dependencies, architecture, rust]
-timestamp: 2026-07-04T00:00:00Z
+timestamp: 2026-08-17T00:00:00Z
 ---
 
 # 背景
@@ -28,7 +28,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 
 | 能力 | Crate | 版本 | 理由 |
 | --- | --- | --- | --- |
-| MCP server/client | `rmcp` | 2.1 | 官方 Rust SDK（modelcontextprotocol/rust-sdk），2026-07-02 发布。支持 client 端 Streamable HTTP（`transport-streamable-http-client-reqwest`）代理第三方 MCP server，也支持 server 端 Streamable HTTP（`transport-streamable-http-server` + axum 集成）、`notify_tool_list_changed`、cursor 分页。注意 1.x→2.x 有破坏性变更；1.4.0 前有 DNS rebinding 漏洞，公网 server 端部署需配 `with_allowed_hosts`。 |
+| MCP server/client | `rmcp` | 3.1 | 官方 Rust SDK（modelcontextprotocol/rust-sdk）。截至 2026-08-17 锁定 `3.1.2`，实现 MCP `2026-07-28` 并双栈兼容 `2025-11-25`。MSRV 1.88。server 端 Streamable HTTP + axum；client 端 `ClientLifecycleMode::Auto`；`subscriptions/listen`、`ttlMs`/`cacheScope`、标准请求头与 MRTR。公网部署仍按需配 `with_allowed_hosts`。迁移说明见 [MCP Protocol](mcp-protocol.md)。 |
 
 ## 配置与序列化
 
@@ -73,7 +73,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 
 | 能力 | Crate | 版本 | 理由 |
 | --- | --- | --- | --- |
-| JSON Schema 生成 | `schemars` | 1.2 | 生成 MCP tool `inputSchema`。**关键**：rmcp 2.x 直接依赖 `schemars ^1`，选 1.x 与官方路径对齐，勿用旧 0.8.x（schema 结构不同）。 |
+| JSON Schema 生成 | `schemars` | 1.2 | 生成 MCP tool `inputSchema`。**关键**：rmcp 3.x 直接依赖 `schemars ^1`，选 1.x 与官方路径对齐，勿用旧 0.8.x（schema 结构不同）。 |
 | 校验 | `garde` | 0.23 | 上下文校验、axum 集成。次选 `validator` 0.20。 |
 | newtype | 手写优先 | — | 核心 ID/名字类型手写 newtype + 一处解析校验；约束 newtype 数量多时再评估 `nutype` 0.7。 |
 

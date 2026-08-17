@@ -93,7 +93,7 @@ api_resources:
 
 - 上游 `tools/list` 结果缓存在 `moka`（TTL 可配，默认 5 分钟）。当前阶段以 `McpServerRegistry` 内部 `RwLock<Vec<McpServerEntry>>` 持有最新快照，后台周期性 `refresh()`（默认 60s）重拉上游 `tools/list`；moka TTL 缓存为后续优化。
 - 监听上游 `notifications/tools/list_changed`，收到即失效缓存并重拉。当前阶段未接入上游 notify 监听，以周期性 refresh 兜底；未来补充上游 notify 监听以实现即时失效。
-- 网关自身向下游声明 `listChanged = true`，上游工具变化时 `notify_tool_list_changed`。实现路径：`AsterlaneToolServer::list_tools` / `call_tool` 从 `RequestContext<RoleServer>` 捕获 `Peer`，后台 refresh 后遍历活跃 peer 调 `Peer::notify_tool_list_changed()`（rmcp 2.1 `src/service/server.rs:491`），失败的 peer（session 已关闭）自动清理。
+- 网关自身向下游声明 `listChanged = true`。legacy session 仍注册 `Peer` 并 `notify_tool_list_changed`；`2026-07-28` 客户端经 `subscriptions/listen` 收变更。详见 [MCP Protocol](mcp-protocol.md)。
 - 上游不可达时降级使用缓存（标记 stale），不阻塞下游 `tools/list`。当前实现：refresh 时上游 `list_tools` 或工具包装失败的 entry 保留上一次成功的 `tools`/`descriptors` 快照，并在 `RefreshResult.failed_server_ids` 标记失败上游，避免临时网络失败污染 integrity baseline。
 
 ### 上游鉴权
@@ -102,7 +102,7 @@ api_resources:
 - `mcp_servers[].auth` 复用 `UpstreamAuth`；示例使用 `secret://env/ROLLINGGO_API_KEY` 这类 secret ref，不写真实 token。
 - 公开/免密 MCP server（例如 Exa hosted MCP 的默认 web search/fetch 工具）可省略 `auth`，适合作为 live smoke test。
 - 转发 `tools/call` 时由网关注入鉴权，agent 不接触上游凭据。
-- MCP 规范禁止 token passthrough（见 [MCP Authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)），与 Asterlane 设计一致。
+- MCP 规范禁止 token passthrough（见 [MCP Authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)），与 Asterlane 设计一致。
 
 免密 live 示例见 `examples/gateway-mcp.yaml`；默认 `examples/gateway.yaml` 不在启动时连接外部 MCP server。
 
@@ -172,8 +172,9 @@ meta-tool `asterlane__call_tool` 间接调用已发现工具，参数：
 
 - [1] [Product Requirements – HTTP API Wrapper / Remote MCP Proxy](product-requirements.md)
 - [2] [openapiv3 crate](https://docs.rs/openapiv3)
-- [3] [MCP 2025-06-18 – tools/list pagination](https://modelcontextprotocol.io/specification/2025-06-18/server/utilities/pagination)
+- [3] [MCP 2026-07-28 – tools/list pagination](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination)
 - [4] [SEP-1923 summary/get two-stage discovery](https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/1923)
 - [5] [Naming Convention](naming-convention.md)
 - [6] [Architecture](architecture.md)
 - [7] [Exa MCP Server](https://exa.ai/mcp)
+- [8] [MCP Protocol](mcp-protocol.md)

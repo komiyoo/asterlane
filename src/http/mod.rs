@@ -4,7 +4,8 @@ mod error;
 mod routes;
 mod state;
 
-pub use state::{AppState, ToolListChangedPeers};
+pub use crate::mcp::ToolListChangedPeers;
+pub use state::AppState;
 // 供 admin 调试调用复用 `/v1/tools/{name}/invoke` 的执行管线。
 pub(crate) use routes::execute_invoke;
 // 从 integrity 模块直接再导出，供外部调用方从 http 入口获取。
@@ -45,9 +46,12 @@ pub fn build_app_with_ct(
     ct: CancellationToken,
     mcp_allowed_hosts: &[String],
 ) -> Router {
+    // legacy_session_mode 默认 true：旧 initialize 客户端仍建 session；
+    // 2026-07-28 请求始终无会话（rmcp 3.x / SEP-2567）。
     let transport_config = StreamableHttpServerConfig::default()
         .with_cancellation_token(ct.child_token())
-        .with_allowed_hosts(mcp_allowed_hosts.to_vec());
+        .with_allowed_hosts(mcp_allowed_hosts.to_vec())
+        .with_legacy_session_mode(true);
     let mcp_state = state.clone();
     let mcp_service: StreamableHttpService<AsterlaneToolServer, LocalSessionManager> =
         StreamableHttpService::new(

@@ -175,6 +175,6 @@ src/limits/    -> LimitError
 # Citations
 
 - [1] [Development Workflow – Error System](development-workflow.md)
-- [2] [MCP 2025-06-18 – Error Handling](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+- [2] [MCP 2026-07-28 – Error Handling](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 - [3] [thiserror crate](https://docs.rs/thiserror)
 - [4] [Observability](observability.md)

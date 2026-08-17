@@ -47,7 +47,7 @@ The original product requirements are preserved in [Product Requirements](produc
 | `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
 | `transform` | header/query/path/body 变换。 | 已实现（声明式规则） |
 | `proxy` | 上游 HTTP 执行。 | 已实现（retry + failover） |
-| `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 2.1 + lazy discovery） |
+| `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 3.1 + `2026-07-28` 双栈） |
 | `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 已实现（metrics + store + Prometheus） |
 | `store` | 数据库抽象、迁移、仓库。 | 已实现（SQLite） |
 | `admin` | admin API 与管理 UI。 | 已实现（7 端点 + Bearer 认证 + Web 控制台） |

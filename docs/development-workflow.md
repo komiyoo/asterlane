@@ -77,7 +77,7 @@ The first runtime milestone should build foundations without overcommitting to a
 4. Introduce `store` traits and a SQLite implementation skeleton.
 5. Add request event and redaction types（见 [Observability](observability.md)）。
 6. Add an Axum server skeleton with health/config/catalog endpoints.
-7. Keep MCP server implementation behind an adapter boundary until `rmcp` 2.1 is validated against the selected transport.
+7. Keep MCP server implementation behind an adapter boundary; transport 走 `rmcp` 3.x，协议版本见 [MCP Protocol](mcp-protocol.md)。
 
 # Module Boundaries
 
@@ -161,7 +161,7 @@ Prefer proven crates. 完整选型矩阵与版本核实见 [Crate Selection](cra
 | HTTP server | `axum`, `tower`, `tower-http` |
 | Async runtime | `tokio` |
 | HTTP client | `reqwest` |
-| MCP | `rmcp` 2.1（官方 SDK，Streamable HTTP server + axum） |
+| MCP | `rmcp` 3.1（官方 SDK，Streamable HTTP server + axum，MCP `2026-07-28`） |
 | Errors | `thiserror`, `anyhow` for CLI/main boundaries |
 | Tracing | `tracing`, `tracing-subscriber`；OTel 可选 feature |
 | Metrics | `metrics`, `metrics-exporter-prometheus` |

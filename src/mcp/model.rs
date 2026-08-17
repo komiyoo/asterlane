@@ -54,6 +54,27 @@ pub struct ToolCallResult {
     pub is_error: bool,
 }
 
+/// REST / 内部透传 `input_required` 时使用的内容类型。
+pub const MCP_INPUT_REQUIRED_CONTENT_TYPE: &str = "application/vnd.mcp.input-required+json";
+
+/// `tools/call` 上与参数并列的 MRTR 重试字段。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ToolCallExtras {
+    /// 客户端对上一轮 `inputRequests` 的答复。
+    pub input_responses: Option<serde_json::Value>,
+    /// 上游在 `InputRequiredResult` 里给出的不透明状态。
+    pub request_state: Option<String>,
+}
+
+/// 上游 `tools/call` 结果：完成或需要客户端补输入。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpstreamCallOutcome {
+    /// 普通完成结果。
+    Complete(ToolCallResult),
+    /// SEP-2322 `resultType: "input_required"`，值为完整 JSON。
+    InputRequired(serde_json::Value),
+}
+
 impl ToolCallResult {
     /// 构造成功的文本结果。
     pub fn text_ok(text: impl Into<String>) -> Self {

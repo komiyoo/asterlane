@@ -1,0 +1,22 @@
+schema_version: 1
+
+# RollingGo Hotel 是 keyed preset，不能写进 builtin_mcp。
+# 启动前设置：export ROLLINGGO_API_KEY=mcp_…
+# 申请：https://rollinggo.store/apply
+mcp_servers:
+  - id: rollinggo-hotel
+    domain: hotel
+    provider: rollinggo
+    url: https://mcp.rollinggo.cn/mcp
+    description: RollingGo hosted MCP server (hotel booking).
+    auth:
+      type: bearer
+      token_ref: secret://env/ROLLINGGO_API_KEY
+
+proxy_keys:
+  - id: agent-hotel
+    display_name: Hotel agent
+    allowed_tools:
+      - "^hotel__rollinggo__"
+    denied_tools: []
+    default_tool_page_size: 20

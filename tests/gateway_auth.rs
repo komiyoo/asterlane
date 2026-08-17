@@ -95,7 +95,7 @@ fn get_bearer(uri: &str, token: &str) -> Request<Body> {
 
 /// MCP initialize 裸 POST（Streamable HTTP 首个请求，无 session）。
 ///
-/// `host` header 必带：rmcp 2.1 的 DNS rebinding 防护对缺失 Host 的请求
+/// `host` header 必带：rmcp streamable HTTP 的 DNS rebinding 防护对缺失 Host 的请求
 /// 返回 400（默认 allowed_hosts 含 localhost）。
 fn mcp_initialize(bearer: Option<&str>) -> Request<Body> {
     let mut builder = Request::builder()

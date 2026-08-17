@@ -424,7 +424,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
 ///    （unreachable 的 server 用 secrets 自动重连，恢复后并入其工具）。
 /// 2. `catalog.replace_mcp_tools()` 更新工具快照。
 /// 3. `check_integrity_drift()` 检测 drift → 写 security event → 更新隔离集合 → rebase baseline。
-/// 4. `notify_peers_tool_list_changed()` 向活跃 client session 推送通知。
+/// 4. `notify_peers_tool_list_changed()` 向 legacy session 与
+///    `subscriptions/listen` 通道推送通知。
 ///
 /// graceful shutdown 时通过 `ct` 取消。
 #[allow(clippy::too_many_arguments)] // 聚合 refresh task 所需共享状态

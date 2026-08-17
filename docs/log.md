@@ -1,5 +1,20 @@
 # Documentation Update Log
 
+## 2026-08-17（RollingGo Hotel 示例配置）
+
+- **示例**：新增 `examples/gateway-rollinggo.yaml`，按内置 `rollinggo-hotel` preset 接入 `https://mcp.rollinggo.cn/mcp`；凭据只引用 `secret://env/ROLLINGGO_API_KEY`。
+- **上游握手**：RollingGo 等 Spring MCP 对 `server/discover` 回 HTTP 500 而非 `-32601`，`RmcpRemoteMcpPeer` 在 Auto 失败后再走 `initialize`。
+- **文档**：`config-schema.md` preset 表补齐 `rollinggo-hotel` / `rollinggo-flight`。
+
+## 2026-08-17（MCP 2026-07-28 双栈适配）
+
+- **规范**：现行 MCP 版本改为 `2026-07-28`；新增 [MCP Protocol](mcp-protocol.md) 记录双栈、路由头、缓存提示、`subscriptions/listen` 与 MRTR 透传。
+- **SDK**：`rmcp` 2.1 → 3.1.2，MSRV 1.85 → 1.88。上游 client 用 `ClientLifecycleMode::Auto` + `call_tool_once`。
+- **下游 `/mcp`**：保留 `legacy_session_mode` 以服务 initialize 客户端；实现 `server/discover`；`tools/list` 返回 `ttlMs=60000` / `cacheScope=private`；现代客户端经 `subscriptions/listen` 收 `tools/list_changed`。
+- **MRTR**：上游 `input_required` 不在网关内自动补全，原样回传；REST 使用 `application/vnd.mcp.input-required+json`。
+- **文档**：更新 crate-selection、naming、api-discovery、architecture、compatibility、error-model、response-rendering、development-workflow 与 README 的规范引用。
+- **验证**：`cargo fmt -- --check`、`cargo test`、OKF 检查通过。`cargo clippy --all-targets -- -D warnings` 在本机 rustc 1.96 上仍会报一批既有文件的 `collapsible_if`（与本次改动无关）；对本次改动文件执行 clippy `-D warnings -A clippy::collapsible_if` 通过。
+
 ## 2026-07-23（CLI 配置发现落地）
 
 - **配置发现**：`serve` 与离线 `list-tools` 按 `--config` > `ASTERLANE_CONFIG` > OS 用户配置路径读取单一 YAML；Linux/macOS/Windows 默认目录由标准库解析，不扫描当前目录、不自动创建配置。

@@ -238,6 +238,8 @@ builtin_mcp: [exa, deepwiki]
 | `exa` | search | exa | `https://mcp.exa.ai/mcp` |
 | `deepwiki` | docs | deepwiki | `https://mcp.deepwiki.com/mcp` |
 | `context7` | docs | context7 | `https://mcp.context7.com/mcp` |
+| `rollinggo-hotel` | hotel | rollinggo | `https://mcp.rollinggo.cn/mcp`（Bearer，须写 `mcp_servers` + secret ref） |
+| `rollinggo-flight` | flight | rollinggo | `https://mcp.rollinggo.cn/mcp/flight`（Bearer，须写 `mcp_servers` + secret ref） |
 
 `GET /admin/mcp-presets`（Bearer admin 认证）返回 preset 目录与启用状态：`[{id, domain, provider, url, description, enabled}]`，`enabled` = 该 id 出现在 `mcp_servers`（serve 时 preset 已展开进该列表）或 `builtin_mcp` 中。
 

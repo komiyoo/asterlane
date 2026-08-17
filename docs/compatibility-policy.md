@@ -67,6 +67,7 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 - REST invoke 保留既有兼容面：`?format=` / `Accept` 请求 override > proxy key `response_format` > `defaults.response_format` > `json`。
 - `defaults.response_format` 与 `proxy_keys[].response_format` 字段不删除，继续作为 REST 默认，避免破坏现有 REST 消费者。
 - `asterlane admin` 与 `asterlane tools` 的 `--format` / `ASTERLANE_FORMAT` 只负责客户端成功输出，不改变服务端 REST 或 MCP 协议契约。
+- MCP 传输双栈：`2025-11-25` initialize/session 与 `2026-07-28` `server/discover`/无会话并存。`tools/list` 对现代客户端带 `ttlMs`/`cacheScope=private`。上游 `input_required` 经 MCP 原样回传，REST 用 `application/vnd.mcp.input-required+json`。详见 [MCP Protocol](mcp-protocol.md)。
 
 # 错误码兼容性
 

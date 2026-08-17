@@ -64,7 +64,7 @@ Asterlane / 星径 是一个 Rust 项目，目标是为代理原生场景提供�
 
 | 能力              | 标准选型                                      | 禁止                    |
 | ----------------- | --------------------------------------------- | ----------------------- |
-| MCP client/server | `rmcp` 2.x（Streamable HTTP transport）       | 手写 JSON-RPC over HTTP |
+| MCP client/server | `rmcp` 3.x（Streamable HTTP transport）       | 手写 JSON-RPC over HTTP |
 | HTTP 框架         | `axum` 0.8 + `tower`                          | actix-web, warp         |
 | HTTP client       | `reqwest`（rmcp 内部复用）                    | hyper 裸调、ureq        |
 | 异步运行时        | `tokio`                                       | async-std               |

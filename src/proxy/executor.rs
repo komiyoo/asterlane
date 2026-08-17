@@ -16,7 +16,9 @@ use crate::config::{GatewayConfig, ProxyKey, SecurityConfig};
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
 use crate::limits::{LimitRegistry, QueuePermit};
-use crate::mcp::McpServerRegistry;
+use crate::mcp::{
+    MCP_INPUT_REQUIRED_CONTENT_TYPE, McpServerRegistry, ToolCallExtras, UpstreamCallOutcome,
+};
 use crate::observability::{
     BucketGranularity, RequestEvent, RequestStatus, UsageBucket, bucket_start, record_request_event,
 };
@@ -277,6 +279,18 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         args: serde_json::Value,
         proxy_key: &ProxyKey,
     ) -> Result<InvokeResult, ProxyError> {
+        self.invoke_call(wire_name, args, proxy_key, ToolCallExtras::default())
+            .await
+    }
+
+    /// 与 [`Self::invoke`] 相同，并转发 MCP MRTR 重试字段。
+    pub async fn invoke_call(
+        &self,
+        wire_name: &str,
+        args: serde_json::Value,
+        proxy_key: &ProxyKey,
+        extras: ToolCallExtras,
+    ) -> Result<InvokeResult, ProxyError> {
         // 1. catalog 三级解析（alias 只命中 key 可见工具；scope 外 → 视为不存在）
         let tool: &WrappedTool =
             match self
@@ -341,14 +355,40 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             tracing::Span::current().record("request_id", request_id.as_str());
             let start = Instant::now();
             let result = registry
-                .call_tool(&canonical, args)
+                .call_tool_ex(&canonical, args, extras)
                 .await
                 .map_err(ProxyError::from);
             let elapsed = start.elapsed();
             let latency_ms = elapsed.as_millis().min(u32::MAX as u128) as u32;
 
             match result {
-                Ok(tool_result) => {
+                Ok(UpstreamCallOutcome::InputRequired(payload)) => {
+                    let body = serde_json::to_vec(&payload).unwrap_or_default();
+                    self.record_event(
+                        &request_id,
+                        &proxy_key.id,
+                        &tool.resource_id,
+                        &canonical,
+                        "<mcp>",
+                        RequestStatus::Success,
+                        latency_ms,
+                        0,
+                        captured_args,
+                        Some("input_required".to_string()),
+                        Some(latency_ms),
+                    )
+                    .await;
+                    return Ok(InvokeResult {
+                        request_id,
+                        status: 200,
+                        body,
+                        content_type: Some(MCP_INPUT_REQUIRED_CONTENT_TYPE.to_string()),
+                        content_defense_flag: false,
+                        shaped: false,
+                        rendered_format: None,
+                    });
+                }
+                Ok(UpstreamCallOutcome::Complete(tool_result)) => {
                     // registry 调用计时即上游服务端耗时（单次尝试，无排队/重试）
                     let response_preview = self.capture_tool_result(&tool_result);
                     self.record_event(

@@ -1,9 +1,7 @@
 //! MCP 协议 adapter 边界。
 //!
-//! 本模块定义 Asterlane 自己的 adapter trait/model，**不依赖 `rmcp` crate**
-//! （见 `docs/development-workflow.md` First Milestone #7）。未来 `rmcp` 2.1
-//! 验证后，可在 `GatewayToolSource` trait 边界后接入真实 MCP transport，
-//! 而不破坏上层 catalog、policy、proxy 调用方。
+//! 本模块定义 Asterlane 自己的 adapter trait/model。核心描述符不依赖 `rmcp`；
+//! transport / handler 适配（`registry`、`server`、`notify`）使用官方 `rmcp` 3.x。
 //!
 //! ## 模块结构
 //!
@@ -17,8 +15,8 @@
 //! ## 设计要点
 //!
 //! 1. **adapter 边界**：`GatewayToolSource` trait 隔离上层与底层 transport。
-//!    第一阶段 `PlaceholderAdapter` 不做真实上游调用；后续 `RmcpAdapter`
-//!    实现同一 trait 即可接入 rmcp 2.1。
+//!    `PlaceholderAdapter` 覆盖未接入 transport 的路径；生产路径由
+//!    `RmcpRemoteMcpPeer` / `AsterlaneToolServer` 使用 rmcp 3.x。
 //! 2. **上游转发剥前缀**：`UpstreamToolMapping::resolve_upstream_name` 把
 //!    wire name 拆段恢复上游 server + 原始工具名（见 naming-convention.md
 //!    「上游转发剥前缀」，Docker mcp-gateway PR #278 教训）。
@@ -29,9 +27,11 @@
 //!    `UpstreamNotImplemented`（proxy executor 待后续 phase）。
 
 pub mod adapter;
+mod call;
 pub mod error;
 pub mod health;
 pub mod model;
+pub mod notify;
 pub mod registry;
 mod result;
 pub mod server;
@@ -40,8 +40,10 @@ pub use adapter::PlaceholderAdapter;
 pub use error::McpError;
 pub use health::{HealthStatus, ServerHealth};
 pub use model::{
-    GatewayToolSource, ToolCallResult, ToolContent, ToolDescriptor, ToolListFilter, UpstreamName,
+    GatewayToolSource, MCP_INPUT_REQUIRED_CONTENT_TYPE, ToolCallExtras, ToolCallResult,
+    ToolContent, ToolDescriptor, ToolListFilter, UpstreamCallOutcome, UpstreamName,
     UpstreamToolMapping,
 };
+pub use notify::{ToolListChangedPeers, ToolListChangedTarget, notify_peers_tool_list_changed};
 pub use registry::{McpServerRegistry, RefreshResult, RemoteMcpPeer, RmcpRemoteMcpPeer};
-pub use server::{AsterlaneToolServer, notify_peers_tool_list_changed};
+pub use server::AsterlaneToolServer;

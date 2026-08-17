@@ -1,28 +1,38 @@
 //! MCP Server Handler：将 Asterlane gateway tools 暴露为 MCP 协议端点。
 
+use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ContentBlock, ErrorData, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+    DiscoverResult, ErrorData, Implementation, ListToolsResult, PaginatedRequestParams,
+    RequestMetaObject, ServerCapabilities, ServerInfo, SubscriptionFilter, Tool,
 };
-use rmcp::service::RequestContext;
-use rmcp::{Peer, RoleServer, ServerHandler};
-use serde_json::json;
-use tracing::{debug, instrument, warn};
+use rmcp::service::{RequestContext, SubscriptionContext};
+use rmcp::{RoleServer, ServerHandler};
+use tracing::instrument;
 
 use super::result::{invoke_result_to_mcp, tool_call_result_to_mcp};
-use crate::catalog::{CatalogError, ToolListQuery, ToolQualifiers, WrappedTool};
+use crate::catalog::{CatalogError, ToolListQuery, ToolQualifiers};
 use crate::config::{GatewayConfig, ProxyKey};
 use crate::gateway_auth::GatewayKeyId;
 use crate::http::AppState;
-use crate::http::ToolListChangedPeers;
+use crate::mcp::call::{
+    descriptor_to_mcp_tool, fetch_result_meta_tool, invoke_meta_call_tool, wrapped_to_mcp_tool,
+};
+use crate::mcp::model::ToolCallExtras;
+use crate::mcp::notify::{
+    accepted_tools_list_changed_filter, is_legacy_protocol, listen_tools_list_changed,
+    register_legacy_peer,
+};
 use crate::proxy::ProxyExecutor;
 use crate::render::ResponseFormat;
-use crate::shaping::{ResultCache, ShapingConfig};
+use crate::shaping::ShapingConfig;
 
 /// 默认分页大小。
 const DEFAULT_PAGE_SIZE: usize = 50;
+/// `tools/list` / `server/discover` 缓存提示，与后台 refresh 周期对齐。
+const TOOLS_LIST_TTL_MS: u64 = 60_000;
 
 // 开放模式（无任何 key 配置 token）的全放行 key，维持历史行为；
 // required 模式下由认证 middleware 绑定真实 ProxyKey（见 resolve_proxy_key）。
@@ -60,7 +70,7 @@ impl AsterlaneToolServer {
     /// `/mcp` 认证 middleware（`gateway_auth::require_mcp_auth`）在 required 模式
     /// 把 [`GatewayKeyId`] 写入 http request extensions；rmcp streamable http
     /// service 将 `http::request::Parts` 注入 `RequestContext.extensions`
-    /// （rmcp 2.1.0 `streamable_http_server/tower.rs`「inject request part to
+    /// （rmcp 3.x `streamable_http_server/tower.rs`「inject request part to
     /// extensions」），此处逐层读出并按 id 取真实 ProxyKey（scope/限额生效）。
     ///
     /// 开放模式（无 key 配置 token）无绑定 → 返回全放行 mcp_default_key，
@@ -98,10 +108,11 @@ impl AsterlaneToolServer {
         &self,
         wire_name: &str,
         arguments: serde_json::Value,
+        extras: ToolCallExtras,
         config: Arc<GatewayConfig>,
         key: &ProxyKey,
         format: ResponseFormat,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<CallToolResponse, ErrorData> {
         // 名字先经 resolve_for_key 三级解析（canonical / provider__tool / 裸名，
         // 见 docs/naming-convention.md），后续 remote MCP 判定与 invoke 一律用
         // canonical。clone catalog 构造 executor（不持锁跨 await）。
@@ -119,9 +130,9 @@ impl AsterlaneToolServer {
                 }
                 // 歧义对 agent 可见、可自愈：走 tool error 而非协议错
                 Err(e @ CatalogError::AmbiguousToolName { .. }) => {
-                    return Ok(CallToolResult::error(vec![ContentBlock::text(
-                        e.to_string(),
-                    )]));
+                    return Ok(
+                        CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into(),
+                    );
                 }
                 Err(e) => return Err(ErrorData::internal_error(e.to_string(), None)),
             };
@@ -150,16 +161,16 @@ impl AsterlaneToolServer {
         let invoke_result = if let Some(repo) = &self.state.event_repo {
             executor
                 .with_event_repository(repo.clone())
-                .invoke(&canonical, arguments, key)
+                .invoke_call(&canonical, arguments, key, extras)
                 .await
         } else {
-            executor.invoke(&canonical, arguments, key).await
+            executor
+                .invoke_call(&canonical, arguments, key, extras)
+                .await
         };
         match invoke_result {
             Ok(result) => Ok(invoke_result_to_mcp(result, is_remote_mcp)),
-            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
-                e.to_string(),
-            )])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into()),
         }
     }
 }
@@ -178,16 +189,39 @@ impl ServerHandler for AsterlaneToolServer {
         ))
     }
 
+    fn discover(
+        &self,
+        _context: RequestContext<RoleServer>,
+    ) -> impl Future<Output = Result<DiscoverResult, ErrorData>> + Send + '_ {
+        std::future::ready(Ok(DiscoverResult::from_server_info(
+            self.supported_protocol_versions().into_owned(),
+            self.get_info(),
+        )
+        .with_ttl_ms(TOOLS_LIST_TTL_MS)
+        .with_cache_scope(CacheScope::Private)))
+    }
+
+    fn accepted_subscription_filter(
+        &self,
+        requested: &SubscriptionFilter,
+    ) -> Option<SubscriptionFilter> {
+        Some(accepted_tools_list_changed_filter(requested))
+    }
+
+    async fn listen(&self, context: SubscriptionContext) -> Result<(), ErrorData> {
+        listen_tools_list_changed(&self.state.tool_list_changed_peers, context).await;
+        Ok(())
+    }
+
     #[instrument(skip_all)]
     async fn list_tools(
         &self,
         request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        // 注册 client session peer，用于后台 refresh 后 notify_tool_list_changed。
-        // 仅当存在 mcp_registry 时才注册（无 MCP 上游无需 notify）。
-        if self.state.mcp_registry.is_some() {
-            register_peer(&self.state.tool_list_changed_peers, context.peer.clone()).await;
+        // 仅 legacy session 注册 peer；2026-07-28 走 subscriptions/listen。
+        if self.state.mcp_registry.is_some() && is_legacy_protocol(&context) {
+            register_legacy_peer(&self.state.tool_list_changed_peers, context.peer.clone()).await;
         }
 
         let offset = request
@@ -234,6 +268,9 @@ impl ServerHandler for AsterlaneToolServer {
             meta: None,
             next_cursor,
             tools,
+            result_type: Some(rmcp::model::ResultType::COMPLETE),
+            ttl_ms: Some(TOOLS_LIST_TTL_MS),
+            cache_scope: Some(CacheScope::Private),
         })
     }
 
@@ -242,17 +279,23 @@ impl ServerHandler for AsterlaneToolServer {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<CallToolResponse, ErrorData> {
         let wire_name = request.name.as_ref();
         let arguments = request
             .arguments
             .map(serde_json::Value::Object)
             .unwrap_or(serde_json::Value::Null);
+        let extras = ToolCallExtras {
+            input_responses: request
+                .input_responses
+                .as_ref()
+                .and_then(|responses| serde_json::to_value(responses).ok()),
+            request_state: request.request_state.clone(),
+        };
 
-        // 注册 client session peer，用于后台 refresh 后 notify_tool_list_changed。
-        // 放在入口处，覆盖直接 call_tool（未先 list_tools）的活跃 session。
-        if self.state.mcp_registry.is_some() {
-            register_peer(&self.state.tool_list_changed_peers, context.peer.clone()).await;
+        // 仅 legacy session 注册 peer；2026-07-28 走 subscriptions/listen。
+        if self.state.mcp_registry.is_some() && is_legacy_protocol(&context) {
+            register_legacy_peer(&self.state.tool_list_changed_peers, context.peer.clone()).await;
         }
 
         let config = self.state.config_snapshot().await;
@@ -266,11 +309,13 @@ impl ServerHandler for AsterlaneToolServer {
         // Meta-tool 路径
         if crate::discovery::is_meta_tool(wire_name) {
             if wire_name == "asterlane__call_tool" {
-                return match invoke_meta_call_tool(arguments, &self.state, &key, format).await {
+                return match invoke_meta_call_tool(arguments, extras, &self.state, &key, format)
+                    .await
+                {
                     Ok(result) => Ok(result),
-                    Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
-                        e.to_string(),
-                    )])),
+                    Err(e) => {
+                        Ok(CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into())
+                    }
                 };
             }
             if wire_name == "asterlane__fetch_result" {
@@ -280,7 +325,8 @@ impl ServerHandler for AsterlaneToolServer {
                     &key,
                     arguments,
                     budget,
-                ));
+                )
+                .into());
             }
             // 语义搜索：配置了 semantic_search 时 search_tools 走余弦排序，
             // 端点故障在 handler 内回退关键词。用 catalog 快照，
@@ -297,202 +343,34 @@ impl ServerHandler for AsterlaneToolServer {
                 )
                 .await
                 {
-                    Ok(result) => Ok(tool_call_result_to_mcp(result)),
-                    Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
-                        e.to_string(),
-                    )])),
+                    Ok(result) => Ok(tool_call_result_to_mcp(result).into()),
+                    Err(e) => {
+                        Ok(CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into())
+                    }
                 };
             }
             let catalog = self.state.catalog.read().await;
             return match crate::discovery::handle_meta_tool_call(
                 wire_name, arguments, &catalog, &config, &key,
             ) {
-                Ok(result) => Ok(tool_call_result_to_mcp(result)),
-                Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(
-                    e.to_string(),
-                )])),
+                Ok(result) => Ok(tool_call_result_to_mcp(result).into()),
+                Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into()),
             };
         }
 
         // 普通工具调用路径（HTTP API 与 remote MCP 统一经 ProxyExecutor）。
-        self.call_regular_tool(wire_name, arguments, config, &key, format)
+        self.call_regular_tool(wire_name, arguments, extras, config, &key, format)
             .await
     }
 }
 
-/// 注册 client session peer 到活跃集合，用于后续 `notify_tool_list_changed`。
-///
-/// peer 在 session 存活期间有效；session 关闭后 `send_notification` 返回
-/// `TransportClosed`，`notify_peers_tool_list_changed` 会自动清理。
-async fn register_peer(peers: &ToolListChangedPeers, peer: Peer<RoleServer>) {
-    let key = peer_debug_key(&peer);
-    let mut guard = peers.write().await;
-    let existing_keys = guard.iter().map(peer_debug_key).collect::<Vec<_>>();
-    if peer_key_is_registered(&existing_keys, &key) {
-        return;
-    }
-    guard.push(peer);
-}
-
-/// 遍历活跃 peer 集合，发送 `notifications/tools/list_changed`。
-///
-/// 成功的 peer 保留（供下次 refresh 复用），失败的 peer（session 已关闭）
-/// 被移除。调用后集合中只保留仍可通信的 peer。
-///
-/// 这是 rmcp 2.1 支持的外部 notify 路径：
-/// `Peer<RoleServer>::notify_tool_list_changed()`（`src/service/server.rs:491`）
-/// 内部调用 `send_notification`（`src/service.rs:592`），向对应 session 的
-/// transport 推送 JSON-RPC notification。
-pub async fn notify_peers_tool_list_changed(peers: &ToolListChangedPeers) {
-    let mut guard = peers.write().await;
-    let mut alive = Vec::with_capacity(guard.len());
-    for peer in guard.drain(..) {
-        match peer.notify_tool_list_changed().await {
-            Ok(()) => {
-                debug!("notified tools/list_changed to client session");
-                alive.push(peer);
-            }
-            Err(e) => {
-                warn!(error = %e, "notify_tool_list_changed failed, dropping peer");
-            }
-        }
-    }
-    *guard = alive;
-}
-
-fn meta_str(meta: Option<&rmcp::model::Meta>, key: &str) -> Option<String> {
-    meta.and_then(|m| m.0.get(key))
+fn meta_str(meta: Option<&RequestMetaObject>, key: &str) -> Option<String> {
+    meta.and_then(|m| m.get(key))
         .and_then(|v| v.as_str())
         .map(String::from)
 }
 
-fn descriptor_to_mcp_tool(descriptor: crate::mcp::model::ToolDescriptor) -> Tool {
-    let schema = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
-        descriptor.input_schema,
-    )
-    .unwrap_or_default();
-    Tool::new(descriptor.name, descriptor.description, Arc::new(schema))
-}
-
-fn wrapped_to_mcp_tool(tool: &WrappedTool) -> Tool {
-    let schema = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(
-        tool.input_schema.clone(),
-    )
-    .unwrap_or_default();
-    // tools/list 暴露最短无歧义名（list_for_key 已填充；存储态 None 时回退 canonical）
-    Tool::new(
-        tool.exposed_name
-            .clone()
-            .unwrap_or_else(|| tool.name.to_wire_name()),
-        tool.description.clone(),
-        Arc::new(schema),
-    )
-}
-
-async fn invoke_meta_call_tool(
-    args: serde_json::Value,
-    state: &AppState,
-    key: &ProxyKey,
-    format: ResponseFormat,
-) -> Result<CallToolResult, crate::proxy::ProxyError> {
-    let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
-        crate::proxy::ProxyError::InvalidToolCall(
-            "missing 'name' in asterlane__call_tool arguments".to_string(),
-        )
-    })?;
-    let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
-    // 可选 domain/provider 限定字段：无状态收窄短名歧义
-    // （见 docs/api-discovery.md「asterlane__call_tool 参数」）
-    let qualifiers = ToolQualifiers {
-        domain: args.get("domain").and_then(|v| v.as_str()),
-        provider: args.get("provider").and_then(|v| v.as_str()),
-    };
-
-    let config = state.config_snapshot().await;
-    let catalog_snapshot = state.catalog.read().await.clone();
-    let canonical = match catalog_snapshot.resolve_for_key(tool_name, qualifiers, key) {
-        Ok(Some(tool)) => tool.name.to_wire_name(),
-        // 带限定字段的未命中不回退 executor 解析（qualifiers 可能滤掉
-        // 无限定时可命中的候选），直接按既有 unknown tool 口径报错
-        Ok(None) => {
-            return Err(crate::proxy::ProxyError::UnknownTool(tool_name.to_string()));
-        }
-        Err(e @ CatalogError::AmbiguousToolName { .. }) => {
-            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-                "{e} (pass domain/provider to disambiguate)"
-            ))]));
-        }
-        Err(e) => {
-            return Err(crate::proxy::ProxyError::InvalidToolCall(e.to_string()));
-        }
-    };
-    let is_remote_mcp = state
-        .mcp_registry
-        .as_ref()
-        .is_some_and(|registry| registry.contains_tool(&canonical));
-
-    let mut executor = ProxyExecutor::new(
-        config,
-        Arc::new(catalog_snapshot),
-        state.secrets.clone(),
-        state.http_client.clone(),
-    );
-    if let Some(registry) = &state.mcp_registry {
-        executor = executor.with_mcp_registry(registry.clone());
-    }
-    executor = executor.with_limits(state.limit_registry_snapshot().await);
-    if let Some(pools) = &state.key_pools {
-        executor = executor.with_key_pools(pools.clone());
-    }
-    executor = executor
-        .with_quarantined(state.quarantined_tools.clone())
-        .with_result_cache(state.result_cache.clone())
-        .with_response_format(format);
-
-    let result = if let Some(repo) = &state.event_repo {
-        executor
-            .with_event_repository(repo.clone())
-            .invoke(&canonical, tool_args, key)
-            .await
-    } else {
-        executor.invoke(&canonical, tool_args, key).await
-    }?;
-
-    Ok(invoke_result_to_mcp(result, is_remote_mcp))
-}
-
-fn fetch_result_meta_tool(
-    cache: &ResultCache,
-    key: &ProxyKey,
-    args: serde_json::Value,
-    budget_bytes: usize,
-) -> CallToolResult {
-    let Some(cursor) = args.get("cursor").and_then(|v| v.as_str()) else {
-        return CallToolResult::error(vec![ContentBlock::text(
-            "missing 'cursor' in asterlane__fetch_result arguments",
-        )]);
-    };
-    let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-
-    match cache.fetch(cursor, &key.id, offset, budget_bytes) {
-        Some(chunk) => {
-            let mut text = chunk.text;
-            if chunk.has_more {
-                let next_offset = chunk.offset + text.len();
-                text.push_str(&format!(
-                    "\n\n[More data available. Use cursor \"{cursor}\" with offset {next_offset} to continue.]"
-                ));
-            }
-            CallToolResult::success(vec![ContentBlock::text(text)])
-        }
-        None => CallToolResult::error(vec![ContentBlock::text("cursor not found or expired")]),
-    }
-}
-
-fn peer_debug_key(peer: &Peer<RoleServer>) -> String {
-    format!("{peer:?}")
-}
-
+#[cfg(test)]
 fn peer_key_is_registered(existing_keys: &[String], key: &str) -> bool {
     existing_keys.iter().any(|existing| existing == key)
 }
@@ -500,7 +378,10 @@ fn peer_key_is_registered(existing_keys: &[String], key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::WrappedTool;
+    use crate::mcp::call::{fetch_result_meta_tool, invoke_meta_call_tool, wrapped_to_mcp_tool};
     use crate::shaping::ResultCache;
+    use serde_json::json;
 
     #[test]
     fn fetch_result_meta_tool_returns_cached_chunk() {
@@ -757,11 +638,11 @@ mod tests {
         let (state, _tavily, _exa) = ambiguous_search_state().await;
         let (client, server_task) = serve_pair(state).await;
         let mut params = CallToolRequestParams::new("neural_search");
-        params.meta = Some(rmcp::model::Meta(
+        params.meta = Some(RequestMetaObject(rmcp::model::MetaObject(
             [("asterlane.dev/format".to_string(), json!("yaml"))]
                 .into_iter()
                 .collect(),
-        ));
+        )));
 
         let result = client.call_tool(params).await.expect("call_tool");
         let text = result.content[0].as_text().expect("text content");
@@ -806,6 +687,7 @@ mod tests {
                 "provider": "tavily",
                 "arguments": {"query": "asterlane"}
             }),
+            ToolCallExtras::default(),
             &state,
             &key,
             ResponseFormat::Json,
@@ -813,7 +695,12 @@ mod tests {
         .await
         .expect("meta call_tool");
 
-        assert_ne!(result.is_error, Some(true));
+        match result {
+            CallToolResponse::Complete(result) => {
+                assert_ne!(result.is_error, Some(true));
+            }
+            other => panic!("expected complete result, got {other:?}"),
+        }
         let calls = tavily.calls.lock().expect("peer lock");
         assert_eq!(
             calls.as_slice(),
@@ -829,6 +716,7 @@ mod tests {
 
         let result = invoke_meta_call_tool(
             json!({"name": "web_search", "arguments": {}}),
+            ToolCallExtras::default(),
             &state,
             &key,
             ResponseFormat::Json,
@@ -836,9 +724,27 @@ mod tests {
         .await
         .expect("meta call_tool");
 
-        assert_eq!(result.is_error, Some(true));
-        let text = result.content[0].as_text().expect("text content");
-        assert!(text.text.contains("ambiguous tool name 'web_search'"));
-        assert!(text.text.contains("(pass domain/provider to disambiguate)"));
+        match result {
+            CallToolResponse::Complete(result) => {
+                assert_eq!(result.is_error, Some(true));
+                let text = result.content[0].as_text().expect("text content");
+                assert!(text.text.contains("ambiguous tool name 'web_search'"));
+                assert!(text.text.contains("(pass domain/provider to disambiguate)"));
+            }
+            other => panic!("expected complete error result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn tools_list_includes_private_cache_hints() {
+        let (state, _tavily, _exa) = ambiguous_search_state().await;
+        let (client, server_task) = serve_pair(state).await;
+
+        let result = client.list_tools(None).await.expect("list_tools");
+        assert_eq!(result.ttl_ms, Some(TOOLS_LIST_TTL_MS));
+        assert_eq!(result.cache_scope, Some(CacheScope::Private));
+
+        let _ = client.cancel().await;
+        server_task.abort();
     }
 }

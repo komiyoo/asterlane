@@ -24,7 +24,7 @@
 
 | 依赖 | 版本 | 说明 |
 |------|------|------|
-| Rust | ≥ 1.85 | `rustup install stable` |
+| Rust | ≥ 1.88 | `rustup install stable` |
 | just | 最新 | 可选，任务运行器 (`cargo install just`) |
 | Python 3 | ≥ 3.10 | 仅文档检查脚本需要（`pyyaml`） |
 | jq | 最新 | 快速开始中从签发响应提取一次性 gateway token |

@@ -10,20 +10,12 @@ use crate::gateway_auth::GatewayAuth;
 use crate::integrity::{IntegrityBaseline, IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
 use crate::limits::LimitRegistry;
-use crate::mcp::McpServerRegistry;
+use crate::mcp::{McpServerRegistry, ToolListChangedPeers};
 use crate::secrets::DefaultSecretStore;
 use crate::semantic::SemanticIndex;
 use crate::shaping::ResultCache;
 use crate::store::SqliteRequestEventRepository;
-use rmcp::{Peer, RoleServer};
 use tokio::sync::RwLock;
-
-/// 活跃 client session peer 集合，用于后台 refresh 后推送
-/// `notifications/tools/list_changed`。
-///
-/// peer 在 `AsterlaneToolServer::list_tools` / `call_tool` 时注册；
-/// `notify_tool_list_changed` 遍历后清空失败的 peer（session 已关闭）。
-pub type ToolListChangedPeers = Arc<RwLock<Vec<Peer<RoleServer>>>>;
 
 /// HTTP handler 共享的应用状态。
 ///
@@ -56,7 +48,7 @@ pub struct AppState {
     pub mcp_registry: Option<Arc<McpServerRegistry>>,
     /// Result shaping cache for lazy discovery large-result pagination.
     pub result_cache: Arc<ResultCache>,
-    /// 活跃 client session peer 集合，用于 notify_tool_list_changed。
+    /// 活跃下游通知通道（legacy session peer + subscriptions/listen）。
     /// 仅在存在 mcp_registry 时使用。
     pub tool_list_changed_peers: ToolListChangedPeers,
     /// Integrity baseline：pinned tool fingerprints，refresh 后做 drift 检测。

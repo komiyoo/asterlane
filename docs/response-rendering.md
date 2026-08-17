@@ -59,7 +59,7 @@ Rendering 只作用于 **REST invoke 成功结果的内容文本层**，以下�
 
 - **MCP `tools/call`**：固定 JSON，不进入 YAML/markdown 格式协商。
 - **错误响应**：`is_error: true` 的 result 与网关错误（`error-model.md` 稳定错误码）永远保持 JSON——错误是机器消费路径，稳定性优先。
-- **`structuredContent`**：MCP 2025-06-18 起 tool 可声明 `outputSchema`，`structuredContent` 受 schema 契约约束，网关不得改动。rendering 只影响并行的 text content。
+- **`structuredContent`**：MCP 2025-06-18 起 tool 可声明 `outputSchema`，`structuredContent` 受 schema 契约约束，网关不得改动。rendering 只影响并行的 text content。`2026-07-28` 允许 `structuredContent` 为任意 JSON 值。
 - **非 JSON body**：上游返回内容无法解析为 JSON 时（纯文本、已是 markdown 等）原样透传，不报错。
 - **`tools/list` 等协议表面**：目录、发现、管理端点不受影响。
 
@@ -191,7 +191,7 @@ Exa MCP 的 `web_search_exa` / `web_fetch_exa` 返回的 `content[].Text` 是**�
 
 - [1] [RFC 9512: YAML Media Type](https://www.rfc-editor.org/rfc/rfc9512)
 - [2] [RFC 7763: The text/markdown Media Type](https://www.rfc-editor.org/rfc/rfc7763)
-- [3] [MCP specification – Tools (structuredContent / outputSchema)](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+- [3] [MCP specification – Tools (structuredContent / outputSchema)](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 - [4] [Architecture](architecture.md)
 - [5] [Configuration Schema](config-schema.md)
 - [6] [Error Model](error-model.md)

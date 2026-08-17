@@ -20,8 +20,8 @@ timestamp: 2026-07-07T00:00:00Z
 
 ## MCP 规范
 
-- MCP `2025-06-18`（当前广泛部署版）对 tool name 没有任何字符集/长度约束，仅描述为 "Unique identifier for the tool"。
-- MCP `2025-11-25`（最新已发布版）新增 Tool Names 小节（SHOULD 级）：
+- MCP `2025-06-18` 对 tool name 没有任何字符集/长度约束，仅描述为 "Unique identifier for the tool"。
+- MCP `2025-11-25` 新增 Tool Names 小节（SHOULD 级）；现行 `2026-07-28` 沿用同一字符集建议：
   - 长度 SHOULD 为 1–128 字符；
   - 允许字符 SHOULD 仅为 `A-Z a-z 0-9`、下划线 `_`、连字符 `-`、点 `.`；
   - SHOULD NOT 含空格、逗号或其他特殊字符；
@@ -197,7 +197,7 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 
 # Citations
 
-- [1] [MCP 2025-11-25 Tool Names](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+- [1] [MCP 2026-07-28 Tool Names](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 - [2] [MCP draft specification – tool aggregation disambiguation](https://modelcontextprotocol.io/specification/draft/server/tools)
 - [3] [SEP-986 Tool name constraints proposal](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986)
 - [4] [Anthropic Claude API tool name pattern](https://github.com/anthropics/claude-code/issues/858)
