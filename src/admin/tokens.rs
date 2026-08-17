@@ -14,7 +14,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use rand::Rng;
+use rand::RngExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;

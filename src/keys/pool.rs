@@ -62,10 +62,10 @@ impl PoolState {
     /// 推进所有已到期冷却的 key 恢复为 `Available`。
     fn expire_cooling(&mut self, now: Instant) {
         for entry in self.entries.values_mut() {
-            if let KeyState::CoolingUntil(until) = entry.state {
-                if now >= until {
-                    entry.state = KeyState::Available;
-                }
+            if let KeyState::CoolingUntil(until) = entry.state
+                && now >= until
+            {
+                entry.state = KeyState::Available;
             }
         }
     }
@@ -209,10 +209,10 @@ impl KeyPool {
         let mut state = self.inner.state.lock().unwrap_or_else(recover);
         let now = Instant::now();
         if let Some(entry) = state.entries.get_mut(&key_id) {
-            if let KeyState::CoolingUntil(until) = entry.state {
-                if now >= until {
-                    entry.state = KeyState::Available;
-                }
+            if let KeyState::CoolingUntil(until) = entry.state
+                && now >= until
+            {
+                entry.state = KeyState::Available;
             }
             !entry.state.is_cooling()
         } else {

@@ -43,10 +43,10 @@ impl RequestQueue {
     /// 高优先级（`Retry`/`MasterKey`）先尝试无等待插队；失败则和 `Normal`
     /// 一样进入超时等待。超时返回 `QueueTimeout`，信号量关闭返回 `QueueFull`。
     pub async fn admit(&self, priority: Priority) -> Result<QueuePermit, LimitError> {
-        if priority > Priority::Normal {
-            if let Ok(permit) = Arc::clone(&self.semaphore).try_acquire_owned() {
-                return Ok(QueuePermit(permit));
-            }
+        if priority > Priority::Normal
+            && let Ok(permit) = Arc::clone(&self.semaphore).try_acquire_owned()
+        {
+            return Ok(QueuePermit(permit));
         }
 
         match tokio::time::timeout(

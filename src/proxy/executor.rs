@@ -318,24 +318,24 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         //    Warn 策略不隔离，不在此拦截。检查发生在 catalog 解析之后、
         //    上游分流之前（MCP 与 HTTP API 共用同一隔离集合），键为 canonical——
         //    经 alias 调用的隔离工具同样被拦。
-        if let Some(quarantined) = &self.quarantined {
-            if let Some(policy) = quarantined.read().await.get(canonical.as_str()).copied() {
-                let msg = match policy {
-                    IntegrityPolicy::Quarantine => {
-                        format!("tool quarantined due to integrity drift: {wire_name}")
-                    }
-                    IntegrityPolicy::Block => {
-                        format!("tool blocked due to integrity drift: {wire_name}")
-                    }
-                    IntegrityPolicy::Warn => {
-                        // Warn 不应出现在隔离集合中，防御性处理
-                        return Err(ProxyError::InvalidToolCall(format!(
-                            "unexpected warn policy in quarantine set for: {wire_name}"
-                        )));
-                    }
-                };
-                return Err(ProxyError::InvalidToolCall(msg));
-            }
+        if let Some(quarantined) = &self.quarantined
+            && let Some(policy) = quarantined.read().await.get(canonical.as_str()).copied()
+        {
+            let msg = match policy {
+                IntegrityPolicy::Quarantine => {
+                    format!("tool quarantined due to integrity drift: {wire_name}")
+                }
+                IntegrityPolicy::Block => {
+                    format!("tool blocked due to integrity drift: {wire_name}")
+                }
+                IntegrityPolicy::Warn => {
+                    // Warn 不应出现在隔离集合中，防御性处理
+                    return Err(ProxyError::InvalidToolCall(format!(
+                        "unexpected warn policy in quarantine set for: {wire_name}"
+                    )));
+                }
+            };
+            return Err(ProxyError::InvalidToolCall(msg));
         }
 
         // 4. remote MCP tool 分流：catalog/policy/limits/observability 仍统一生效。

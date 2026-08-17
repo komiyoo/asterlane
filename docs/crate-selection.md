@@ -1,7 +1,7 @@
 ---
 type: Architecture Decision
 title: Crate 选型矩阵
-description: 基于 2026-07 官方文档与 crates.io 核实，确定 Asterlane 各能力维度的 Rust crate 选型与版本。
+description: 基于 2026-08 官方文档与 crates.io 核实，确定 Asterlane 各能力维度的 Rust crate 选型与版本。
 resource: docs/crate-selection.md
 tags: [crates, dependencies, architecture, rust]
 timestamp: 2026-08-17T00:00:00Z
@@ -11,7 +11,7 @@ timestamp: 2026-08-17T00:00:00Z
 
 Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础设施能力优先使用成熟 Rust crate；除非有明确文档化理由，不要手写复杂行为"。本文件记录各能力维度的 crate 选型、版本、选型理由与维护状态核实结果，作为依赖增减的决策依据。
 
-所有版本与维护状态已于 2026-07-03 通过 crates.io API 与 GitHub 核实。新增依赖时必须更新本表并在 PR 中说明选型理由。
+所有版本与维护状态已于 2026-08-17 通过 crates.io API 核实。新增依赖时必须更新本表并在 PR 中说明选型理由。包级 MSRV 为 1.94（由 `sqlx` 0.9 决定）。
 
 # 选型矩阵
 
@@ -19,16 +19,16 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 
 | 能力 | Crate | 版本 | 理由 |
 | --- | --- | --- | --- |
-| 异步运行时 | `tokio` | 1.52 | 事实标准，axum/sqlx/reqwest 均基于它。 |
+| 异步运行时 | `tokio` | 1.53 | 事实标准，axum/sqlx/reqwest 均基于它。截至 2026-08-17 锁定 `1.53.1`。 |
 | HTTP server | `axum` | 0.8 | tokio 生态主流，与 tower 中间件栈兼容；rmcp Streamable HTTP server 直接集成 axum。 |
-| 中间件 | `tower` / `tower-http` | 0.5 / 0.7 | 超时、压缩、trace、CORS 等标准中间件。0.7 基于 tower 0.5/http 1.0；求稳可先用 0.6.11。 |
+| 中间件 | `tower` / `tower-http` | 0.5 / 0.7 | 超时、压缩、trace、CORS 等标准中间件。0.7 基于 tower 0.5/http 1.0。传递依赖里仍可能出现 `tower-http` 0.6。 |
 | HTTP client | `reqwest` | 0.13 | 上游 HTTP 调用主力；TLS 已切 rustls（`default-features = false, features = ["json", "rustls"]`），去除 OpenSSL 系统依赖，利于跨平台与容器部署。注意 axum 0.8.9 的 dev-deps 仍引 reqwest 0.12，两版本可共存但会重复编译。 |
 
 ## MCP 协议
 
 | 能力 | Crate | 版本 | 理由 |
 | --- | --- | --- | --- |
-| MCP server/client | `rmcp` | 3.1 | 官方 Rust SDK（modelcontextprotocol/rust-sdk）。截至 2026-08-17 锁定 `3.1.2`，实现 MCP `2026-07-28` 并双栈兼容 `2025-11-25`。MSRV 1.88。server 端 Streamable HTTP + axum；client 端 `ClientLifecycleMode::Auto`；`subscriptions/listen`、`ttlMs`/`cacheScope`、标准请求头与 MRTR。公网部署仍按需配 `with_allowed_hosts`。迁移说明见 [MCP Protocol](mcp-protocol.md)。 |
+| MCP server/client | `rmcp` | 3.1 | 官方 Rust SDK（modelcontextprotocol/rust-sdk）。截至 2026-08-17 锁定 `3.1.2`，实现 MCP `2026-07-28` 并双栈兼容 `2025-11-25`。crate 自身 MSRV 1.88。server 端 Streamable HTTP + axum；client 端 `ClientLifecycleMode::Auto`；`subscriptions/listen`、`ttlMs`/`cacheScope`、标准请求头与 MRTR。公网部署仍按需配 `with_allowed_hosts`。迁移说明见 [MCP Protocol](mcp-protocol.md)。 |
 
 ## 配置与序列化
 
@@ -46,6 +46,8 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | 密钥包裹 | `secrecy` | 0.10 | `SecretBox<T>`/`SecretString` + `ExposeSecret`，基于 zeroize。事实标准。 |
 | 内存清零 | `zeroize` | 1.9 | secrecy 依赖；主动清零内存中的明文密钥。 |
 | 常量时间比较 | `subtle` | 2 | admin key / gateway key 校验防时序攻击。 |
+| 摘要 | `sha2` | 0.11 | gateway token 与工具指纹的 SHA-256。`digest` 0.11 的输出类型不再实现 `LowerHex`，十六进制自行格式化。`sqlx` 0.9 仍传递依赖 `sha2` 0.10。 |
+| 随机数 | `rand` | 0.10 | key pool 加权选取与 token 生成。0.10 将原 `Rng` 扩展 trait 重命名为 `RngExt`。 |
 
 ## 数据库
 
@@ -89,13 +91,13 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | --- | --- | --- | --- |
 | 错误 | `thiserror` | 2.0 | 模块级 typed error。 |
 | CLI 边界 | `anyhow` | 1.0 | main/CLI 边界聚合错误。 |
-| CLI 解析 | `clap` | 4.5 | derive 风格。 |
+| CLI 解析 | `clap` | 4.6 | derive 风格。截至 2026-08-17 锁定 `4.6.6`。 |
 
 ## OpenAPI 解析（API 自动发现）
 
 | 能力 | Crate | 版本 | 理由 |
 | --- | --- | --- | --- |
-| OpenAPI 3.x 解析 | `openapiv3` | 2.0 | 官方 OpenAPI 3.0/3.1 类型定义，用于读取第三方 spec 并提取 operation/params/schema。仅做解析，不依赖 codegen。详见 [API Discovery](api-discovery.md)。 |
+| OpenAPI 3.x 解析 | `openapiv3` | 2.2 | 官方 OpenAPI 3.0/3.1 类型定义，用于读取第三方 spec 并提取 operation/params/schema。仅做解析，不依赖 codegen。详见 [API Discovery](api-discovery.md)。 |
 
 # 依赖增减规则
 
@@ -107,7 +109,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 
 # 待决问题
 
-- `tower-http` 0.7.0 发布不足一月，是否等 0.7.x 稳定或先用 0.6.11，由实现阶段决定。
+- `axum` 0.8.9 将 `matchit` 钉在 0.8.4，`sqlx` 0.9 仍拉 `sha2` 0.10；这两处要等上游发版才能去掉重复旧版本。
 - OTel Rust 0.32 API 尚未 1.0，若第一阶段即要 OTLP 导出需接受后续升级成本。当前建议延后。
 - `serde_norway` 与 `serde_yaml_ng` 最近约一年半无新发布（YAML 解析稳定属正常），若需"活跃维护"硬指标可跟踪 `serde-saphyr` 到 0.1+。
 

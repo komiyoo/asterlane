@@ -122,10 +122,10 @@ pub fn discover_endpoints(
             if config.exclude_operations.contains(&op_key) {
                 continue;
             }
-            if let Some(ref id) = op.operation_id {
-                if config.exclude_operations.contains(id) {
-                    continue;
-                }
+            if let Some(ref id) = op.operation_id
+                && config.exclude_operations.contains(id)
+            {
+                continue;
             }
 
             let raw_segment = match &op.operation_id {

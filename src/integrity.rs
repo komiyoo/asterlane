@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::fmt::Write;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -46,7 +47,11 @@ pub fn fingerprint(descriptor: &ToolDescriptor) -> String {
     hasher.update(b"\n");
     hasher.update(schema_json.as_bytes());
     let hash = hasher.finalize();
-    format!("v1:{hash:x}")
+    let mut fp = String::from("v1:");
+    for byte in hash {
+        let _ = write!(fp, "{byte:02x}");
+    }
+    fp
 }
 
 /// Read a boolean hint from a tool's `input_schema`.
@@ -289,10 +294,10 @@ pub async fn check_drift<R: crate::store::SecurityEventRepository>(
             severity,
             details,
         };
-        if let Some(repo) = event_repo {
-            if let Err(e) = repo.insert_security_event(&security_event).await {
-                warn!(error = %e, wire_name, "failed to persist integrity drift security event");
-            }
+        if let Some(repo) = event_repo
+            && let Err(e) = repo.insert_security_event(&security_event).await
+        {
+            warn!(error = %e, wire_name, "failed to persist integrity drift security event");
         }
 
         if resource_id.is_empty() {

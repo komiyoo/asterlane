@@ -1,6 +1,6 @@
 //! 负载均衡策略枚举（见 `docs/architecture.md` Key Pool And Load Balancing）。
 
-use rand::Rng;
+use rand::RngExt;
 use rand::distr::Distribution;
 use rand::distr::weighted::WeightedIndex;
 use serde::{Deserialize, Serialize};

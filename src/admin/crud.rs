@@ -145,10 +145,10 @@ pub(super) async fn delete_resource(
         ));
     }
 
-    if let Some(repo) = &state.event_repo {
-        if let Err(e) = repo.delete_resource(&id).await {
-            warn!(%e, resource_id = %id, "failed to delete resource from store");
-        }
+    if let Some(repo) = &state.event_repo
+        && let Err(e) = repo.delete_resource(&id).await
+    {
+        warn!(%e, resource_id = %id, "failed to delete resource from store");
     }
 
     let mut new_config = (*config).clone();
@@ -236,10 +236,10 @@ pub(super) async fn delete_proxy_key(
         ));
     }
 
-    if let Some(repo) = &state.event_repo {
-        if let Err(e) = repo.delete_proxy_key(&id).await {
-            warn!(%e, proxy_key_id = %id, "failed to delete proxy key from store");
-        }
+    if let Some(repo) = &state.event_repo
+        && let Err(e) = repo.delete_proxy_key(&id).await
+    {
+        warn!(%e, proxy_key_id = %id, "failed to delete proxy key from store");
     }
 
     let mut new_config = (*config).clone();
@@ -436,34 +436,34 @@ pub(super) fn to_db_proxy_key(k: &ProxyKey) -> ProxyKeyRecord {
 }
 
 async fn persist_resource(state: &AppState, resource: &ApiResource) {
-    if let Some(repo) = &state.event_repo {
-        if let Err(e) = repo.insert_resource(&to_db_resource(resource)).await {
-            warn!(%e, resource_id = %resource.id, "failed to persist resource to store");
-        }
+    if let Some(repo) = &state.event_repo
+        && let Err(e) = repo.insert_resource(&to_db_resource(resource)).await
+    {
+        warn!(%e, resource_id = %resource.id, "failed to persist resource to store");
     }
 }
 
 async fn update_resource_db(state: &AppState, resource: &ApiResource) {
-    if let Some(repo) = &state.event_repo {
-        if let Err(e) = repo.update_resource(&to_db_resource(resource)).await {
-            warn!(%e, resource_id = %resource.id, "failed to update resource in store");
-        }
+    if let Some(repo) = &state.event_repo
+        && let Err(e) = repo.update_resource(&to_db_resource(resource)).await
+    {
+        warn!(%e, resource_id = %resource.id, "failed to update resource in store");
     }
 }
 
 async fn persist_proxy_key(state: &AppState, key: &ProxyKey) {
-    if let Some(repo) = &state.event_repo {
-        if let Err(e) = repo.insert_proxy_key(&to_db_proxy_key(key)).await {
-            warn!(%e, proxy_key_id = %key.id, "failed to persist proxy key to store");
-        }
+    if let Some(repo) = &state.event_repo
+        && let Err(e) = repo.insert_proxy_key(&to_db_proxy_key(key)).await
+    {
+        warn!(%e, proxy_key_id = %key.id, "failed to persist proxy key to store");
     }
 }
 
 async fn update_proxy_key_db(state: &AppState, key: &ProxyKey) {
-    if let Some(repo) = &state.event_repo {
-        if let Err(e) = repo.update_proxy_key(&to_db_proxy_key(key)).await {
-            warn!(%e, proxy_key_id = %key.id, "failed to update proxy key in store");
-        }
+    if let Some(repo) = &state.event_repo
+        && let Err(e) = repo.update_proxy_key(&to_db_proxy_key(key)).await
+    {
+        warn!(%e, proxy_key_id = %key.id, "failed to update proxy key in store");
     }
 }
 

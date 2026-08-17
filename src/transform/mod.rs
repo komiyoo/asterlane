@@ -231,13 +231,13 @@ fn set_at_pointer(
             }
             return Err(TransformError::InvalidPointer(pointer.to_string()));
         }
-        if !current.as_object().is_some_and(|o| o.contains_key(*part)) {
-            if let Some(obj) = current.as_object_mut() {
-                obj.insert(
-                    (*part).to_string(),
-                    serde_json::Value::Object(serde_json::Map::new()),
-                );
-            }
+        if !current.as_object().is_some_and(|o| o.contains_key(*part))
+            && let Some(obj) = current.as_object_mut()
+        {
+            obj.insert(
+                (*part).to_string(),
+                serde_json::Value::Object(serde_json::Map::new()),
+            );
         }
         current = current
             .pointer_mut(&format!("/{part}"))
@@ -258,10 +258,10 @@ fn remove_at_pointer(root: &mut serde_json::Value, pointer: &str) {
         return;
     }
     let parent_pointer = format!("/{}", parts[..parts.len() - 1].join("/"));
-    if let Some(parent) = root.pointer_mut(&parent_pointer) {
-        if let Some(obj) = parent.as_object_mut() {
-            obj.remove(parts[parts.len() - 1]);
-        }
+    if let Some(parent) = root.pointer_mut(&parent_pointer)
+        && let Some(obj) = parent.as_object_mut()
+    {
+        obj.remove(parts[parts.len() - 1]);
     }
 }
 

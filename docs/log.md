@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-08-17（依赖链升到 crates.io 最新）
+
+- **直接依赖**：`sha2` 0.10 → 0.11、`rand` 0.9 → 0.10；下限抬到 `tokio` 1.53、`clap` 4.6、`regex` 1.13、`openapiv3` 2.2。其余 crate 已是当前最新主线（`rmcp` 3.1.2、`sqlx` 0.9.0、`axum` 0.8.9、`reqwest` 0.13.4）。
+- **API**：`rand` 0.10 改用 `RngExt`；`sha2`/`digest` 0.11 指纹十六进制改为按字节格式化。
+- **MSRV**：包 `rust-version` 1.88 → 1.94，对齐 `sqlx` 0.9。
+- **Lockfile**：`cargo update` 将 107 个包锁到当时 crates.io 最新兼容版本。`axum` 仍钉 `matchit` 0.8.4，`sqlx` 仍拉 `sha2` 0.10。
+- **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、OKF 检查通过。
+
 ## 2026-08-17（RollingGo Hotel 示例配置）
 
 - **示例**：新增 `examples/gateway-rollinggo.yaml`，按内置 `rollinggo-hotel` preset 接入 `https://mcp.rollinggo.cn/mcp`；凭据只引用 `secret://env/ROLLINGGO_API_KEY`。

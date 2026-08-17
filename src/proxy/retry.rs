@@ -344,22 +344,20 @@ fn apply_params(
 
                 // Header params
                 for (field_name, header_name) in &pl.header_params {
-                    if let Some(v) = obj.get(field_name).and_then(|v| v.as_str()) {
-                        if let Ok(hv) = reqwest::header::HeaderValue::from_str(v) {
-                            if let Ok(hn) =
-                                reqwest::header::HeaderName::from_bytes(header_name.as_bytes())
-                            {
-                                builder = builder.header(hn, hv);
-                            }
-                        }
+                    if let Some(v) = obj.get(field_name).and_then(|v| v.as_str())
+                        && let Ok(hv) = reqwest::header::HeaderValue::from_str(v)
+                        && let Ok(hn) =
+                            reqwest::header::HeaderName::from_bytes(header_name.as_bytes())
+                    {
+                        builder = builder.header(hn, hv);
                     }
                 }
 
                 // Body
-                if pl.has_body {
-                    if let Some(body) = obj.get("body") {
-                        builder = builder.json(body);
-                    }
+                if pl.has_body
+                    && let Some(body) = obj.get("body")
+                {
+                    builder = builder.json(body);
                 }
             }
         }
