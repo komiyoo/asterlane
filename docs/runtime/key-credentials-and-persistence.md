@@ -76,7 +76,7 @@ proxy_keys:
 - `KeyLimits` 新增 `max_calls_per_day: Option<u64>`（W0 地基）。
 - LimitRegistry per-key 日计数 `{utc_day, count}`，UTC 零点翻转清零；准入顺序插在 `max_calls` 之后：… → max_calls → **max_calls_per_day** → 上游 rps → …
 - 超限 429，新错误码 `limit.daily_calls_exhausted`（W0 加入），Retry-After = 距下个 UTC 零点秒数。
-- 启动回填：有 store 时按当天 `usage_buckets`（granularity=hour，bucket_start ≥ 今日零点）对 proxy_key_id 求和 seed 日计数（近似口径，桶为异步写，文档化）。
+- 启动回填：有 store 时用当天 `summarize_by(ProxyKey)`（`from` = 今日 UTC 零点）seed 日计数，口径 = `request_count − error_count`（成功次数；失败已退还）。桶/事件为异步写，近似口径，文档化。
 - `/admin/proxy-keys` 行增加 `usage: {calls_total, calls_today, max_calls, max_calls_per_day}`（LimitRegistry 暴露计数 getter；无对应限额时上限为 null，计数仍返回）。
 - 控制台 key 行配额进度条（总量与当日两条，超 80% 变色）。
 

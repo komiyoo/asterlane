@@ -96,7 +96,7 @@ proxy_keys:
   4. key pool 选 key 与执行（既有）。
   admin 调试调用的合成 key 无 `limits` 配置，自然跳过第 1 步，仍受第 2、3 步保护上游。
 - **超限响应**：429，错误码 `limit.quota_exceeded`（既有），带 `Retry-After`（GCRA `reset_after` 秒）；`max_calls` 耗尽用新错误码 `limit.calls_exhausted`（429，无 Retry-After，需管理员调高配额）。命中照常落 request event（`status_kind` 沿用既有 rate-limited 口径）与 metrics。
-- **max_calls 计数口径**：通过 scope 与限流准入的调用尝试数（含上游失败），与 `request_events` 行数同口径。启动时若配置 store，用 `AggregationRepository::summarize_by(ProxyKey)` 回填内存计数器，实现跨重启累计；未配 store 时仅内存计数、重启归零（文档化的已知边界）。
+- **max_calls 计数口径**（as-built 2026-08-19）：累计/日配额计**成功完成**的 invoke。准入通过后 `record_call`；invoke 最终失败（上游 4xx/5xx/超时/连接失败、准入后 secret 解析失败、MCP 传输失败）由 `CallQuotaGuard` 调用 `refund_call` 退还这两项。被限流拒绝的尝试不计入、也不退还。GCRA rps/rpm 在 `check` 时消费且不可退还，故失败仍消耗速率令牌。远程 MCP 返回 `CallToolResult.is_error` 属于协议层完成，不退还。`request_events` 仍记录每一次尝试（含失败与 Limited）。启动回填：有 store 时 `summarize_by(ProxyKey)`，seed = `request_count − error_count`（成功次数；Limited 计入 `error_count` 且从未进入配额）。未配 store 时仅内存计数、重启归零。
 
 ## 4. MCP 健康模型（mcp/registry.rs）
 

@@ -83,14 +83,14 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 - **负载均衡策略**（enum + trait）：`round_robin`、`random`、`least_requests`、`fastest_response`（EWMA 替代滑动平均数组）、`weighted`（`rand::distr::WeightedIndex`，O(log n)）。
 - **冷却**：429/5xx 触发 key 冷却 `CoolingUntil(now + retry_after)`，failover 轮换到下一 key；429/503 优先采用上游 `Retry-After` 秒数。
 - **per-key 凭据**：`KeyPoolRegistry`（`src/keys/registry.rs`）持 resource_id → 池 + `KeyId`→secret ref 映射；重试循环每次尝试按配置策略 acquire、解析选中 key 的 ref 后注入（配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md)）。
-- **配额退还**：失败时事务性退还各维度配额（gateway key/endpoint/upstream key），封装为单一操作避免不一致。
+- **配额退还**：整数配额（per-key `max_calls` / `max_calls_per_day`）在准入时扣减一次，同一次 invoke 内的重试不再扣减；invoke 最终失败（含准入后的 secret 解析失败）由 `CallQuotaGuard` Drop 退还。GCRA rps/rpm 不可退还（governor 无 un-consume）。并发槽由 `QueuePermit` RAII 归还。不存在独立的 endpoint / upstream-key 整数配额可退。
 
 # Rate Limit And Queue
 
 借鉴 NyaProxy（`services/limit.py`、`core/queue.py`）：
 
 - **限流维度**（类型化 `LimiterKey` 枚举替代字符串拼接）：`Endpoint(ApiId)`、`UpstreamKey(ApiId, KeyId)`、`Ip(ApiId, IpAddr)`、`GatewayPrincipal(ApiId, PrincipalId)`。
-- **算法**：`governor` GCRA（O(1) 内存）。需精确 `time_until_reset` 与退还语义的场景保留滑动窗口自实现——这是待决问题（见 [Crate Selection – 待决问题](crate-selection.md)）。
+- **算法**：`governor` GCRA（O(1) 内存）。整数配额可退还；GCRA 令牌不能退还。`Retry-After` 从 check 失败时的 `wait_time_from` 传递，不做非消费 peek（governor 不支持）。
 - **队列**：每 API 一个 tokio 调度器，优先级队列（重试 > master key > 普通），`tokio::time::timeout` 包裹排队，过期直接 429。
 
 # Request Transformation
@@ -103,13 +103,12 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 # Retry And Failover
 
-借鉴 NyaProxy（`core/queue.py:201-331`）决策顺序：
+借鉴 NyaProxy（`core/queue.py:201-331`）的决策顺序，按 Asterlane 解释为：
 
-1. 释放 key（RAII guard Drop）。
-2. 退还各维度配额。
-3. 判定可重试：方法白名单 × 状态码白名单（默认 429/500/502/503/504）× 次数上限。
-4. 命中则冷却当前 key + 抖动退避（`backon` `ExponentialBuilder`）+ failover 轮换下一 key。
-5. 耗尽则 `proxy.retry_exhausted` 错误。
+1. 释放上游 key（RAII guard Drop）。
+2. 判定可重试：方法白名单 × 状态码白名单（默认 429/500/502/503/504）× 次数上限。同一次 invoke 只准入一次，重试不重复扣 `max_calls`。
+3. 命中则冷却当前 key + 抖动退避（`backon` `ExponentialBuilder`）+ failover 轮换下一 key。
+4. 耗尽则 `proxy.retry_exhausted`；executor 侧未 `commit` 的 `CallQuotaGuard` Drop，退还本次准入扣下的累计/日配额。HTTP 4xx 等不可重试失败同样退还（协议层 MCP `is_error` 仍视为调用完成，不退还）。
 
 # Credential Vault
 

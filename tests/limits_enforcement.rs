@@ -16,8 +16,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
-/// 极简 mock 上游：读请求 → 可选延迟 → 200 JSON。
-async fn start_mock_upstream(delay: Duration) -> SocketAddr {
+/// 极简 mock 上游：读请求 → 可选延迟 → 固定状态码 JSON。
+async fn start_mock_upstream_status(status: u16, delay: Duration) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("local addr");
     tokio::spawn(async move {
@@ -34,7 +34,7 @@ async fn start_mock_upstream(delay: Duration) -> SocketAddr {
                 }
                 let body = br#"{"ok":true}"#;
                 let header = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     body.len()
                 );
                 let _ = sock.write_all(header.as_bytes()).await;
@@ -43,6 +43,11 @@ async fn start_mock_upstream(delay: Duration) -> SocketAddr {
         }
     });
     addr
+}
+
+/// 极简 mock 上游：读请求 → 可选延迟 → 200 JSON。
+async fn start_mock_upstream(delay: Duration) -> SocketAddr {
+    start_mock_upstream_status(200, delay).await
 }
 
 fn parse_config(yaml: &str) -> GatewayConfig {
@@ -217,6 +222,46 @@ async fn max_calls_exhausted_returns_429_calls_exhausted() {
             .contains('2'),
         "不应泄漏内部计数: {json}"
     );
+}
+
+// ── 上游失败退还 max_calls：第二次 invoke 不再 calls_exhausted ──
+
+#[tokio::test]
+async fn upstream_failure_refunds_max_calls() {
+    let addr = start_mock_upstream_status(500, Duration::ZERO).await;
+    let yaml = base_yaml(
+        addr,
+        "",
+        r#"
+  - id: agent
+    allowed_tools: ['^search:.*']
+    limits: { max_calls: 1 }
+"#,
+    );
+    let app = app_for(parse_config(&yaml));
+
+    let first = app
+        .clone()
+        .oneshot(invoke_req("search__mock__search", "agent"))
+        .await
+        .expect("first");
+    assert_ne!(
+        first.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "first failure is upstream, not quota"
+    );
+
+    let second = app
+        .oneshot(invoke_req("search__mock__search", "agent"))
+        .await
+        .expect("second");
+    assert_ne!(
+        second.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "failed invoke must refund max_calls"
+    );
+    let json = body_json(second.into_body()).await;
+    assert_ne!(json["error"]["code"], "limit.calls_exhausted");
 }
 
 // ── 上游 max_concurrent=1：并发第二请求排队超时 503 ──

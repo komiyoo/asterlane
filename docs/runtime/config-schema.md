@@ -274,7 +274,7 @@ proxy_keys:
 
 Rules use Rust regex syntax. 配置中的正则可使用冒号形式（`^search:tavily:`）或 wire name 形式（`^search__tavily__`），policy 层统一翻译为 wire name 匹配。`denied_tools` override `allowed_tools`。
 
-范围判定（见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §2）：`denied_tools` 命中即拒绝；否则允许 = 正则命中 ∨ 工具所属上游 id ∈ `allowed_servers` ∨ wire name ∈ `allowed_tool_names`；三个允许列表全空 → 全拒绝。`limits.max_calls` 为累计配额：配置 store 时从事件计数回填、跨重启累计，未配 store 时仅内存计数。
+范围判定（见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §2）：`denied_tools` 命中即拒绝；否则允许 = 正则命中 ∨ 工具所属上游 id ∈ `allowed_servers` ∨ wire name ∈ `allowed_tool_names`；三个允许列表全空 → 全拒绝。`limits.max_calls` / `max_calls_per_day` 计成功完成次数：invoke 失败退还；配置 store 时 seed = `request_count − error_count`，未配 store 时仅内存计数。GCRA rps/rpm 失败不退还。
 
 # Tool Discovery Query
 

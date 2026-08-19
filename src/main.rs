@@ -308,8 +308,9 @@ async fn serve(args: ServeArgs) -> Result<()> {
     }
 
     // 限额引擎：启动期从配置构建（数值 0 非法 fail fast）；有 store 时用
-    // 每 key 请求总数回填 max_calls 计数（减去被限流拒绝的行，与准入计数同口径；
-    // 无 store 仅内存计数，重启归零——见 docs/runtime/mcp-governance-and-key-limits.md §3）
+    // 每 key 成功次数回填 max_calls（request_count − error_count；失败已退还，
+    // Limited 计入 error_count 且从未记入配额。无 store 仅内存计数，重启归零
+    // ——见 docs/runtime/mcp-governance-and-key-limits.md §3）
     let limit_registry =
         asterlane::limits::LimitRegistry::from_config(&config).context("invalid limits config")?;
     if let Some(repo) = &state.event_repo {
@@ -324,14 +325,13 @@ async fn serve(args: ServeArgs) -> Result<()> {
         {
             Ok(rows) => {
                 for row in rows {
-                    let admitted = (row.request_count - row.rate_limit_hits).max(0) as u64;
-                    limit_registry.seed_call_count(&row.dimension_value, admitted);
+                    let successes = (row.request_count - row.error_count).max(0) as u64;
+                    limit_registry.seed_call_count(&row.dimension_value, successes);
                 }
             }
             Err(e) => warn!(error = %e, "failed to seed max_calls counters from store"),
         }
-        // 日配额回填：当天（UTC 零点起）事件按 key 求和，与准入口径一致
-        // （近似口径，事件为异步写；见 docs/runtime/key-credentials-and-persistence.md K3）
+        // 日配额回填：当天（UTC 零点起）事件按 key 求和成功次数
         let day_start = chrono::Utc::now()
             .date_naive()
             .and_time(chrono::NaiveTime::MIN)
@@ -346,8 +346,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
         {
             Ok(rows) => {
                 for row in rows {
-                    let admitted = (row.request_count - row.rate_limit_hits).max(0) as u64;
-                    limit_registry.seed_daily_count(&row.dimension_value, admitted);
+                    let successes = (row.request_count - row.error_count).max(0) as u64;
+                    limit_registry.seed_daily_count(&row.dimension_value, successes);
                 }
             }
             Err(e) => warn!(error = %e, "failed to seed daily call counters from store"),

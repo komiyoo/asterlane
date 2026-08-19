@@ -15,7 +15,7 @@ use crate::catalog::{CatalogError, ToolCatalog, ToolQualifiers};
 use crate::config::{GatewayConfig, ProxyKey, SecurityConfig};
 use crate::integrity::{IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
-use crate::limits::{LimitRegistry, QueuePermit};
+use crate::limits::{CallQuotaGuard, LimitRegistry, QueuePermit};
 use crate::mcp::{
     MCP_INPUT_REQUIRED_CONTENT_TYPE, McpServerRegistry, ToolCallExtras, UpstreamCallOutcome,
 };
@@ -350,6 +350,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             let _permit = self
                 .admit_or_record(proxy_key, &tool.resource_id, &canonical, &captured_args)
                 .await?;
+            let quota = self.quota_guard(&proxy_key.id);
 
             let request_id = next_request_id();
             tracing::Span::current().record("request_id", request_id.as_str());
@@ -363,6 +364,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
             match result {
                 Ok(UpstreamCallOutcome::InputRequired(payload)) => {
+                    if let Some(guard) = quota {
+                        guard.commit();
+                    }
                     let body = serde_json::to_vec(&payload).unwrap_or_default();
                     self.record_event(
                         &request_id,
@@ -389,6 +393,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     });
                 }
                 Ok(UpstreamCallOutcome::Complete(tool_result)) => {
+                    if let Some(guard) = quota {
+                        guard.commit();
+                    }
                     // registry 调用计时即上游服务端耗时（单次尝试，无排队/重试）
                     let response_preview = self.capture_tool_result(&tool_result);
                     self.record_event(
@@ -460,6 +467,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         let _permit = self
             .admit_or_record(proxy_key, &resource.id, &canonical, &captured_args)
             .await?;
+        let quota = self.quota_guard(&proxy_key.id);
 
         // 8. resolve secret：有 key pool 的资源在重试循环内 per-key 解析，
         //    此处跳过单 ref 解析（auth 中的单 ref 不再使用）
@@ -496,6 +504,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
         match outcome {
             Ok((result, retry_count, upstream_key_ref, upstream_ms)) => {
+                if let Some(guard) = quota {
+                    guard.commit();
+                }
                 let response_preview = self.capture_body_preview(&result.body);
                 self.record_event(
                     &request_id,
@@ -545,12 +556,20 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         }
     }
 
+    /// 准入成功后持有；invoke 失败（含 secret 解析 `?`）时 Drop 退还累计/日配额。
+    fn quota_guard(&self, proxy_key_id: &str) -> Option<CallQuotaGuard> {
+        self.limits
+            .as_ref()
+            .map(|registry| CallQuotaGuard::new(Arc::clone(registry), proxy_key_id))
+    }
+
     /// 统一准入 choke point（REST invoke / MCP tools/call / admin 调试共用）。
     ///
     /// 未注入注册表时放行；被拒时按既有 rate-limited 口径落 request event
     /// （status `Limited`、`rate_limited: true`）与 metrics 后返回 `ProxyError::Limit`。
-    /// 被拒事件带 `rate_limited: true` 标记，启动回填 `max_calls` 时据此从
-    /// 行数中扣除（见 docs/runtime/mcp-governance-and-key-limits.md §3 计数口径）。
+    /// 被拒事件带 `rate_limited: true` 标记，启动回填 `max_calls` 时从
+    /// `request_count - error_count` 取成功次数（失败已退还，Limited 从未计入；
+    /// 见 docs/runtime/mcp-governance-and-key-limits.md §3 计数口径）。
     async fn admit_or_record(
         &self,
         proxy_key: &ProxyKey,
@@ -617,9 +636,10 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 mod tests {
     use super::*;
     use crate::config::{
-        ApiResource, HttpMethod, McpServerConfig, ProxyKey, SecurityConfig, ToolEndpoint,
-        UpstreamAuth,
+        ApiResource, HttpMethod, KeyLimits, McpServerConfig, ProxyKey, SecurityConfig,
+        ToolEndpoint, UpstreamAuth,
     };
+    use crate::limits::{LimitError, LimitRegistry};
     use crate::mcp::model::ToolContent;
     use crate::mcp::{McpError, McpServerRegistry, RemoteMcpPeer};
     use crate::observability::{RequestEvent, SecurityEvent};
@@ -1547,6 +1567,105 @@ mod tests {
             ProxyError::UpstreamError(status) => assert_eq!(status, 404),
             other => panic!("expected UpstreamError(404), got {other:?}"),
         }
+    }
+
+    fn set_max_calls(config: &mut GatewayConfig, n: u64) {
+        config.proxy_keys[0].limits = Some(KeyLimits {
+            max_calls: Some(n),
+            ..Default::default()
+        });
+    }
+
+    #[tokio::test]
+    async fn invoke_upstream_500_refunds_max_calls() {
+        let addr = start_mock_upstream(500, br#"{"error":"internal"}"#.to_vec()).await;
+        let mut config = mock_config(format!("http://{addr}"));
+        set_max_calls(&mut config, 1);
+        let limits = Arc::new(LimitRegistry::from_config(&config).expect("limits"));
+        let exec = executor(config, Arc::new(MockSecretStore::default()))
+            .with_max_attempts(1)
+            .with_limits(limits.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        let err = exec
+            .invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProxyError::UpstreamError(500)),
+            "expected UpstreamError(500), got {err:?}"
+        );
+        assert_eq!(
+            limits.key_usage("agent-test").map(|u| u.calls_total),
+            Some(0)
+        );
+
+        let err = exec
+            .invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        assert!(
+            !matches!(err, ProxyError::Limit(LimitError::CallsExhausted)),
+            "refunded quota must admit the next invoke, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn invoke_secret_resolve_failure_refunds_max_calls() {
+        let mut config = tavily_config();
+        set_max_calls(&mut config, 1);
+        let limits = Arc::new(LimitRegistry::from_config(&config).expect("limits"));
+        let exec =
+            executor(config, Arc::new(MockSecretStore::default())).with_limits(limits.clone());
+        let key = proxy_key(&exec.config, "agent-search").clone();
+
+        let err = exec
+            .invoke("search__tavily__web_search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        let asterlane: crate::error::AsterlaneError = err.into();
+        assert_eq!(
+            asterlane.error_code(),
+            crate::error::ErrorCode::AuthMissingUpstreamSecret
+        );
+        assert_eq!(
+            limits.key_usage("agent-search").map(|u| u.calls_total),
+            Some(0)
+        );
+
+        let err = exec
+            .invoke("search__tavily__web_search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        assert!(
+            !matches!(err, ProxyError::Limit(LimitError::CallsExhausted)),
+            "secret failure after admit must refund, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn invoke_success_does_not_refund_max_calls() {
+        let addr = start_mock_upstream(200, br#"{"ok":true}"#.to_vec()).await;
+        let mut config = mock_config(format!("http://{addr}"));
+        set_max_calls(&mut config, 1);
+        let limits = Arc::new(LimitRegistry::from_config(&config).expect("limits"));
+        let exec =
+            executor(config, Arc::new(MockSecretStore::default())).with_limits(limits.clone());
+        let key = proxy_key(&exec.config, "agent-test").clone();
+
+        exec.invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .expect("first success consumes quota");
+        assert_eq!(
+            limits.key_usage("agent-test").map(|u| u.calls_total),
+            Some(1)
+        );
+
+        let err = exec
+            .invoke("search__mock__search", serde_json::json!({}), &key)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ProxyError::Limit(LimitError::CallsExhausted)));
     }
 
     // ── key pool 集成 ──

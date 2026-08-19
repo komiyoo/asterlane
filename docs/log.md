@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-08-19（配额失败退还累计/日配额）
+
+- **行为**：`admit` 通过后 `record_call`；invoke 最终失败（上游错误、超时、连接失败、准入后 secret 解析失败、MCP 传输失败）由 `CallQuotaGuard` Drop 调用 `refund_call`，退还 `max_calls` 与同日 `max_calls_per_day`。成功路径 `commit` 不退还。GCRA rps/rpm 不可退还；并发槽仍由 `QueuePermit` Drop 归还。远程 MCP `is_error` 视为协议完成，不退还。
+- **启动回填**：`main.rs` seed 改为 `request_count − error_count`（成功次数）。Limited 计入 `error_count` 且从未记入配额，不再用 `request_count − rate_limit_hits`（会把失败算进配额）。
+- **测试**：`limits::registry` 覆盖退还、跨日、rps 不退、guard commit；`proxy::executor` 覆盖 500 / secret 失败退还与成功不退；`tests/limits_enforcement.rs` HTTP 边界。
+- **文档**：[Architecture](architecture/architecture.md) Key Pool / Rate Limit / Retry 改为 as-built；[MCP Governance](runtime/mcp-governance-and-key-limits.md) §3 计数口径；[Configuration Schema](runtime/config-schema.md)、[Key Credentials](runtime/key-credentials-and-persistence.md) K3、[Roadmap](product/roadmap.md) Phase 7 已交付。
+- **范围**：本切片只修网关自身配额正确性，不接请求变换、不接 OAuth / multipart 等上下游业务适配。
+- **验证**：`just check`（fmt / clippy `--all-targets -D warnings` / `cargo test` / OKF）。
+
 ## 2026-08-19（L0 改为渐进发现；验证只在本机）
 
 - **L0**：`AGENTS.md` 去掉 unison / mini 构建机验证段。研发验证只在本机当前仓库根跑 `just check`。

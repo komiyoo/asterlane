@@ -78,7 +78,7 @@ timestamp: 2026-08-19T00:00:00Z
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
 | **`request_events` 无限增长**，无保留策略 | 生产就绪（重） | `migrations/` 与 `src/store/` 无删除、归档或分区路径 |
-| **配额失败不退还** | 兑现差 | [Architecture](../architecture/architecture.md) 明写「失败时事务性退还各维度配额」；`limits::registry` 在准入通过后即 `record_call`，无退还路径 |
+| **已交付：配额失败退还**（2026-08-19） | 兑现差（已清） | `limits::registry` 的 `refund_call` + `CallQuotaGuard`：准入后 invoke 失败退还 `max_calls` / `max_calls_per_day`。GCRA rps/rpm 不可退还；并发槽仍由 `QueuePermit` Drop 归还。启动 seed = `request_count − error_count` |
 | **成本 / 额度统计未实现** | 定位缺口 | `request_units` 在 `proxy::post` 恒为 1。[Product Requirements](product-requirements.md) 明确列入观测要求 |
 | **admin CLI 缺写操作** | 兑现差 | `cli::admin` 的 `AdminCommand` 无 resources / proxy-keys / mcp-servers 的 create / update / delete；根 `README.md` 已下调该声称，写操作本身仍缺 |
 | upstream keys 无 admin API，key pool 不支持热更新 | 定位缺口 | `upstream_keys` 表与 repository 存在但运行时不写；`admin::crud` 的配置热替换不重建 `KeyPoolRegistry` |
@@ -117,10 +117,9 @@ timestamp: 2026-08-19T00:00:00Z
 
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
-- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / Vault·Infisical / admin CLI 过声称
+- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / Vault·Infisical / admin CLI 过声称；上游失败退还 `max_calls` / `max_calls_per_day`
 - 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
 - Vault / Infisical 装配：配置 schema + `main.rs` 按配置调 `with_vault` / `with_infisical`，补启动期可达性校验
-- 配额退还：上游失败时按 [Architecture](../architecture/architecture.md) 的顺序退还各维度计数，退还与扣减封装为单一操作
 - admin CLI 补齐 resources / proxy-keys / mcp-servers 的写操作（README 已不再声称覆盖全部）
 - `request_events` 保留策略：可配置窗口 + 后台清理任务
 - HTTP 边界：请求体大小上限、请求超时、基础安全响应头

@@ -12,10 +12,12 @@
 //!
 //! `admit` 是 REST invoke、MCP tools/call（含 lazy）与 admin 调试调用共用的
 //! 单一准入 choke point；配置热更新（CRUD）时整体重建并携带已用计数。
+//! 准入通过后 `record_call`；invoke 最终失败由 [`CallQuotaGuard`] Drop 调用
+//! [`LimitRegistry::refund_call`] 退还累计/日配额。GCRA rps/rpm 不可退还。
 
 use std::collections::HashMap;
 use std::num::NonZeroU32;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use chrono::{DateTime, Days, NaiveDate, NaiveTime, Utc};
@@ -77,6 +79,43 @@ impl KeyCounters {
 
 /// 所有出现过的 key 的调用计数表。
 type UsageMap = HashMap<String, KeyCounters>;
+
+/// 准入通过后持有。未 [`commit`](CallQuotaGuard::commit) 即 Drop 时退还
+/// 本次 `record_call` 计入的累计/日配额。
+///
+/// 用 [`Arc`] 持有注册表，避免与 `ProxyExecutor::invoke` 的 `&self` 重叠借用。
+/// GCRA rps/rpm 不可退还（governor 无 un-consume）；并发槽由 [`QueuePermit`] Drop 归还。
+#[must_use = "dropping without commit refunds max_calls / max_calls_per_day"]
+#[derive(Debug)]
+pub struct CallQuotaGuard {
+    registry: Arc<LimitRegistry>,
+    key_id: String,
+    committed: bool,
+}
+
+impl CallQuotaGuard {
+    /// 在 `admit` 成功之后构造。
+    pub fn new(registry: Arc<LimitRegistry>, key_id: &str) -> Self {
+        Self {
+            registry,
+            key_id: key_id.to_string(),
+            committed: false,
+        }
+    }
+
+    /// 标记 invoke 成功完成，Drop 时不再退还。
+    pub fn commit(mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for CallQuotaGuard {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.registry.refund_call(&self.key_id);
+        }
+    }
+}
 
 /// 单 key 用量快照（admin 面板直接序列化输出，见契约 §K3）。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -145,8 +184,9 @@ impl LimitRegistry {
     ///
     /// 返回的 [`QueuePermit`]（上游配置了 `max_concurrent` 时为 `Some`）
     /// 须在上游调用期间持有，Drop 归还并发槽位。
-    /// 调用计数在全部准入通过后 +1，与 request_events 成功落行同口径
-    /// （被拒尝试不消耗累计/当日配额）。
+    /// 调用计数在全部准入通过后 +1；invoke 失败由 [`CallQuotaGuard`] 退还
+    /// 累计/日配额（成功次数口径）。被拒尝试不计入、也不退还。
+    /// GCRA rps/rpm 在 `check` 时已消费且不可退还。
     pub async fn admit(
         &self,
         proxy_key_id: &str,
@@ -182,6 +222,27 @@ impl LimitRegistry {
         // in-flight 数量；累计/日配额场景可接受，需精确预留时在锁内合并 check+incr
         self.record_call(proxy_key_id, now);
         Ok(permit)
+    }
+
+    /// 退还一次累计调用计数；若计数所属 UTC 日与 `now` 相同则同时退还当日计数。
+    ///
+    /// 未知 key、计数已为 0：空操作。跨日退还不改写旧日的 `today` 字段
+    /// （`today_on` 对「今天」已视为 0；并发跨零点的短暂偏差可接受）。
+    pub fn refund_call(&self, key_id: &str) {
+        self.refund_call_at(key_id, Utc::now());
+    }
+
+    /// `refund_call` 的时间注入形态（测试直连）。
+    fn refund_call_at(&self, key_id: &str, now: DateTime<Utc>) {
+        let today = now.date_naive();
+        let mut usage = lock(&self.usage);
+        let Some(counters) = usage.get_mut(key_id) else {
+            return;
+        };
+        counters.total = counters.total.saturating_sub(1);
+        if counters.day == today {
+            counters.today = counters.today.saturating_sub(1);
+        }
     }
 
     /// 仅检查 per-key rps/rpm（`Principal` 维度），控制面端点（`GET /config`）
@@ -625,6 +686,94 @@ proxy_keys:
         let usage = rebuilt2.key_usage_at("k", day2).expect("usage");
         assert_eq!(usage.calls_total, 3);
         assert_eq!(usage.calls_today, 1);
+    }
+
+    // ── 失败退还累计/日配额 ──
+
+    #[tokio::test]
+    async fn refund_call_restores_max_calls() {
+        let reg = registry("proxy_keys: [{id: k, limits: {max_calls: 1}}]");
+        assert!(reg.admit("k", "up").await.is_ok());
+        assert!(matches!(
+            reg.admit("k", "up").await.unwrap_err(),
+            LimitError::CallsExhausted
+        ));
+        reg.refund_call("k");
+        assert!(reg.admit("k", "up").await.is_ok());
+        let usage = reg.key_usage("k").expect("usage");
+        assert_eq!(usage.calls_total, 1);
+    }
+
+    #[tokio::test]
+    async fn refund_unknown_key_is_noop() {
+        let reg = registry("proxy_keys: [{id: k, limits: {max_calls: 1}}]");
+        reg.refund_call("missing");
+        assert!(reg.admit("k", "up").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn refund_does_not_underflow() {
+        let reg = registry("proxy_keys: [{id: k, limits: {max_calls: 1}}]");
+        reg.refund_call("k");
+        assert_eq!(reg.key_usage("k").map(|u| u.calls_total), Some(0));
+        assert!(reg.admit("k", "up").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn refund_restores_daily_quota() {
+        let reg = registry("proxy_keys: [{id: k, limits: {max_calls_per_day: 1}}]");
+        let now = at("2026-07-06T12:00:00Z");
+        assert!(reg.admit_at("k", "up", now).await.is_ok());
+        assert!(matches!(
+            reg.admit_at("k", "up", now).await.unwrap_err(),
+            LimitError::DailyCallsExhausted { .. }
+        ));
+        reg.refund_call_at("k", now);
+        assert!(reg.admit_at("k", "up", now).await.is_ok());
+        let usage = reg.key_usage_at("k", now).expect("usage");
+        assert_eq!(usage.calls_today, 1);
+        assert_eq!(usage.calls_total, 1);
+    }
+
+    #[tokio::test]
+    async fn refund_other_day_does_not_decrement_today() {
+        let reg = registry("proxy_keys: [{id: k, limits: {max_calls: 2, max_calls_per_day: 2}}]");
+        let day1 = at("2026-07-06T12:00:00Z");
+        let day2 = at("2026-07-07T12:00:00Z");
+        assert!(reg.admit_at("k", "up", day1).await.is_ok());
+        reg.refund_call_at("k", day2);
+        let usage = reg.key_usage_at("k", day2).expect("usage");
+        assert_eq!(usage.calls_total, 0);
+        assert_eq!(usage.calls_today, 0);
+        // 旧日 leftover 的 today 字段仍在，但 today_on(day2) 视为 0
+        assert!(reg.admit_at("k", "up", day2).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn refund_does_not_restore_rps_token() {
+        let reg = registry("proxy_keys: [{id: k, limits: {rps: 1}}]");
+        assert!(reg.admit("k", "up").await.is_ok());
+        reg.refund_call("k");
+        assert!(matches!(
+            reg.admit("k", "up").await.unwrap_err(),
+            LimitError::QuotaExceeded { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn call_quota_guard_drop_refunds_unless_committed() {
+        let reg = Arc::new(registry("proxy_keys: [{id: k, limits: {max_calls: 1}}]"));
+        assert!(reg.admit("k", "up").await.is_ok());
+        let guard = CallQuotaGuard::new(Arc::clone(&reg), "k");
+        drop(guard);
+        assert!(reg.admit("k", "up").await.is_ok());
+
+        let guard = CallQuotaGuard::new(Arc::clone(&reg), "k");
+        guard.commit();
+        assert!(matches!(
+            reg.admit("k", "up").await.unwrap_err(),
+            LimitError::CallsExhausted
+        ));
     }
 
     // ── key_usage 用量快照 ──

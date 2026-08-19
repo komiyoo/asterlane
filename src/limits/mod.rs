@@ -14,4 +14,4 @@ pub use error::LimitError;
 pub use key::{ApiId, LimiterKey, PrincipalId};
 pub use limiter::RateLimits;
 pub use queue::{Priority, QueuePermit, RequestQueue};
-pub use registry::{KeyUsage, LimitRegistry};
+pub use registry::{CallQuotaGuard, KeyUsage, LimitRegistry};

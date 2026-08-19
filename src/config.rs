@@ -436,8 +436,9 @@ fn default_queue_timeout_secs() -> u64 {
 
 /// Per-key 限额（`proxy_keys[]` 可选）。
 ///
-/// `max_calls` 为累计调用配额：有 store 时从事件计数回填跨重启累计，
-/// 无 store 时仅内存计数（见 docs/runtime/mcp-governance-and-key-limits.md §3）。
+/// `max_calls` 为累计调用配额：有 store 时从成功次数回填跨重启累计
+/// （`request_count − error_count`），无 store 时仅内存计数
+/// （见 docs/runtime/mcp-governance-and-key-limits.md §3）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyLimits {
     /// 每秒请求数。
