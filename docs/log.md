@@ -1,11 +1,19 @@
 # Documentation Update Log
 
+## 2026-08-19（L0 改为渐进发现；验证只在本机）
+
+- **L0**：`AGENTS.md` 去掉 unison / mini 构建机验证段。研发验证只在本机当前仓库根跑 `just check`。
+- **发现**：`AGENTS.md` 的「发现路径」改为 `docs/README.md` → 分类 README → 概念文档；研发流程第一跳是 [工程与文档](engineering/README.md)，再进入 Development Workflow / Worktree Workflow / Engineering Conventions 等。不再在 L0 并列展开全部概念文件。
+- **约定**：[Documentation Conventions](engineering/documentation-conventions.md) 写明该渐进发现；[Worktree Workflow](engineering/worktree-workflow.md) 与 [Development Workflow](engineering/development-workflow.md) 删除现行 mini/unison 规则。
+- **验证**：`python3 scripts/check_okf_docs.py`；`wc -l AGENTS.md` 低于 150；`just check`。
+
 ## 2026-08-19（Worktree 初始化与本目录验证）
 
 - **新增** [Worktree Workflow](engineering/worktree-workflow.md)：Git / Cursor Worktree 的共享与隔离表、`scripts/setup_worktree.py` 初始化步骤、必须在本树跑 `just check`、禁止用主仓 mini 路径冒充结果、起网关时钉 `ASTERLANE_CONFIG` 并换 bind。
 - **入口**：`.cursor/worktrees.json` 在建树后跑 `python3 scripts/setup_worktree.py`；`.cursor/rules/worktree.mdc` 始终提醒 agent 不要跳过 setup、不要拷 `target/`。`just worktree-init` / `worktree-doctor` / `worktree-env`；`just check` 把 doctor 放在最前。
 - **L0**：`AGENTS.md` 验证节写明 Worktree 走本目录；主仓 mini 路径仅当 unison 已同步当前 checkout。
-- **验证**：`python3 scripts/setup_worktree.py --self-test`；主仓 `--doctor` 与完整 init；在 `/.worktrees/_init-verify` 对独立 worktree `--root` 跑 init；`just check`（含 fmt/clippy/test/OKF）。
+- **收尾**：同文档补「合回 main 再拆树」；`just worktree-prune` / `worktree-prune-merged` 清失效登记、空的 `/.worktrees/`、已合并且无树占用的本地分支。当前仓库已无功能 worktree；已合并的 `feat/mcp-lazy-discovery` 由 prune-merged 删除。
+- **验证**：`python3 scripts/setup_worktree.py --self-test`；主仓 `--doctor` 与完整 init；在 `/.worktrees/_init-verify` 对独立 worktree `--root` 跑 init；`just check`（含 fmt/clippy/test/OKF）；主仓 `just worktree-prune-merged`。
 
 ## 2026-08-19（MCP `tools/list` 对齐 per-key `discovery_mode: lazy`）
 

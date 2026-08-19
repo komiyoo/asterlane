@@ -200,6 +200,121 @@ def cargo_fetch(root: Path) -> None:
         raise SystemExit(f"cargo fetch 失败：exit {result.returncode}")
 
 
+PROTECTED_BRANCHES = frozenset({"main", "master"})
+WORKTREE_DIR_NAME = ".worktrees"
+
+
+def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return run_capture(["git", "-C", str(root), *args])
+
+
+def parse_worktree_porcelain(text: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line:
+            if current:
+                rows.append(current)
+                current = {}
+            continue
+        key, _, value = line.partition(" ")
+        if key == "worktree":
+            if current:
+                rows.append(current)
+            current = {"path": value}
+        elif key == "branch":
+            current["branch"] = value.removeprefix("refs/heads/")
+        elif key == "HEAD":
+            current["head"] = value
+        elif key == "detached":
+            current["detached"] = "1"
+    if current:
+        rows.append(current)
+    return rows
+
+
+def list_worktrees(root: Path) -> list[dict[str, str]]:
+    result = git(root, "worktree", "list", "--porcelain")
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"exit {result.returncode}"
+        raise SystemExit(f"git worktree list 失败：{detail}")
+    return parse_worktree_porcelain(result.stdout)
+
+
+def merged_local_branches(root: Path, into: str = "main") -> list[str]:
+    result = git(root, "branch", "--merged", into)
+    if result.returncode != 0:
+        return []
+    names = []
+    for raw in result.stdout.splitlines():
+        name = raw.replace("*", "").strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def current_branch(root: Path) -> str | None:
+    result = git(root, "branch", "--show-current")
+    if result.returncode != 0:
+        return None
+    name = result.stdout.strip()
+    return name or None
+
+
+def prune_remnants(root: Path, *, delete_merged: bool) -> int:
+    if is_linked_worktree(root) is True:
+        raise SystemExit("请在主 checkout 运行 prune，不要在功能树里清理主仓残留")
+
+    prune = git(root, "worktree", "prune", "-v")
+    if prune.returncode != 0:
+        detail = (prune.stderr or prune.stdout).strip() or f"exit {prune.returncode}"
+        raise SystemExit(f"git worktree prune 失败：{detail}")
+    if prune.stdout.strip():
+        print(prune.stdout, end="" if prune.stdout.endswith("\n") else "\n")
+    else:
+        print("ok    git worktree prune（无失效登记）")
+
+    extras = [
+        row
+        for row in list_worktrees(root)
+        if Path(row["path"]).resolve() != root.resolve()
+    ]
+    attached_branches = {row["branch"] for row in extras if row.get("branch")}
+    for row in extras:
+        label = row.get("branch") or ("detached" if row.get("detached") else row.get("head", "?"))
+        print(f"keep  {row['path']} [{label}]  # 先合进 main，再 git worktree remove")
+
+    leftover_dir = root / WORKTREE_DIR_NAME
+    if leftover_dir.is_dir() and not any(leftover_dir.iterdir()):
+        leftover_dir.rmdir()
+        print(f"rm    空目录 {leftover_dir}")
+    elif leftover_dir.is_dir():
+        print(f"keep  {leftover_dir}（非空，需先 remove 其中的树）")
+
+    head = current_branch(root)
+    removable = [
+        name
+        for name in merged_local_branches(root)
+        if name not in PROTECTED_BRANCHES
+        and name != head
+        and name not in attached_branches
+    ]
+    for name in removable:
+        if delete_merged:
+            deleted = git(root, "branch", "-d", name)
+            if deleted.returncode != 0:
+                detail = (deleted.stderr or deleted.stdout).strip()
+                print(f"warn  无法删除已合并分支 {name}：{detail}", file=sys.stderr)
+            else:
+                print(f"rm    已合并分支 {name}")
+        else:
+            print(f"hint  已合并分支 {name}  # just worktree-prune-merged")
+
+    print("next  不要删主仓 target/ 或 rustup；功能树目录用 git worktree remove / Cursor /delete-worktree")
+    return 0
+
+
 def print_env(root: Path) -> None:
     config = root / "examples" / "gateway.yaml"
     print("# Asterlane 二进制不自动加载 .env；在本树 shell 中执行下列 export。")
@@ -226,6 +341,12 @@ def self_test() -> None:
     sample = '[package]\nrust-version = "1.94"\n'
     assert parse_msrv(sample) == "1.94"
     assert parse_msrv("[package]\nname = \"x\"\n") == DEFAULT_MSRV
+    rows = parse_worktree_porcelain(
+        "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
+        "worktree /tmp/feat\nHEAD def\nbranch refs/heads/feat/x\n"
+    )
+    assert [row["path"] for row in rows] == ["/tmp/main", "/tmp/feat"]
+    assert rows[1]["branch"] == "feat/x"
     print("self-test ok")
 
 
@@ -244,6 +365,16 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help="打印本树应 export 的变量（不执行检查）",
     )
     parser.add_argument("--self-test", action="store_true", help="运行脚本内断言")
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="在主 checkout 清理失效 worktree 登记和空的 .worktrees/",
+    )
+    parser.add_argument(
+        "--delete-merged-branches",
+        action="store_true",
+        help="与 --prune 一起：删除已合进 main 且无 worktree 占用的本地分支",
+    )
     return parser.parse_args(argv)
 
 
@@ -257,6 +388,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.print_env:
         print_env(root)
         return 0
+    if args.prune:
+        return prune_remnants(root, delete_merged=args.delete_merged_branches)
+    if args.delete_merged_branches:
+        raise SystemExit("--delete-merged-branches 必须与 --prune 一起使用")
 
     errors, warnings, notes = doctor(root)
     emit_report(errors, warnings, notes)
@@ -269,7 +404,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     cargo_fetch(root)
     print("init  cargo fetch ok")
     print("next  在本目录运行 just check（或 cargo fmt/clippy/test）")
-    print("next  禁止用 ssh mini 'cd ~/wks/aster/asterlane && cargo …' 冒充本树结果")
+    print("next  做完合回 main 后，在主仓运行 just worktree-prune")
     return 0
 
 

@@ -37,6 +37,14 @@ worktree-init:
 worktree-env:
     python3 scripts/setup_worktree.py --print-env
 
+# 主 checkout：清理失效 worktree 登记和空的 .worktrees/
+worktree-prune:
+    python3 scripts/setup_worktree.py --prune
+
+# 主 checkout：prune，并删除已合进 main 且无树占用的本地分支
+worktree-prune-merged:
+    python3 scripts/setup_worktree.py --prune --delete-merged-branches
+
 # 提交前的完整本地验证（Worktree 默认也走这条）
 check: worktree-doctor fmt-check lint test docs-check
 

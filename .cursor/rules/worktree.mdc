@@ -1,5 +1,5 @@
 ---
-description: Worktree 必须在本目录初始化并本地验证，禁止用主仓 mini 路径冒充结果
+description: Worktree 在本机当前目录初始化并验证，做完合回 main 再清理残留
 alwaysApply: true
 ---
 
@@ -7,7 +7,7 @@ alwaysApply: true
 
 - 新建 Worktree 后先读并执行 `.cursor/worktrees.json`：`python3 scripts/setup_worktree.py`。不要跳过。
 - 初始化只做工具链检查、`rustup component add rustfmt clippy` 和 `cargo fetch`。禁止从 `$ROOT_WORKTREE_PATH` 或主仓拷 `target/`、`.env`、`*.db`，禁止共享 `CARGO_TARGET_DIR`。
-- 验证必须在**当前仓库根**运行 `just check`（或 `cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`，文档再加 `python3 scripts/check_okf_docs.py`）。
-- 禁止用 `ssh mini "cd ~/wks/aster/asterlane && cargo …"` 代替本树验证。那条路径只服务被 unison 同步的主 checkout。
+- 验证必须在**当前仓库根**本机运行 `just check`。
 - 起网关时用本树 `examples/gateway.yaml`（`just worktree-env` 或 `--config`），换 `--bind`，并设置 `ASTERLANE_SERVER`。二进制不自动加载 `.env`。
-- 完整约定见 `docs/engineering/worktree-workflow.md`。
+- 做完必须合回 `main`（PR、`/apply-worktree` 或 `git merge`），再 `/delete-worktree` 或 `git worktree remove`，最后在主仓跑 `just worktree-prune`（可加 `just worktree-prune-merged`）。
+- 完整约定见 `docs/engineering/worktree-workflow.md`。发现入口是仓库根 `AGENTS.md`。

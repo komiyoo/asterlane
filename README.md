@@ -93,7 +93,7 @@ python3 scripts/check_okf_docs.py          # 文档校验
 cargo deny check              # 供应链审计
 ```
 
-Git / Cursor Worktree：进入新树后先 `just worktree-init`，验证仍在**该目录**跑 `just check`，不要用主仓 mini 路径冒充结果。约定见 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
+Git / Cursor Worktree：进入新树后先 `just worktree-init`，在**该目录**本机跑 `just check`。做完合回 `main`，再 `just worktree-prune` 清残留。从 [AGENTS.md](AGENTS.md) 的发现路径进入 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
 
 其他构建变体：
 

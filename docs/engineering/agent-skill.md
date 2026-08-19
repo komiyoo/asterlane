@@ -67,7 +67,7 @@ skill 的「Operate The Gateway With The CLI」段沉淀了 `asterlane admin` �
 
 # Worktree
 
-在 Git / Cursor Worktree 内操作网关或跑验证时，先 `just worktree-init`，再在本目录 `just check`。不要用主仓 mini 路径冒充本树结果，也不要依赖未 export 的 `.env`（二进制不自动加载）。约定见 [Worktree Workflow](worktree-workflow.md)。
+在 Git / Cursor Worktree 内操作网关或跑验证时，先 `just worktree-init`，再在本目录本机跑 `just check`。不要依赖未 export 的 `.env`（二进制不自动加载）。约定见 [Worktree Workflow](worktree-workflow.md)。
 
 # Skill 边界
 

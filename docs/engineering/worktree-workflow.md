@@ -1,7 +1,7 @@
 ---
 type: Development Workflow
 title: Worktree 工作流
-description: Git / Cursor Worktree 的环境初始化、隔离边界，以及必须在本目录完成的验证方式。
+description: Git / Cursor Worktree 的环境初始化、本目录验证，以及合回 main 后的残留清理。
 resource: docs/engineering/worktree-workflow.md
 tags: [worktree, development, validation, rust, cursor]
 timestamp: 2026-08-19T14:55:00Z
@@ -11,7 +11,7 @@ timestamp: 2026-08-19T14:55:00Z
 
 并行 agent 或并行分支使用 Git Worktree（含 Cursor `/worktree`、Agents Window、`git worktree add`）。Worktree 只隔离工作区文件和当前分支；`rustup`、`~/.cargo` 缓存、本机 `just` / `python3` 是共享的。本项目没有 `node_modules`、venv、`.sqlx/` 或 `DATABASE_URL` 要求（`src/store/sqlite.rs` 使用运行时 query，不用 `query!`）。
 
-主 checkout 的构建机路径（`ssh mini "cd ~/wks/aster/asterlane && …"`，依赖 unison）**只服务被同步的那一份工作副本**。把它用在功能 Worktree 上会测到主树，而不是当前树。
+研发验证一律在本机、当前仓库根执行。功能树与主仓都跑同一套 `just check`，不要把验证指到其他机器或其他工作副本。
 
 # 共享与隔离
 
@@ -23,7 +23,6 @@ timestamp: 2026-08-19T14:55:00Z
 | `*.db` / 真实 `.env` | 隔离 | 不要从主仓复制 |
 | OS 用户配置（macOS `~/Library/Application Support/asterlane/config.yaml`） | 共享且危险 | 必须用 `--config` 或 `ASTERLANE_CONFIG` 钉到本树 |
 | `just serve` 默认 `127.0.0.1:3000`、`compose.yaml` 的 `3721` | 冲突 | 并行时换 bind；功能树不要起 compose |
-| unison → `mini:~/wks/aster/asterlane` | 仅主 checkout | 功能树默认不同步 |
 
 Cursor 不建议把依赖目录 symlink 回主仓。[Cursor Worktrees](https://cursor.com/docs/configuration/worktrees) 用 `.cursor/worktrees.json` 在建树后跑 setup。本仓 setup **只**做医生检查、补齐 `rustfmt`/`clippy` 组件、`cargo fetch`。
 
@@ -65,21 +64,13 @@ just worktree-env
 
 # 验证
 
-Worktree 与任何未被 unison 同步的副本，默认在**本目录**验证：
+主仓与功能树都在**当前目录**本机验证：
 
 ```bash
 just check
 ```
 
 等价于 `just worktree-doctor` + fmt + clippy（`--all-targets -D warnings`）+ `cargo test` + `python3 scripts/check_okf_docs.py`。与 CI 前四项对齐；`cargo deny` 留给 CI 的 `deny` job，不是 Worktree 必跑项。
-
-禁止：
-
-```bash
-ssh mini "cd ~/wks/aster/asterlane && cargo test"
-```
-
-这条只用于**当前改的就是主 checkout，并且 unison 已同步到 mini** 的情况。细节仍见 `AGENTS.md` 验证节。
 
 PR 上的 Linux 形状由 GitHub Actions 把关。本机是 `aarch64-apple-darwin` 时，本地全绿仍要等 CI。
 
@@ -95,6 +86,24 @@ export ASTERLANE_SERVER=http://127.0.0.1:3100
 ```
 
 `serve` / 离线 `list-tools` 按 `--config` > 非空 `ASTERLANE_CONFIG` > OS 用户路径读取，不扫描当前目录、不回退 `examples/`。漏设时两棵树会读同一份用户配置。在线 `admin` / `tools` 只看 `ASTERLANE_SERVER` 与 token 环境变量。
+
+# 收尾：合回 main 并清理残留
+
+Worktree 是临时工作副本，不是长期分支家。做完必须合进 `main`（或经 PR 合进 `main`），然后拆树、删已合并的本地分支、清空目录。不要让 `.worktrees/`、旁路目录或 `feat/*` 在主仓旁边堆着。
+
+1. **在功能树里**提交并通过 `just check`。
+2. **合进 main**：从该树推分支并开 PR；或 Cursor `/apply-worktree` 后再在主仓提交；或主仓 `git merge <branch>`。不要把未审查的 `target/`、`.env`、`*.db` 带回来。
+3. **拆树**：Cursor `/delete-worktree`，或主仓 `git worktree remove <path>`。有未提交改动时先处理再 `--force`。
+4. **清残留**（必须在主 checkout）：
+
+```bash
+just worktree-prune
+just worktree-prune-merged
+```
+
+`--prune` 会 `git worktree prune`、删除空的 `/.worktrees/`、列出仍登记的功能树和已合进 `main` 的本地分支。`--delete-merged-branches` 只删已合并、且没有 worktree 占用的本地分支，不动 `main` / `master`，也不删远程。
+
+仍挂着的功能树不会自动删除，避免误拆未合并工作。不要删主仓 `target/` 或用户级 `rustup` / `~/.cargo`。Cursor 机器级上限会清它自己的 `~/.cursor/worktrees/`，不代替本仓这条收尾。
 
 # Citations
 

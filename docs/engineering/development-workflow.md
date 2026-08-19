@@ -28,8 +28,8 @@ The project should borrow NyaProxy's gateway primitives, but reinterpret them fo
 
 Use this sequence before coding:
 
-1. Read `AGENTS.md`.
-2. Read `docs/README.md`，打开对应分类索引，再读该任务最近的概念文档。
+1. Read `AGENTS.md` 的发现路径，不要一次加载全部 `docs/`。
+2. 打开 `docs/README.md`，再进分类 `README.md`。研发任务先打开 [工程与文档](README.md)，再读本文件或 [Worktree Workflow](worktree-workflow.md)。
 3. If the work changes architecture, product behavior, module boundaries, database schema, error model, admin UX, or MCP behavior, update the relevant OKF doc first or in the same commit.
 4. Check the local NyaProxy reference only for concepts and test coverage ideas:
 
@@ -178,7 +178,7 @@ Do not add a crate only because it is popular. Add it when it removes real compl
 
 # Validation
 
-Worktree 与未被 unison 同步的副本必须在**本目录**验证，禁止用主仓 `ssh mini "cd ~/wks/aster/asterlane && cargo …"` 冒充结果。初始化与隔离边界见 [Worktree Workflow](worktree-workflow.md)。
+研发验证在本机、当前目录执行 `just check`。Worktree 的初始化、合回与清理见 [Worktree Workflow](worktree-workflow.md)。
 
 Before completion:
 
