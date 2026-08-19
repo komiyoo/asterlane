@@ -15,6 +15,7 @@ use tracing::instrument;
 use super::result::{invoke_result_to_mcp, tool_call_result_to_mcp};
 use crate::catalog::{CatalogError, ToolListQuery, ToolQualifiers};
 use crate::config::{GatewayConfig, ProxyKey};
+use crate::discovery::DiscoveryMode;
 use crate::gateway_auth::GatewayKeyId;
 use crate::http::AppState;
 use crate::mcp::call::{
@@ -234,6 +235,11 @@ impl ServerHandler for AsterlaneToolServer {
         let config = self.state.config_snapshot().await;
         let key = self.resolve_proxy_key(&config, &context).await?;
 
+        // lazy 只收窄 list：忽略 _meta 过滤，仅返回 meta-tool。call 路径不读此分支。
+        if DiscoveryMode::from_config_str(key.discovery_mode.as_deref()) == DiscoveryMode::Lazy {
+            return Ok(lazy_meta_tool_list());
+        }
+
         let meta = request.as_ref().and_then(|r| r.meta.as_ref());
         let query = ToolListQuery {
             domain_regex: meta_str(meta, "domain_regex"),
@@ -368,6 +374,21 @@ fn meta_str(meta: Option<&RequestMetaObject>, key: &str) -> Option<String> {
     meta.and_then(|m| m.get(key))
         .and_then(|v| v.as_str())
         .map(String::from)
+}
+
+/// `discovery_mode: lazy` 的 `tools/list`：四个 meta-tool，无 catalog、无游标。
+fn lazy_meta_tool_list() -> ListToolsResult {
+    ListToolsResult {
+        meta: None,
+        next_cursor: None,
+        tools: crate::discovery::meta_tool_descriptors()
+            .into_iter()
+            .map(descriptor_to_mcp_tool)
+            .collect(),
+        result_type: Some(rmcp::model::ResultType::COMPLETE),
+        ttl_ms: Some(TOOLS_LIST_TTL_MS),
+        cache_scope: Some(CacheScope::Private),
+    }
 }
 
 #[cfg(test)]
@@ -525,7 +546,14 @@ mod tests {
                 search_mcp_config("tavily", "tavily"),
                 search_mcp_config("exa", "exa"),
             ],
-            proxy_keys: Vec::new(),
+            // 配置里有 lazy key 但无 token：开放模式仍走 mcp_default_key（Full），
+            // 不得把某条 key 的 discovery_mode 当成全局开关。
+            proxy_keys: vec![{
+                let mut key = mcp_default_key();
+                key.id = "config-lazy".to_string();
+                key.discovery_mode = Some("lazy".to_string());
+                key
+            }],
         };
         let registry = Arc::new(
             McpServerRegistry::from_peers(&config.mcp_servers, vec![tavily.clone(), exa.clone()])

@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-08-19（MCP `tools/list` 对齐 per-key `discovery_mode: lazy`）
+
+- **行为**：Bearer 绑定的 gateway key 若 `discovery_mode: lazy`，MCP `tools/list` 只返回四个 `asterlane__*` meta-tool，`next_cursor` 为 `None`，忽略 `_meta` 过滤键；`ttlMs` / `cacheScope=private` 不变。Full（缺省）仍是 catalog 分页，末页追加 meta-tool。
+- **边界**：lazy 只收窄 list，不收窄 `tools/call` / `asterlane__search_tools` / `asterlane__call_tool`。开放模式走 `mcp_default_key`（`discovery_mode: None`），配置里存在 lazy key 不是全局开关。
+- **实现**：`mcp::server` 的 `list_tools` 在 `resolve_proxy_key` 之后按 `DiscoveryMode::from_config_str` 短路，复用 `discovery::meta_tool_descriptors` 与 `descriptor_to_mcp_tool`；鉴权与 key 绑定不变。
+- **测试**：`tests/gateway_auth.rs` 用真实 TCP + `StreamableHttpClientTransport` + `auth_header` 覆盖 lazy list、`_meta` 忽略、范围内 `call_tool`、同配置 Full key、开放模式回归。
+- **文档**：[API Discovery](runtime/api-discovery.md) 写明 MCP Full / lazy 分支；[Configuration Schema](runtime/config-schema.md) 的 `_meta` 示例改为扁平键；根 `README.md` 下调请求变换 / Vault·Infisical / admin CLI 过声称；[Roadmap](product/roadmap.md) 把 MCP lazy 从兑现差待办改为已交付，Phase 7 改为按切片推进。
+- **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py` 全通过。
+
 ## 2026-08-19（文档模块化归类与渐进式索引）
 
 - **结构**：概念文档从 `docs/*.md` 迁入五个分类目录，根 `docs/README.md` 只列分类，分类 `README.md` 再列概念。分类为 [产品与规划](product/)、[架构与决策](architecture/)、[配置与运行时](runtime/)、[管理面与 CLI](admin/)、[工程与文档](engineering/)。`docs/log.md` 仍留在 bundle 根。

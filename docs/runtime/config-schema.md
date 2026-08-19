@@ -4,7 +4,7 @@ title: Gateway Configuration Schema
 description: Documents the YAML configuration for upstream API resources, OpenAPI discovery, proxy key scopes, and tool discovery queries.
 resource: docs/runtime/config-schema.md
 tags: [configuration, schema, credentials, discovery]
-timestamp: 2026-07-22T00:00:00+08:00
+timestamp: 2026-08-19T00:00:00Z
 ---
 
 # Context
@@ -284,16 +284,15 @@ The MCP `tools/list` extension supports filtering via `_meta` (see [Naming Conve
 {
   "cursor": "...",
   "_meta": {
-    "asterlane.dev/filter": {
-      "include_regex": "^search__",
-      "domain_regex": "^search$",
-      "provider_regex": "^(tavily|exa)$",
-      "exclude_regex": "delete",
-      "limit": 20
-    }
+    "domain_regex": "^search$",
+    "provider_regex": "^(tavily|exa)$",
+    "include": "^search__",
+    "exclude": "delete"
   }
 }
 ```
+
+实现读扁平键（`src/mcp/server.rs` 的 `meta_str`），不是嵌套的 `asterlane.dev/filter`。`limit` 取自 key 的 `default_tool_page_size`，不从 `_meta` 覆盖。详情见 [API Discovery](api-discovery.md)。
 
 The gateway first applies the proxy key scope, then applies request-level filters. This keeps request-level filters as a narrowing mechanism, never a privilege escalation mechanism. 服务端按 key scope 预收窄默认 `tools/list` 结果（MCP 规范支持：tools MAY vary by authorization）。
 

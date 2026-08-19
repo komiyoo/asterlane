@@ -8,17 +8,17 @@
 
 ## 能力概览
 
-- **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（env / Vault / Infisical），永不下发给代理
+- **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（当前落地 env；Vault / Infisical 后端已实现、启动装配未接线），永不下发给代理
 - **内置 MCP preset** — 平台预集成免费 MCP server（exa / deepwiki / context7），一行启用
 - **工具命名与范围** — 稳定三段 wire name `domain__provider__tool`；per-key allow/deny 正则 scope 与结构化勾选
 - **Key 凭据化** — proxy key 真实 token（`alk_*`）签发/轮换/吊销/过期，SHA-256 摘要存储
 - **细粒度限额** — per-key rps/rpm/累计/日配额 + per-上游 rps/rpm/并发上限
 - **MCP 治理** — 供应商 CRUD、健康状态机、降级启动、自动重连、工具介绍 override
-- **渐进式发现** — `tools/list` 支持 domain/provider/tool 正则过滤 + 分页
-- **执行管线** — key pool 负载均衡、限流队列、失败重试、请求变换、content defense、结果裁剪
+- **渐进式发现** — Full key 的 `tools/list` 支持 domain/provider/tool 正则过滤 + 分页；`discovery_mode: lazy` 的 key 只列出四个 `asterlane__*` meta-tool
+- **执行管线** — key pool 负载均衡、限流队列、失败重试、content defense、结果裁剪（请求变换模块尚未接入执行路径）
 - **MCP 代理安全** — 上游工具指纹 baseline 与 drift 检测（warn/quarantine/block）
 - **观测** — 请求事件落 SQLite，负载捕获（参数/响应预览/耗时，截断+脱敏），Prometheus `/metrics`，OTLP 导出（feature `otlp`）
-- **调试与运维** — Web 管理控制台 + `asterlane admin` CLI 覆盖全部管理接口
+- **调试与运维** — Web 管理控制台 + `asterlane admin` CLI（读路径与部分写操作；resources / proxy-keys / mcp-servers 的完整写接口尚未覆盖）
 
 ## 前置条件
 

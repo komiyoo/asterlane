@@ -4,7 +4,7 @@ title: API 自动发现与 MCP 转换
 description: 定义从 OpenAPI spec 自动生成 endpoint 目录、HTTP API 转 MCP tool、第三方 MCP server 代理发现与缓存失效的机制。
 resource: docs/runtime/api-discovery.md
 tags: [discovery, openapi, mcp, architecture]
-timestamp: 2026-07-07T00:00:00Z
+timestamp: 2026-08-19T00:00:00Z
 ---
 
 # 背景
@@ -111,10 +111,15 @@ api_resources:
 `tools/list` 的过滤与分页机制（详见 [Naming Convention – 过滤与发现](../architecture/naming-convention.md)）：
 
 - 标准分页：opaque cursor，服务端决定 page size，客户端不假设固定大小。
-- 过滤参数走 `_meta` 扩展通道（键名带反向域名前缀 `asterlane.dev/*`），因为 MCP 规范未定义 `tools/list` 的自定义参数，通用客户端不会传。
+- 过滤参数走 `_meta` 扩展通道的**扁平键**（`domain_regex` / `provider_regex` / `tool_regex` / `include` / `exclude`），因为 MCP 规范未定义 `tools/list` 的自定义参数，通用客户端不会传。实现读 `meta_str(..., "domain_regex")` 这类顶层键，不是嵌套的 `asterlane.dev/filter`。
 - 服务端按 proxy key scope 预收窄默认视图（规范支持：tools MAY vary by authorization）。
 - 可选提供 `asterlane__search_tools` meta-tool（受 SEP-1923 summary/get 两段式启发），让只支持标准 `tools/list` 的客户端也能按正则搜索工具。
-- **meta-tool 始终可发现**（as-built 2026-07-07）：`asterlane__*` meta-tool 是网关自身的发现面，不依赖带外知识——MCP `tools/list` 在最后一页把 meta-tool descriptor 追加到 `tools` 数组（不占 catalog 分页游标空间）；HTTP `GET /v1/tools` Full 模式响应携带独立 `meta_tools` 字段（meta-tool 是扁平名，与结构化 `WrappedTool` 形状不同，不混入 `tools` 数组）；lazy 模式行为不变（仅返回 meta-tool）。
+- **MCP `tools/list` 按该 key 的 `discovery_mode` 分支**（与 REST `GET /v1/tools` 对齐，**不是全局开关**）：
+  - `lazy`：只返回四个 meta-tool（`asterlane__status`、`asterlane__search_tools`、`asterlane__call_tool`、`asterlane__fetch_result`），不得出现 catalog 名；`next_cursor` 为 `None`；请求级 `_meta` 过滤键被忽略。`ttlMs` / `cacheScope=private` 与 Full 相同。
+  - Full（缺省、`None`、或无法识别的值）：catalog 按 key scope 分页；**最后一页**把 meta-tool descriptor 追加到 `tools` 数组（不占 catalog 分页游标空间）。
+- lazy 只收窄 **list**，不收窄 **call**：`tools/call` 与 `asterlane__search_tools` / `asterlane__call_tool` 仍走既有 key scope。
+- 开放模式（无 token，走 `mcp_default_key`，`discovery_mode: None`）始终是 Full；配置里存在 lazy key 不会改变未绑定请求的列表。
+- HTTP `GET /v1/tools` Full 模式响应携带独立 `meta_tools` 字段（meta-tool 是扁平名，与结构化 `WrappedTool` 形状不同，不混入 `tools` 数组）；lazy 模式仅返回 meta-tool。
 
 ## `asterlane__call_tool` 参数
 
@@ -137,12 +142,9 @@ meta-tool `asterlane__call_tool` 间接调用已发现工具，参数：
   "params": {
     "cursor": "...",
     "_meta": {
-      "asterlane.dev/filter": {
-        "domain_regex": "^search$",
-        "provider_regex": "^(tavily|exa)$",
-        "include_regex": "^search__",
-        "limit": 20
-      }
+      "domain_regex": "^search$",
+      "provider_regex": "^(tavily|exa)$",
+      "include": "^search__"
     }
   }
 }

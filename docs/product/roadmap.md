@@ -11,7 +11,7 @@ timestamp: 2026-08-19T00:00:00Z
 
 本文件 supersede [Architecture](../architecture/architecture.md) 原 Roadmap 节（Phase 1–6）。原 roadmap 长期停在「Phase 1（当前）」，而 Phase 1–6 的主体能力早已交付，继续保留只会误导。
 
-评估基线：截至 2026-08-19 的 `main`。结论来自源码通读与 `docs/` 全量对照，证据以文件路径 + 符号名给出（不写行号，行号必腐烂）。
+评估基线：截至 2026-08-19 的 `main`，并计入同日交付的 MCP `tools/list` lazy 切片。结论来自源码通读与 `docs/` 全量对照，证据以文件路径 + 符号名给出（不写行号，行号必腐烂）。
 
 评估口径不是「功能清单还差几项」，而是**产品定位的每根支柱还差什么**。定位见 [Product Requirements](product-requirements.md)：面向代理原生场景的第三方资源、HTTP API、MCP 服务器与凭据访问网关，不是模型转发网关。
 
@@ -50,20 +50,20 @@ timestamp: 2026-08-19T00:00:00Z
 
 ## 支柱三：渐进式工具发现
 
+**主路径已对齐**（2026-08-19）：`mcp::server` 的 `list_tools` 与 REST `GET /v1/tools` 一样读 `DiscoveryMode`；lazy key 只返回四个 `asterlane__*` meta-tool，call 路径不收窄。开放模式仍走 `mcp_default_key`（Full）。
+
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| **MCP 路径不认 lazy 模式** | 兑现差（重） | `DiscoveryMode` 只在 `http::routes` 的 REST `GET /v1/tools` 分支判断；`mcp::server` 的 `list_tools` 不读 key 的 `discovery_mode`，始终返回 catalog 分页 |
 | 不监听上游 `tools/list_changed`，仅 60s 轮询 | 定位缺口 | `src/main.rs` 的后台 refresh task 用常量 `MCP_REFRESH_INTERVAL_SECS`；`mcp::registry` 的 `RemoteMcpPeer` 无通知订阅。[API Discovery](../runtime/api-discovery.md) 承诺即时失效 |
 | 刷新间隔与 `tools/list` 缓存 TTL 硬编码 | 生产就绪 | 同上常量；`mcp::server` 的 TTL 常量 |
-| `_meta` 过滤键形态文档与实现不一致 | 文档腐烂 | 实现读扁平键，[API Discovery](../runtime/api-discovery.md) 写嵌套 `asterlane.dev/filter` |
 
-**判断**：MCP `tools/list` 是代理接入的主路径，REST 是旁路。渐进式发现是本项目对外的核心差异点，却恰好在主路径上不生效——这个反差必须尽快消除。
+**判断**：代理主路径上的 lazy 兑现差已清。剩余是上游变更通知与 TTL 可配置，归 Phase 8 / 生产就绪，不阻塞当前 agent 接入。
 
 ## 支柱四：统一上游接入
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| **请求变换完全未接线** | 兑现差（重） | `transform::apply_transforms` 只有模块内单测调用，`proxy` 不引用，`GatewayConfig` 无 transforms 配置节。根 `README.md` 能力概览仍列「请求变换」 |
+| **请求变换完全未接线** | 兑现差（重） | `transform::apply_transforms` 只有模块内单测调用，`proxy` 不引用，`GatewayConfig` 无 transforms 配置节。根 `README.md` 已下调为「尚未接入执行路径」，接线 / 删除仍待产品决策 |
 | 只代理 tools，不代理 resources / prompts | 定位缺口 | `mcp::server` 的 `get_info` 仅广告 tools 能力；`RemoteMcpPeer` 只有 `list_tools` / `call_tool` |
 | 无 stdio / 本地进程 MCP server | 待决策 | `mcp::registry` 仅用 `StreamableHttpClientTransport` |
 | 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口 | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建 |
@@ -80,7 +80,7 @@ timestamp: 2026-08-19T00:00:00Z
 | **`request_events` 无限增长**，无保留策略 | 生产就绪（重） | `migrations/` 与 `src/store/` 无删除、归档或分区路径 |
 | **配额失败不退还** | 兑现差 | [Architecture](../architecture/architecture.md) 明写「失败时事务性退还各维度配额」；`limits::registry` 在准入通过后即 `record_call`，无退还路径 |
 | **成本 / 额度统计未实现** | 定位缺口 | `request_units` 在 `proxy::post` 恒为 1。[Product Requirements](product-requirements.md) 明确列入观测要求 |
-| **admin CLI 缺写操作** | 兑现差 | `cli::admin` 的 `AdminCommand` 无 resources / proxy-keys / mcp-servers 的 create / update / delete；根 `README.md` 称 CLI「覆盖全部管理接口」 |
+| **admin CLI 缺写操作** | 兑现差 | `cli::admin` 的 `AdminCommand` 无 resources / proxy-keys / mcp-servers 的 create / update / delete；根 `README.md` 已下调该声称，写操作本身仍缺 |
 | upstream keys 无 admin API，key pool 不支持热更新 | 定位缺口 | `upstream_keys` 表与 repository 存在但运行时不写；`admin::crud` 的配置热替换不重建 `KeyPoolRegistry` |
 | IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
 | usage 只有小时桶；无上游耗时聚合；HTTP 错误无 `request_id` | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项；`http::mod` 的错误响应 `request_id` 为空 |
@@ -106,7 +106,7 @@ timestamp: 2026-08-19T00:00:00Z
 | `discovery::handle_meta_tool_call` 对 `call_tool` / `fetch_result` 仍返回占位错误 | 生产路径在 `mcp::server` 与 `http::routes` 提前分流，占位分支误导直接调用方 |
 | 根目录 `task.md` 被 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md) 与 [Log](../log.md) 引用，文件不存在 | 失效引用 |
 | [Product Requirements](product-requirements.md) 的「当前实现状态」仍描述 MVP 骨架 | 与实际能力差距极大 |
-| 根 `README.md` 能力概览声称请求变换、Vault/Infisical 凭据解析、admin CLI「覆盖全部管理接口」 | 三项均为上文的兑现差；README 措辞待 Phase 7 定案后一并订正 |
+| 根 `README.md` 能力概览 | 2026-08-19 已下调请求变换 / Vault·Infisical 装配 / admin CLI 写覆盖的过声称；对应代码缺口仍在，只是不再假装已交付 |
 | [Admin Console](../admin/admin-console.md) 称 Key Pools 页依赖未接线能力；[MCP Governance & Key Limits](../runtime/mcp-governance-and-key-limits.md) 背景节称 limits 未接线 | 均已交付，背景段落未回填 |
 
 # 分阶段规划
@@ -115,13 +115,13 @@ timestamp: 2026-08-19T00:00:00Z
 
 ## Phase 7：兑现差清账与生产护栏
 
-**目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。这是唯一一个不接受部分交付的阶段——兑现差的存量会持续侵蚀文档可信度。
+**目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
-- 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 `README.md` 与 [Architecture](../architecture/architecture.md) 的声明
+- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / Vault·Infisical / admin CLI 过声称
+- 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
 - Vault / Infisical 装配：配置 schema + `main.rs` 按配置调 `with_vault` / `with_infisical`，补启动期可达性校验
-- MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐
 - 配额退还：上游失败时按 [Architecture](../architecture/architecture.md) 的顺序退还各维度计数，退还与扣减封装为单一操作
-- admin CLI 补齐 resources / proxy-keys / mcp-servers 的写操作，或下调 `README.md` 声明
+- admin CLI 补齐 resources / proxy-keys / mcp-servers 的写操作（README 已不再声称覆盖全部）
 - `request_events` 保留策略：可配置窗口 + 后台清理任务
 - HTTP 边界：请求体大小上限、请求超时、基础安全响应头
 - 容器：非 root 用户 + HEALTHCHECK
