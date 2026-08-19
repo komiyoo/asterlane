@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-08-20（MCP FailClosed 与刷新/TTL 可配置）
+
+- **行为**：顶层 `mcp.failure_mode` 缺省 `fail_open`。`fail_closed` 时任一 MCP server `Unreachable` 使 MCP 与 REST `tools/list` 返回 `mcp.upstream_unavailable`（503）；`tools/call` 与 `/healthz` 不株连。`mcp.refresh_interval_secs` 缺省 60（`0` 不启动 refresh）；`mcp.tools_list_ttl_ms` 缺省 60000（`0` 不设 `ttlMs`）。
+- **文档**：[Configuration Schema](runtime/config-schema.md)；[Error Model](architecture/error-model.md)；[Compatibility Policy](architecture/compatibility-policy.md)；[API Discovery](runtime/api-discovery.md)；[Roadmap](product/roadmap.md)。
+- **验证**：`just check`。
+
 ## 2026-08-20（HTTP 错误响应回填 request_id）
 
 - **行为**：入站中间件生成 `req_<序号>`，或接纳合法 `X-Request-Id`（去控制字符、截断 64）。`AsterlaneError` JSON 的 `error.request_id` 非空；写入 tracing span。invoke 成功事件仍用 executor 自己的 id。413/408 同样带 id。

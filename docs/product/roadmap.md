@@ -67,9 +67,9 @@ timestamp: 2026-08-20T00:00:00Z
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
 | 不监听上游 `tools/list_changed`，仅 60s 轮询 | 定位缺口 | `src/main.rs` 的后台 refresh task 用常量 `MCP_REFRESH_INTERVAL_SECS`；`mcp::registry` 的 `RemoteMcpPeer` 无通知订阅。[API Discovery](../runtime/api-discovery.md) 承诺即时失效 |
-| 刷新间隔与 `tools/list` 缓存 TTL 硬编码 | 生产就绪 | 同上常量；`mcp::server` 的 TTL 常量 |
+| **已交付：刷新间隔与 `tools/list` TTL 可配置**（2026-08-20） | 生产就绪（已清） | 顶层 `mcp.refresh_interval_secs`（缺省 60，`0` 不启动 refresh）与 `mcp.tools_list_ttl_ms`（缺省 60000，`0` 不设 `ttlMs`） |
 
-**判断**：代理主路径上的 lazy 兑现差已清。剩余是上游变更通知与 TTL 可配置，归 Phase 8 / 生产就绪，不阻塞当前 agent 接入。
+**判断**：代理主路径上的 lazy 兑现差已清。剩余是上游 `tools/list_changed` 订阅，归 Phase 8，不阻塞当前 agent 接入。
 
 ## 支柱四：统一上游接入
 
@@ -79,12 +79,12 @@ timestamp: 2026-08-20T00:00:00Z
 | 只代理 tools，不代理 resources / prompts | 定位缺口 | `mcp::server` 的 `get_info` 仅广告 tools 能力；`RemoteMcpPeer` 只有 `list_tools` / `call_tool` |
 | 无 stdio / 本地进程 MCP server | 待决策 | `mcp::registry` 仅用 `StreamableHttpClientTransport` |
 | 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口 | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建 |
-| 多上游 MCP fan-out 无显式失败语义 | 定位缺口（轻） | `mcp::registry` 刷新失败保留 stale 快照并记 `RefreshResult.failed_server_ids`（隐式 FailOpen）；`tools/list` 仍可能暴露已不可达上游的工具。无 FailClosed：任一 enabled 上游不可达则 list/health 失败 |
+| **已交付：多上游 MCP FailOpen / FailClosed**（2026-08-20） | 定位缺口（已清） | `mcp.failure_mode` 缺省 `fail_open`（刷新失败留 stale）。`fail_closed` 时任一 `Unreachable` 使 MCP/REST `tools/list` 返回 `mcp.upstream_unavailable`（503）；`tools/call` 与 `/healthz` 不株连 |
 | 无 circuit breaker、无跨 provider failover | 生产就绪 | 仅同 resource 内 key 轮换（`proxy::retry` + `keys::pool`） |
 | **已交付：非幂等方法不重试**（2026-08-20） | 生产就绪（已清） | `proxy::retry` 的 `is_idempotent_method`：仅 GET 参与状态码/超时/连接失败重试；POST/PUT/PATCH/DELETE 一次失败即返回 |
 | 每 endpoint 覆盖负载均衡策略 | 定位缺口（轻） | 策略只配在 resource 级 `key_pool.strategy`；[Product Requirements](product-requirements.md) 承诺可按 endpoint 覆盖 |
 
-**判断**：请求变换是从 NyaProxy 借鉴的既定能力，模块写完了却没接上任何调用方——这是全库最典型的兑现差，必须在下一阶段清账（接线或下线二选一，不留第三态）。多上游 MCP 的失败语义与 integrity 一致：默认可继续 FailOpen（可用性），但必须可配置 FailClosed，避免上游消失后仍把 stale 工具当权威目录。
+**判断**：请求变换是从 NyaProxy 借鉴的既定能力，模块写完了却没接上任何调用方——这是全库最典型的兑现差，必须在下一阶段清账（接线或下线二选一，不留第三态）。多上游 MCP 失败语义已可配置：默认 FailOpen，FailClosed 避免把 stale 工具当权威目录。
 
 ## 支柱五：使用日志与管理可见性
 
@@ -136,8 +136,8 @@ timestamp: 2026-08-20T00:00:00Z
 
 - 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数。token 落 secret 后端，永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器
 - 动态客户端注册（若目标上游要求；CIMD / DCR 仅作为网关持有 client 的注册手段）
-- 订阅上游 `tools/list_changed`，替代固定轮询；刷新间隔与缓存 TTL 转为配置项
-- 多上游 MCP 失败语义可配置：默认维持现有 FailOpen（刷新失败留 stale）；提供 FailClosed（任一 enabled 上游不可达则 `tools/list` / 健康检查失败，不把 stale 工具继续暴露给下游）。`tools/call` 仍只对所属上游失败，不株连其他 server
+- **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
+- 订阅上游 `tools/list_changed`，替代固定轮询
 - resources / prompts 代理：先做产品决策（见下节），确定做则扩 `RemoteMcpPeer` 与下游 capabilities
 - 上游形态扩展：multipart / form-urlencoded 请求，流式响应
 
