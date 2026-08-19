@@ -11,6 +11,6 @@ mod tools;
 
 pub use admin::{
     AdminArgs, AdminCommand, DefaultsCommand, McpServersCommand, MetadataCommand, ProxyKeysCommand,
-    run_admin,
+    ResourcesCommand, run_admin,
 };
 pub use tools::{ToolsArgs, ToolsCommand, run_tools};

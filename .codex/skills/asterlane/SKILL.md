@@ -133,6 +133,10 @@ cargo run -- admin tools --filter '^search__'   # client-side name regex filter
 cargo run -- admin mcp-servers                  # configured MCP servers with health status
 cargo run -- admin mcp-servers get exa          # one server detail incl. its tool list
 cargo run -- admin mcp-servers probe exa        # on-demand health probe
+cargo run -- admin mcp-servers create --from-file server.yaml
+cargo run -- admin resources create --json '{"id":"mock","domain":"search","base_url":"https://example.test"}'
+cargo run -- admin proxy-keys create --from-file key.yaml
+cargo run -- admin proxy-keys issue agent-a --expires-at 2027-01-01T00:00:00Z  # mint gateway token (plaintext printed once)
 cargo run -- admin metadata list                # tool description overrides
 cargo run -- admin metadata set search__exa__web_search_exa --description 'Curated description'
 cargo run -- admin metadata rm search__exa__web_search_exa

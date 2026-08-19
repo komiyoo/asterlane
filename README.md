@@ -18,7 +18,7 @@
 - **执行管线** — key pool 负载均衡、限流队列、失败重试、content defense、结果裁剪（请求变换模块尚未接入执行路径）
 - **MCP 代理安全** — 上游工具指纹 baseline 与 drift 检测（warn/quarantine/block）
 - **观测** — 请求事件落 SQLite，负载捕获（参数/响应预览/耗时，截断+脱敏），Prometheus `/metrics`，OTLP 导出（feature `otlp`）
-- **调试与运维** — Web 管理控制台 + `asterlane admin` CLI（读路径与部分写操作；resources / proxy-keys / mcp-servers 的完整写接口尚未覆盖）
+- **调试与运维** — Web 管理控制台 + `asterlane admin` CLI（含 resources / proxy-keys / mcp-servers 的 create / update / rm）
 
 ## 前置条件
 

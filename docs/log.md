@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-08-19（admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作）
+
+- **行为**：`asterlane admin resources|proxy-keys|mcp-servers` 增加 `create` / `update` / `rm`，转发已有 admin HTTP CRUD。body 为 `--json` 或 `--from-file`（JSON 或 YAML object）。PUT 用路径 id 覆盖 body `id`。proxy-keys 写路径仍不接受 token 明文。
+- **测试**：clap 解析；`cli::input` 覆盖 JSON/YAML object 与 id overlay。
+- **文档**：[Tool Debugging & CLI](admin/tool-debugging-and-cli.md)；根 `README.md`；[Roadmap](product/roadmap.md) Phase 7；skill。
+- **验证**：`just check`。
+
 ## 2026-08-19（入站 HTTP 边界护栏）
 
 - **行为**：顶层 `http.max_body_bytes`（缺省 1 MiB）与 `http.request_timeout_secs`（缺省 30）。超限分别返回 `http.body_too_large`（413）与 `http.timeout`（408）。超时只套 REST/admin，**不**套 `/mcp` 与探活。所有响应附加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`。`max_body_bytes: 0` 启动 fail fast；`request_timeout_secs: 0` 关闭 REST/admin 超时。

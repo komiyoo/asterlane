@@ -117,9 +117,11 @@ CREATE TABLE tool_defaults (
 
 ```text
 asterlane admin [--server URL] [--token-env NAME] [--format json|yaml|markdown] <command>
-  stats | resources | key-pools | presets | validate
-  proxy-keys [issue <id> [--expires-at RFC3339] | revoke-token <id>]
-  mcp-servers [get <id> | probe <id>]
+  stats | key-pools | presets | validate
+  resources [create|update <id>|rm <id>]   # 缺省列表；create/update 需 --json 或 --from-file
+  proxy-keys [issue <id> [--expires-at RFC3339] | revoke-token <id>
+              | create | update <id> | rm <id>]
+  mcp-servers [get <id> | probe <id> | create | update <id> | rm <id>]
   metadata list
   metadata get <tool>
   metadata set <tool> --description TEXT
@@ -134,6 +136,8 @@ asterlane admin [--server URL] [--token-env NAME] [--format json|yaml|markdown] 
   defaults rm <tool>
   invoke <tool> [--args JSON | --args-file PATH] [--use-defaults] [--save-defaults]
 ```
+
+create / update 的 body 用 `--json '{...}'` 或 `--from-file PATH`（JSON 或 YAML object），形状与对应 admin HTTP CRUD 一致。PUT 用路径 id 覆盖 body 里的 `id`。proxy-keys 写路径不接受 token 明文，签发仍走 `issue`。
 
 - skill 同步：`.codex/skills/asterlane/SKILL.md` 增加「Operate The Gateway With The CLI」段（含 AI 配置默认参数、读取事件负载、调试调用的完整工作流示例），`docs/engineering/agent-skill.md` 同步说明。
 

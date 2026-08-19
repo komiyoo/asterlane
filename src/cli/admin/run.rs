@@ -1,8 +1,9 @@
 use super::{
-    AdminArgs, AdminCommand, DefaultsCommand, McpServersCommand, MetadataCommand, ProxyKeysCommand,
+    AdminArgs, AdminCommand, DefaultsCommand, McpServersCommand, MetadataCommand, ObjectBodyArgs,
+    ProxyKeysCommand, ResourcesCommand,
 };
 use crate::cli::client::{ApiClient, CliError, encode_path_segment};
-use crate::cli::input::load_json_object;
+use crate::cli::input::{load_json_object, load_object_document, overlay_id};
 use crate::cli::output::{emit, resolve_cli_format};
 use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
@@ -26,30 +27,11 @@ async fn execute(args: AdminArgs) -> Result<Value, CliError> {
     let client = ApiClient::new(args.server, &args.token_env)?;
     match args.command {
         AdminCommand::Stats => client.get("/admin/stats", &[]).await,
-        AdminCommand::Resources => client.get("/admin/resources", &[]).await,
+        AdminCommand::Resources { command } => run_resources(&client, command).await,
         AdminCommand::ProxyKeys { command } => run_proxy_keys(&client, command).await,
         AdminCommand::KeyPools => client.get("/admin/key-pools", &[]).await,
         AdminCommand::Presets => client.get("/admin/mcp-presets", &[]).await,
-        AdminCommand::McpServers { command } => match command {
-            None => client.get("/admin/mcp-servers", &[]).await,
-            Some(McpServersCommand::Get { id }) => {
-                client
-                    .get(
-                        &format!("/admin/mcp-servers/{}", encode_path_segment(&id)),
-                        &[],
-                    )
-                    .await
-            }
-            Some(McpServersCommand::Probe { id }) => {
-                client
-                    .post_json(
-                        &format!("/admin/mcp-servers/{}/probe", encode_path_segment(&id)),
-                        &[],
-                        &json!({}),
-                    )
-                    .await
-            }
-        },
+        AdminCommand::McpServers { command } => run_mcp_servers(&client, command).await,
         AdminCommand::Metadata { command } => run_metadata(&client, command).await,
         AdminCommand::Validate => client.get("/admin/config/validate", &[]).await,
         AdminCommand::Tools { filter } => Ok(filter_tools(
@@ -103,6 +85,33 @@ async fn execute(args: AdminArgs) -> Result<Value, CliError> {
     }
 }
 
+async fn run_resources(
+    client: &ApiClient,
+    command: Option<ResourcesCommand>,
+) -> Result<Value, CliError> {
+    match command {
+        None => client.get("/admin/resources", &[]).await,
+        Some(ResourcesCommand::Create { body }) => {
+            client
+                .post_json("/admin/resources", &[], &load_body(body)?)
+                .await
+        }
+        Some(ResourcesCommand::Update { id, body }) => {
+            client
+                .put_json(
+                    &format!("/admin/resources/{}", encode_path_segment(&id)),
+                    &overlay_id(load_body(body)?, &id)?,
+                )
+                .await
+        }
+        Some(ResourcesCommand::Rm { id }) => {
+            client
+                .delete(&format!("/admin/resources/{}", encode_path_segment(&id)))
+                .await
+        }
+    }
+}
+
 async fn run_proxy_keys(
     client: &ApiClient,
     command: Option<ProxyKeysCommand>,
@@ -132,7 +141,73 @@ async fn run_proxy_keys(
                 ))
                 .await
         }
+        Some(ProxyKeysCommand::Create { body }) => {
+            client
+                .post_json("/admin/proxy-keys", &[], &load_body(body)?)
+                .await
+        }
+        Some(ProxyKeysCommand::Update { id, body }) => {
+            client
+                .put_json(
+                    &format!("/admin/proxy-keys/{}", encode_path_segment(&id)),
+                    &overlay_id(load_body(body)?, &id)?,
+                )
+                .await
+        }
+        Some(ProxyKeysCommand::Rm { id }) => {
+            client
+                .delete(&format!("/admin/proxy-keys/{}", encode_path_segment(&id)))
+                .await
+        }
     }
+}
+
+async fn run_mcp_servers(
+    client: &ApiClient,
+    command: Option<McpServersCommand>,
+) -> Result<Value, CliError> {
+    match command {
+        None => client.get("/admin/mcp-servers", &[]).await,
+        Some(McpServersCommand::Get { id }) => {
+            client
+                .get(
+                    &format!("/admin/mcp-servers/{}", encode_path_segment(&id)),
+                    &[],
+                )
+                .await
+        }
+        Some(McpServersCommand::Probe { id }) => {
+            client
+                .post_json(
+                    &format!("/admin/mcp-servers/{}/probe", encode_path_segment(&id)),
+                    &[],
+                    &json!({}),
+                )
+                .await
+        }
+        Some(McpServersCommand::Create { body }) => {
+            client
+                .post_json("/admin/mcp-servers", &[], &load_body(body)?)
+                .await
+        }
+        Some(McpServersCommand::Update { id, body }) => {
+            client
+                .put_json(
+                    &format!("/admin/mcp-servers/{}", encode_path_segment(&id)),
+                    &overlay_id(load_body(body)?, &id)?,
+                )
+                .await
+        }
+        Some(McpServersCommand::Rm { id }) => {
+            client
+                .delete(&format!("/admin/mcp-servers/{}", encode_path_segment(&id)))
+                .await
+        }
+    }
+}
+
+fn load_body(body: ObjectBodyArgs) -> Result<Value, CliError> {
+    Ok(load_object_document(body.json, body.from_file)?)
 }
 
 async fn run_metadata(client: &ApiClient, command: MetadataCommand) -> Result<Value, CliError> {

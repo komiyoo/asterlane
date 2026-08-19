@@ -80,7 +80,7 @@ timestamp: 2026-08-19T00:00:00Z
 | **`request_events` 无限增长**，无保留策略 | 生产就绪（重） | `migrations/` 与 `src/store/` 无删除、归档或分区路径 |
 | **已交付：配额失败退还**（2026-08-19） | 兑现差（已清） | `limits::registry` 的 `refund_call` + `CallQuotaGuard`：准入后 invoke 失败退还 `max_calls` / `max_calls_per_day`。GCRA rps/rpm 不可退还；并发槽仍由 `QueuePermit` Drop 归还。启动 seed = `request_count − error_count` |
 | **成本 / 额度统计未实现** | 定位缺口 | `request_units` 在 `proxy::post` 恒为 1。[Product Requirements](product-requirements.md) 明确列入观测要求 |
-| **admin CLI 缺写操作** | 兑现差 | `cli::admin` 的 `AdminCommand` 无 resources / proxy-keys / mcp-servers 的 create / update / delete；根 `README.md` 已下调该声称，写操作本身仍缺 |
+| **已交付：admin CLI 写操作**（2026-08-19） | 兑现差（已清） | `asterlane admin resources|proxy-keys|mcp-servers` 的 create / update / rm，body 为 `--json` 或 `--from-file`（JSON/YAML object），转发已有 admin HTTP CRUD |
 | upstream keys 无 admin API，key pool 不支持热更新 | 定位缺口 | `upstream_keys` 表与 repository 存在但运行时不写；`admin::crud` 的配置热替换不重建 `KeyPoolRegistry` |
 | IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
 | usage 只有小时桶；无上游耗时聚合；HTTP 错误无 `request_id` | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项；`http::mod` 的错误响应 `request_id` 为空 |
@@ -106,7 +106,7 @@ timestamp: 2026-08-19T00:00:00Z
 | `discovery::handle_meta_tool_call` 对 `call_tool` / `fetch_result` 仍返回占位错误 | 生产路径在 `mcp::server` 与 `http::routes` 提前分流，占位分支误导直接调用方 |
 | 根目录 `task.md` 被 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md) 与 [Log](../log.md) 引用，文件不存在 | 失效引用 |
 | [Product Requirements](product-requirements.md) 的「当前实现状态」仍描述 MVP 骨架 | 与实际能力差距极大 |
-| 根 `README.md` 能力概览 | 2026-08-19 已下调请求变换 / Vault·Infisical 装配 / admin CLI 写覆盖的过声称；对应代码缺口仍在，只是不再假装已交付 |
+| 根 `README.md` 能力概览 | 2026-08-19 已下调请求变换的过声称；admin CLI 写覆盖已于同日补齐 |
 | [Admin Console](../admin/admin-console.md) 称 Key Pools 页依赖未接线能力；[MCP Governance & Key Limits](../runtime/mcp-governance-and-key-limits.md) 背景节称 limits 未接线 | 均已交付，背景段落未回填 |
 
 # 分阶段规划
@@ -117,9 +117,8 @@ timestamp: 2026-08-19T00:00:00Z
 
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
-- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / admin CLI 过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）
+- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）；admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作
 - 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
-- admin CLI 补齐 resources / proxy-keys / mcp-servers 的写操作（README 已不再声称覆盖全部）
 - `request_events` 保留策略：可配置窗口 + 后台清理任务
 - 容器：非 root 用户 + HEALTHCHECK
 - 文档去腐：修正上节「技术债与文档腐烂」全部条目，删除占位死代码

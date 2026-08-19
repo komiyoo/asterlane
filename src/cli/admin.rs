@@ -36,8 +36,12 @@ pub struct AdminArgs {
 pub enum AdminCommand {
     /// 总体请求统计（GET /admin/stats）
     Stats,
-    /// 上游资源列表（GET /admin/resources）
-    Resources,
+    /// 上游资源治理：无子命令时列表（GET /admin/resources）
+    Resources {
+        /// resources 子命令；缺省输出列表
+        #[command(subcommand)]
+        command: Option<ResourcesCommand>,
+    },
     /// proxy key 治理：无子命令时列表（GET /admin/proxy-keys）
     ProxyKeys {
         /// proxy-keys 子命令；缺省输出列表
@@ -135,6 +139,37 @@ pub enum AdminCommand {
     },
 }
 
+#[derive(Debug, clap::Args)]
+pub struct ObjectBodyArgs {
+    /// JSON object 字面量
+    #[arg(long, conflicts_with = "from_file")]
+    pub json: Option<String>,
+    /// 从文件读取 JSON 或 YAML object
+    #[arg(long)]
+    pub from_file: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum ResourcesCommand {
+    /// 创建上游资源（POST /admin/resources）
+    Create {
+        #[command(flatten)]
+        body: ObjectBodyArgs,
+    },
+    /// 更新上游资源（PUT /admin/resources/{id}）
+    Update {
+        /// resource id
+        id: String,
+        #[command(flatten)]
+        body: ObjectBodyArgs,
+    },
+    /// 删除上游资源（DELETE /admin/resources/{id}）
+    Rm {
+        /// resource id
+        id: String,
+    },
+}
+
 #[derive(Debug, clap::Subcommand)]
 pub enum ProxyKeysCommand {
     /// 签发/轮换 gateway token（POST /admin/proxy-keys/{id}/token；明文仅此一次）
@@ -150,6 +185,23 @@ pub enum ProxyKeysCommand {
         /// proxy key id
         id: String,
     },
+    /// 创建 proxy key（POST /admin/proxy-keys）；不接受 token 明文
+    Create {
+        #[command(flatten)]
+        body: ObjectBodyArgs,
+    },
+    /// 更新 proxy key 范围与限额（PUT /admin/proxy-keys/{id}）；不改已签发 token
+    Update {
+        /// proxy key id
+        id: String,
+        #[command(flatten)]
+        body: ObjectBodyArgs,
+    },
+    /// 删除 proxy key（DELETE /admin/proxy-keys/{id}）
+    Rm {
+        /// proxy key id
+        id: String,
+    },
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -161,6 +213,23 @@ pub enum McpServersCommand {
     },
     /// 立即探测健康状态（POST /admin/mcp-servers/{id}/probe）
     Probe {
+        /// MCP server id
+        id: String,
+    },
+    /// 创建 MCP server（POST /admin/mcp-servers）
+    Create {
+        #[command(flatten)]
+        body: ObjectBodyArgs,
+    },
+    /// 更新 MCP server（PUT /admin/mcp-servers/{id}）
+    Update {
+        /// MCP server id
+        id: String,
+        #[command(flatten)]
+        body: ObjectBodyArgs,
+    },
+    /// 删除 MCP server（DELETE /admin/mcp-servers/{id}）
+    Rm {
         /// MCP server id
         id: String,
     },
@@ -248,13 +317,7 @@ mod tests {
         assert!(args.server.is_none());
         assert_eq!(args.token_env, "ASTERLANE_ADMIN_TOKEN");
         assert!(matches!(args.command, AdminCommand::Stats));
-        for cmd in [
-            "resources",
-            "proxy-keys",
-            "key-pools",
-            "presets",
-            "validate",
-        ] {
+        for cmd in ["key-pools", "presets", "validate"] {
             parse(&[cmd]);
         }
     }
@@ -384,6 +447,70 @@ mod tests {
             } => assert_eq!(id, "agent-a"),
             other => panic!("expected proxy-keys revoke-token, got {other:?}"),
         }
+        match parse(&[
+            "proxy-keys",
+            "create",
+            "--json",
+            r#"{"id":"agent-b","allowed_tools":["^search__"]}"#,
+        ])
+        .command
+        {
+            AdminCommand::ProxyKeys {
+                command: Some(ProxyKeysCommand::Create { body }),
+            } => {
+                assert_eq!(
+                    body.json.as_deref(),
+                    Some(r#"{"id":"agent-b","allowed_tools":["^search__"]}"#)
+                );
+                assert!(body.from_file.is_none());
+            }
+            other => panic!("expected proxy-keys create, got {other:?}"),
+        }
+        match parse(&["proxy-keys", "update", "agent-b", "--from-file", "k.yaml"]).command {
+            AdminCommand::ProxyKeys {
+                command: Some(ProxyKeysCommand::Update { id, body }),
+            } => {
+                assert_eq!(id, "agent-b");
+                assert_eq!(
+                    body.from_file.as_deref().and_then(|p| p.to_str()),
+                    Some("k.yaml")
+                );
+            }
+            other => panic!("expected proxy-keys update, got {other:?}"),
+        }
+        match parse(&["proxy-keys", "rm", "agent-b"]).command {
+            AdminCommand::ProxyKeys {
+                command: Some(ProxyKeysCommand::Rm { id }),
+            } => assert_eq!(id, "agent-b"),
+            other => panic!("expected proxy-keys rm, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_resources_write_subcommands() {
+        assert!(matches!(
+            parse(&["resources"]).command,
+            AdminCommand::Resources { command: None }
+        ));
+        match parse(&[
+            "resources",
+            "create",
+            "--json",
+            r#"{"id":"mock","domain":"search","base_url":"https://example.test"}"#,
+        ])
+        .command
+        {
+            AdminCommand::Resources {
+                command: Some(ResourcesCommand::Create { body }),
+            } => assert!(body.json.is_some()),
+            other => panic!("expected resources create, got {other:?}"),
+        }
+        match parse(&["resources", "rm", "mock"]).command {
+            AdminCommand::Resources {
+                command: Some(ResourcesCommand::Rm { id }),
+            } => assert_eq!(id, "mock"),
+            other => panic!("expected resources rm, got {other:?}"),
+        }
     }
 
     #[test]
@@ -403,6 +530,24 @@ mod tests {
                 command: Some(McpServersCommand::Probe { id }),
             } => assert_eq!(id, "exa"),
             other => panic!("expected mcp-servers probe, got {other:?}"),
+        }
+        match parse(&["mcp-servers", "create", "--from-file", "s.yaml"]).command {
+            AdminCommand::McpServers {
+                command: Some(McpServersCommand::Create { body }),
+            } => assert!(body.from_file.is_some()),
+            other => panic!("expected mcp-servers create, got {other:?}"),
+        }
+        match parse(&["mcp-servers", "update", "exa", "--json", "{}"]).command {
+            AdminCommand::McpServers {
+                command: Some(McpServersCommand::Update { id, .. }),
+            } => assert_eq!(id, "exa"),
+            other => panic!("expected mcp-servers update, got {other:?}"),
+        }
+        match parse(&["mcp-servers", "rm", "exa"]).command {
+            AdminCommand::McpServers {
+                command: Some(McpServersCommand::Rm { id }),
+            } => assert_eq!(id, "exa"),
+            other => panic!("expected mcp-servers rm, got {other:?}"),
         }
     }
 
