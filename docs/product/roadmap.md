@@ -81,7 +81,7 @@ timestamp: 2026-08-20T00:00:00Z
 | 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口 | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建 |
 | 多上游 MCP fan-out 无显式失败语义 | 定位缺口（轻） | `mcp::registry` 刷新失败保留 stale 快照并记 `RefreshResult.failed_server_ids`（隐式 FailOpen）；`tools/list` 仍可能暴露已不可达上游的工具。无 FailClosed：任一 enabled 上游不可达则 list/health 失败 |
 | 无 circuit breaker、无跨 provider failover | 生产就绪 | 仅同 resource 内 key 轮换（`proxy::retry` + `keys::pool`） |
-| 非幂等方法同样重试 | 生产就绪 | `proxy::retry` 只按状态码白名单判定，不看 HTTP method |
+| **已交付：非幂等方法不重试**（2026-08-20） | 生产就绪（已清） | `proxy::retry` 的 `is_idempotent_method`：仅 GET 参与状态码/超时/连接失败重试；POST/PUT/PATCH/DELETE 一次失败即返回 |
 | 每 endpoint 覆盖负载均衡策略 | 定位缺口（轻） | 策略只配在 resource 级 `key_pool.strategy`；[Product Requirements](product-requirements.md) 承诺可按 endpoint 覆盖 |
 
 **判断**：请求变换是从 NyaProxy 借鉴的既定能力，模块写完了却没接上任何调用方——这是全库最典型的兑现差，必须在下一阶段清账（接线或下线二选一，不留第三态）。多上游 MCP 的失败语义与 integrity 一致：默认可继续 FailOpen（可用性），但必须可配置 FailClosed，避免上游消失后仍把 stale 工具当权威目录。
@@ -161,7 +161,7 @@ timestamp: 2026-08-20T00:00:00Z
 - usage 分钟/日桶、上游耗时维度、HTTP 错误响应回填 `request_id`
 - IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（或删除死代码）
 - upstream keys admin API 与 key pool 热更新
-- circuit breaker、跨 provider failover、非幂等方法重试保护
+- circuit breaker、跨 provider failover
 - 告警规则与 Grafana dashboard 示例
 - 覆盖率、基准与负载测试基线
 

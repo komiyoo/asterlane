@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-08-20（非幂等 HTTP 方法不再重试）
+
+- **行为**：`proxy::retry` 仅对 `HttpMethod::Get` 按 429/5xx、超时与连接失败重试；POST/PUT/PATCH/DELETE 整次只尝试 1 次，失败不记 `retry_exhausted`（`retry_count` 为 0）。MCP `tools/call` 仍不走该循环。
+- **文档**：[Architecture](architecture/architecture.md) Retry 节改为 as-built；[Roadmap](product/roadmap.md) 该缺口标已交付。
+- **验证**：`just check`。
+
 ## 2026-08-20（Roadmap 吸收 MCP 网关对照项）
 
 - **文档**：[Roadmap](product/roadmap.md) 增加 2026-08-20 竞品吸收。写入阶段的只有三项：Phase 8 写清「网关作为 OAuth 客户端」；多上游 MCP FailOpen/FailClosed 可配置（默认保持现有 stale FailOpen）；Phase 10 成本核算优先读 `Mcp-Method`/`Mcp-Name`。新增待决策「用户委托 OAuth」；非目标补上统一 LLM/A2A 数据面、人类 SSO、`{target}_{tool}` canonical。
