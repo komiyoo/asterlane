@@ -56,6 +56,10 @@ struct RequestEvent {
 - 捕获开启时，落库同时在请求 span 内输出 `info!` 事件（字段 `request_args`、`response_preview`、`upstream_latency_ms`），日志与 DB 口径一致；关闭时不输出。
 - `upstream_latency_ms` 与捕获开关无关：只要拿到上游响应就记录（复用 key pool EWMA 反馈路径的 per-attempt 计时，不重复计时）。
 
+## 请求事件保留
+
+`request_events` 按 `observability.request_event_retention_days`（缺省 14）由后台任务删除过期行；`0` 关闭清理。任务在配置了 `database-url` 时随 `serve` 启动，每小时跑一次且启动立即执行第一轮。`usage_buckets` 与 `security_events` 不在本窗口内。
+
 # 安全事件模型
 
 Integrity drift 与 content defense 命中会记录 `SecurityEvent`，与请求事件分表保存：

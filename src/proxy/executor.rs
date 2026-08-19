@@ -818,6 +818,16 @@ mod tests {
         ) -> Result<Vec<RequestEvent>, StoreError> {
             Ok(self.events.lock().unwrap().clone())
         }
+
+        async fn delete_events_before(
+            &self,
+            cutoff: chrono::DateTime<chrono::Utc>,
+        ) -> Result<u64, StoreError> {
+            let mut events = self.events.lock().unwrap();
+            let before = events.len();
+            events.retain(|event| event.timestamp >= cutoff);
+            Ok((before - events.len()) as u64)
+        }
     }
 
     impl SecurityEventRepository for CapturingEventRepository {

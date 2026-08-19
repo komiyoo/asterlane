@@ -20,6 +20,7 @@ admin: {}
 semantic_search: {}   # 可选
 secrets: {}           # 可选；Vault / Infisical
 http: {}              # 可选；请求体上限与 REST/admin 超时
+observability: {}     # 可选；负载捕获与 request_events 保留
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -96,6 +97,17 @@ http:
 - 请求体上限作用于全部路径（含 `/mcp`），超限返回 `http.body_too_large`（413）。
 - 请求超时只套 REST（`/config`、`/v1/*`）与 `/admin/*`，**不**套 `/mcp`、`/healthz`、`/versionz`、`/metrics`，以免掐断 Streamable HTTP 会话。超时返回 `http.timeout`（408）。这与 proxy 执行层的上游超时（`proxy.upstream_timeout`，504）是两道独立护栏。
 - 所有响应（含错误）附加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`。进程内不终止 TLS，因此不设 HSTS。
+
+## Observability
+
+可选。负载捕获见 [Observability](../architecture/observability.md) 与 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md)。`request_event_retention_days` 控制 SQLite `request_events` 保留窗口；缺省 14 天，`0` 关闭后台清理。有 `database-url` 时 `serve` 每小时删除过期行，启动立即跑第一轮。`usage_buckets` 与 `security_events` 不受此窗口约束。
+
+```yaml
+observability:
+  capture_payloads: true                  # 缺省 true
+  capture_max_bytes: 4096                 # 缺省 4096
+  request_event_retention_days: 14        # 缺省 14；0 不清理
+```
 
 # API Resources
 

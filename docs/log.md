@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-08-19（request_events 保留窗口）
+
+- **行为**：`observability.request_event_retention_days` 缺省 14；`0` 关闭清理。配置了 `database-url` 时 `serve` 启动后台任务，每小时（启动立即第一轮）删除早于窗口的 `request_events`。`usage_buckets` / `security_events` 不在窗口内。
+- **测试**：SQLite `delete_events_before`；`purge_expired_request_events` 在 0 天时不删；配置缺省与覆盖。
+- **文档**：[Observability](architecture/observability.md)；[Configuration Schema](runtime/config-schema.md)；[Compatibility Policy](architecture/compatibility-policy.md)；[Roadmap](product/roadmap.md) Phase 7。
+- **验证**：`just check`。
+
 ## 2026-08-19（admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作）
 
 - **行为**：`asterlane admin resources|proxy-keys|mcp-servers` 增加 `create` / `update` / `rm`，转发已有 admin HTTP CRUD。body 为 `--json` 或 `--from-file`（JSON 或 YAML object）。PUT 用路径 id 覆盖 body `id`。proxy-keys 写路径仍不接受 token 明文。

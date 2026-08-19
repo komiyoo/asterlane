@@ -39,6 +39,12 @@ pub trait RequestEventRepository: Send + Sync {
         filter: &RequestEventFilter,
         limit: u32,
     ) -> impl std::future::Future<Output = Result<Vec<RequestEvent>, StoreError>> + Send;
+
+    /// 删除 `timestamp` 早于 `cutoff` 的请求事件，返回删除行数。
+    fn delete_events_before(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> impl std::future::Future<Output = Result<u64, StoreError>> + Send;
 }
 
 impl RequestEventRepository for () {
@@ -52,6 +58,10 @@ impl RequestEventRepository for () {
         _limit: u32,
     ) -> Result<Vec<RequestEvent>, StoreError> {
         Ok(Vec::new())
+    }
+
+    async fn delete_events_before(&self, _cutoff: DateTime<Utc>) -> Result<u64, StoreError> {
+        Ok(0)
     }
 }
 

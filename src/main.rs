@@ -385,6 +385,20 @@ async fn serve(args: ServeArgs) -> Result<()> {
 
     let ct = tokio_util::sync::CancellationToken::new();
 
+    if let Some(repo) = &state.event_repo {
+        let retention_days = state
+            .config_snapshot()
+            .await
+            .observability
+            .request_event_retention_days;
+        asterlane::store::spawn_request_event_cleanup(
+            repo.clone(),
+            retention_days,
+            asterlane::store::REQUEST_EVENT_CLEANUP_INTERVAL,
+            ct.child_token(),
+        );
+    }
+
     // 后台周期性刷新上游 MCP server 工具列表 + drift 检测 + 同步 catalog + notify 客户端。
     if let Some(registry) = &mcp_registry {
         // 首次 pin integrity baseline（从当前已发现的 tools）

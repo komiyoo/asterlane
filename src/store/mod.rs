@@ -8,6 +8,7 @@ pub mod config_merge;
 pub mod error;
 pub mod mcp_servers;
 pub mod repository;
+mod retention;
 pub mod sqlite;
 mod sqlite_aggregation;
 mod sqlite_crud;
@@ -22,6 +23,9 @@ pub use repository::{
     ProxyKeyRepository, RequestEventFilter, RequestEventRepository, Resource, ResourceRepository,
     SecurityEventFilter, SecurityEventRepository, UpstreamKeyRecord, UpstreamKeyRepository,
     UsageBucket, UsageBucketFilter, UsageBucketRepository, UsageSummary,
+};
+pub use retention::{
+    REQUEST_EVENT_CLEANUP_INTERVAL, purge_expired_request_events, spawn_request_event_cleanup,
 };
 pub use sqlite::SqliteRequestEventRepository;
 pub use tool_defaults::{ToolDefaultRecord, ToolDefaultsRepository};
@@ -353,6 +357,54 @@ mod tests {
         assert_eq!(events[0].queued_ms, 500);
         assert_eq!(events[0].retry_count, 2);
         assert_eq!(events[0].request_units, 10);
+    }
+
+    #[tokio::test]
+    async fn delete_events_before_drops_older_rows() {
+        let repo = setup_repo().await;
+        let old = sample_event("req_old", "key-a", "res-1", RequestStatus::Success);
+        let mut fresh = sample_event("req_new", "key-a", "res-1", RequestStatus::Success);
+        fresh.timestamp = chrono::DateTime::parse_from_rfc3339("2026-08-19T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        repo.insert_event(&old).await.unwrap();
+        repo.insert_event(&fresh).await.unwrap();
+
+        let cutoff = chrono::DateTime::parse_from_rfc3339("2026-08-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(repo.delete_events_before(cutoff).await.unwrap(), 1);
+
+        let remaining = repo
+            .list_events(&RequestEventFilter::default(), 10)
+            .await
+            .unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].request_id, "req_new");
+    }
+
+    #[tokio::test]
+    async fn purge_expired_skips_when_retention_disabled() {
+        let repo = setup_repo().await;
+        repo.insert_event(&sample_event(
+            "req_001",
+            "key-a",
+            "res-1",
+            RequestStatus::Success,
+        ))
+        .await
+        .unwrap();
+        let deleted = crate::store::purge_expired_request_events(&repo, 0, Utc::now())
+            .await
+            .unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(
+            repo.list_events(&RequestEventFilter::default(), 10)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[tokio::test]

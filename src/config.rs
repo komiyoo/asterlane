@@ -47,6 +47,9 @@ pub struct ObservabilityConfig {
     /// 捕获内容单侧截断预算字节数（默认 4096，UTF-8 安全截断）。
     #[serde(default = "default_capture_max_bytes")]
     pub capture_max_bytes: usize,
+    /// `request_events` 保留天数；缺省 14。0 表示不清理。
+    #[serde(default = "default_request_event_retention_days")]
+    pub request_event_retention_days: u32,
 }
 
 impl Default for ObservabilityConfig {
@@ -54,6 +57,7 @@ impl Default for ObservabilityConfig {
         Self {
             capture_payloads: default_capture_payloads(),
             capture_max_bytes: default_capture_max_bytes(),
+            request_event_retention_days: default_request_event_retention_days(),
         }
     }
 }
@@ -64,6 +68,10 @@ fn default_capture_payloads() -> bool {
 
 fn default_capture_max_bytes() -> usize {
     4096
+}
+
+fn default_request_event_retention_days() -> u32 {
+    14
 }
 
 fn default_true() -> bool {
@@ -981,5 +989,13 @@ http:
         let config = parse("http:\n  request_timeout_secs: 0");
         assert_eq!(config.http.request_timeout_secs, 0);
         assert!(config.validate_http().is_ok());
+    }
+
+    #[test]
+    fn observability_retention_defaults_to_fourteen_days() {
+        let config = parse("api_resources: []");
+        assert_eq!(config.observability.request_event_retention_days, 14);
+        let custom = parse("observability:\n  request_event_retention_days: 0");
+        assert_eq!(custom.observability.request_event_retention_days, 0);
     }
 }

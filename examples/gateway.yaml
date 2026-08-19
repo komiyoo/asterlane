@@ -22,6 +22,12 @@ admin:
 #   max_body_bytes: 1048576
 #   request_timeout_secs: 30
 
+# 观测（可选）：负载捕获缺省开启；request_events 缺省保留 14 天。
+# observability:
+#   capture_payloads: true
+#   capture_max_bytes: 4096
+#   request_event_retention_days: 14
+
 # 平台内置 MCP preset（可选）：一行启用免鉴权 hosted MCP server。
 # 可用 preset：exa（search）、deepwiki（docs）、context7（docs），
 # 展开语义与 preset 表见 docs/runtime/config-schema.md「Builtin MCP Presets」。

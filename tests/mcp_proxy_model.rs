@@ -191,6 +191,20 @@ impl RequestEventRepository for CapturingEventRepository {
         };
         Ok(events.clone())
     }
+
+    async fn delete_events_before(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, StoreError> {
+        let Ok(mut events) = self.events.lock() else {
+            return Err(StoreError::NotFound(
+                "capturing event repository lock poisoned".to_string(),
+            ));
+        };
+        let before = events.len();
+        events.retain(|event| event.timestamp >= cutoff);
+        Ok((before - events.len()) as u64)
+    }
 }
 
 impl SecurityEventRepository for CapturingEventRepository {

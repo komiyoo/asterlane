@@ -34,6 +34,7 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | proxy key 凭据字段（`token_ref`/`token_digest`/`expires_at`）与 `limits.max_calls_per_day` | 新增（2026-07-06） | `#[serde(default)]`，不配置的 key 维持 legacy id-only 行为；`token_ref` 与 `token_digest` 互斥、摘要格式启动校验 fail fast；任一 key 配 token 后 `/mcp` 切换 Bearer required 模式（见 [Key 凭据与持久化](../runtime/key-credentials-and-persistence.md)） |
 | `secrets` 节（Vault / Infisical 装配） | 新增（2026-08-19） | `#[serde(default)]`，不配置时只启用 env 与 file；`token_ref` 仅允许 `secret://env/...` 或 `secret://file/...` |
 | `http` 节（入站 body 上限与 REST/admin 超时） | 新增（2026-08-19） | `#[serde(default)]`，缺省 1 MiB / 30s；`max_body_bytes: 0` 启动 fail fast；`request_timeout_secs: 0` 关闭 REST/admin 超时；`/mcp` 与探活从不套超时 |
+| `observability.request_event_retention_days` | 新增（2026-08-19） | `#[serde(default)]`，缺省 14；`0` 关闭 `request_events` 后台清理 |
 
 ## 配置版本字段
 

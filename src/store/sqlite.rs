@@ -205,6 +205,19 @@ impl RequestEventRepository for SqliteRequestEventRepository {
 
         rows.into_iter().map(row_to_event).collect()
     }
+
+    async fn delete_events_before(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, StoreError> {
+        let cutoff = cutoff.to_rfc3339();
+        let result = sqlx::query("DELETE FROM request_events WHERE timestamp < ?")
+            .bind(&cutoff)
+            .execute(&self.pool)
+            .await
+            .map_err(StoreError::from)?;
+        Ok(result.rows_affected())
+    }
 }
 
 // ── SecurityEvent 编码/解码 ──

@@ -65,6 +65,7 @@ pub fn builtin_presets() -> &'static [McpPreset];
 observability:
   capture_payloads: true     # 捕获请求参数与结果预览（原生默认开）
   capture_max_bytes: 4096    # 单侧截断预算（UTF-8 安全截断）
+  request_event_retention_days: 14  # request_events 保留天数；0 不清理
 ```
 
 - `RequestEvent` 新增三个字段：
