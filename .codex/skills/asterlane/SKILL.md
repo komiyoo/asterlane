@@ -186,7 +186,7 @@ Each event row includes `request_args`, `response_preview`, and `upstream_latenc
 
 ## Validation Commands
 
-Run the narrowest relevant command first:
+Run the narrowest relevant command first. In a Git / Cursor Worktree, initialize with `just worktree-init` and verify with `just check` in **this directory**; do not use the primary-checkout mini path. See `docs/engineering/worktree-workflow.md`.
 
 ```bash
 cargo test

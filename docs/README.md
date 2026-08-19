@@ -8,7 +8,7 @@
 - [架构与决策](architecture/) - 模块边界、命名、协议、错误、观测、兼容与 crate 选型。
 - [配置与运行时](runtime/) - YAML schema、发现、渲染、MCP 治理与 key 凭据。
 - [管理面与 CLI](admin/) - Web 控制台、调试调用、tools/admin 客户端与配置发现。
-- [工程与文档](engineering/) - 工作流、工程纲领、文档约定、agent skill 与仓库脚本。
+- [工程与文档](engineering/) - 工作流、Worktree、工程纲领、文档约定、agent skill 与仓库脚本。
 
 ## 时间线
 

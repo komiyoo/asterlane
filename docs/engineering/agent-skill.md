@@ -65,6 +65,10 @@ skill 的「Operate The Gateway With The CLI」段沉淀了 `asterlane admin` �
 - 成功输出：支持 `json|yaml|markdown`；`--format` > `ASTERLANE_FORMAT` > TTY 默认，TTY 为 markdown、pipe 为 JSON
 - 退出码遵循 [Error Model](../architecture/error-model.md) 的 CLI 映射；错误写到 stderr
 
+# Worktree
+
+在 Git / Cursor Worktree 内操作网关或跑验证时，先 `just worktree-init`，再在本目录 `just check`。不要用主仓 mini 路径冒充本树结果，也不要依赖未 export 的 `.env`（二进制不自动加载）。约定见 [Worktree Workflow](worktree-workflow.md)。
+
 # Skill 边界
 
 skill 必须优先保证 gateway 核心正确性：
@@ -78,3 +82,4 @@ skill 必须优先保证 gateway 核心正确性：
 # Citations
 
 [1] [项目内置 Asterlane Skill](../../.codex/skills/asterlane/SKILL.md)
+[2] [Worktree Workflow](worktree-workflow.md)

@@ -25,8 +25,20 @@ test:
 docs-check:
     python3 scripts/check_okf_docs.py
 
-# 提交前的完整本地验证
-check: fmt-check lint test docs-check
+# Worktree / 本机工具链检查（不 cargo fetch）
+worktree-doctor:
+    python3 scripts/setup_worktree.py --doctor
+
+# Worktree 初始化：doctor + rustfmt/clippy 组件 + cargo fetch
+worktree-init:
+    python3 scripts/setup_worktree.py
+
+# 打印本树应 export 的变量（二进制不加载 .env）
+worktree-env:
+    python3 scripts/setup_worktree.py --print-env
+
+# 提交前的完整本地验证（Worktree 默认也走这条）
+check: worktree-doctor fmt-check lint test docs-check
 
 # 构建(debug)
 build:

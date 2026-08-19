@@ -31,7 +31,7 @@ timestamp: 2026-08-19T00:00:00Z
 | [`architecture/`](../architecture/) | 系统结构与稳定决策（命名、协议、错误、观测、兼容、crate） |
 | [`runtime/`](../runtime/) | 配置 schema 与运行时能力（发现、渲染、治理、凭据） |
 | [`admin/`](../admin/) | Web 控制台与 CLI 客户端 |
-| [`engineering/`](README.md) | 工作流、工程/文档约定、agent skill |
+| [`engineering/`](README.md) | 工作流、Worktree、工程/文档约定、agent skill |
 
 仓库脚本（`scripts/`、根 `justfile`）不是 OKF 概念，索引入口为 [scripts/README.md](../../scripts/README.md)，从 [工程与文档](README.md) 可达。
 

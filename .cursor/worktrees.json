@@ -1,0 +1,8 @@
+{
+  "setup-worktree-unix": [
+    "python3 scripts/setup_worktree.py"
+  ],
+  "setup-worktree": [
+    "python3 scripts/setup_worktree.py"
+  ]
+}

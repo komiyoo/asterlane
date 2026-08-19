@@ -16,6 +16,7 @@ Asterlane / 星径 是一个 Rust 项目，目标是为代理原生场景提供�
 - `docs/architecture/architecture.md` - 稳定架构和命名方向
 - `docs/runtime/config-schema.md` - 配置与发现查询形态
 - `docs/engineering/development-workflow.md` - 实现规划、模块边界、crate 选择和子代理任务模式
+- `docs/engineering/worktree-workflow.md` - Worktree 初始化与本目录验证
 - `docs/engineering/engineering-conventions.md` - 工程纲领的展开：分层、预算、类型、错误、日志、防臃肿与债务台账
 - `docs/engineering/documentation-conventions.md` - 文档层级、生命周期与自进化约定
 - `.codex/skills/asterlane/SKILL.md` - 项目本地 Codex skill
@@ -119,24 +120,16 @@ Asterlane / 星径 是一个 Rust 项目，目标是为代理原生场景提供�
 
 # 验证
 
-如果工作区 `AGENTS.md` 中配置了构建机，编译和测试在构建机上执行；否则在本地运行。
-
-代码改动完成前运行：
+Worktree 与未被 unison 同步的副本必须在本目录跑 `just check`（新建树先 `just worktree-init`）。禁止用主仓 `ssh mini "cd ~/wks/aster/asterlane && cargo …"` 冒充本树结果。
 
 ```bash
-# 有构建机时（编辑后等待同步 ≥10 秒，或手动 unison aster）：
+# 本目录（Worktree 默认；无构建机时也用这条）
+just check
+
+# 仅当改的就是主 checkout，且 unison 已同步到 mini：
 ssh mini "cd ~/wks/aster/asterlane && . ~/.cargo/env && cargo fmt -- --check"
 ssh mini "cd ~/wks/aster/asterlane && . ~/.cargo/env && cargo clippy --all-targets -- -D warnings"
 ssh mini "cd ~/wks/aster/asterlane && . ~/.cargo/env && cargo test"
-
-# 无构建机时：
-cargo fmt -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test
 ```
 
-以上三项与 CI（`.github/workflows/ci.yml`）对齐；clippy 覆盖测试代码（`--all-targets`），漏跑会在 push 后才暴露
-
-文档改动还要运行 `python3 scripts/check_okf_docs.py`（说明见 `scripts/README.md`）
-
-如果无法完成验证，最终回复要说明未运行或失败的精确命令，以及原因
+`just check` 含 doctor + fmt + clippy（`--all-targets`）+ test + OKF，与 CI 前四项对齐。无法完成验证时写明未运行或失败的精确命令与原因。

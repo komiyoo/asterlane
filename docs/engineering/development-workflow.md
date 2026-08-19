@@ -178,6 +178,8 @@ Do not add a crate only because it is popular. Add it when it removes real compl
 
 # Validation
 
+Worktree 与未被 unison 同步的副本必须在**本目录**验证，禁止用主仓 `ssh mini "cd ~/wks/aster/asterlane && cargo …"` 冒充结果。初始化与隔离边界见 [Worktree Workflow](worktree-workflow.md)。
+
 Before completion:
 
 ```bash
@@ -216,3 +218,4 @@ PR 描述用 `.github/PULL_REQUEST_TEMPLATE.md`：验证表格要求填实际结
 [8] [Compatibility Policy](../architecture/compatibility-policy.md)
 [9] [NyaProxy local reference](file:///Users/ticoag/Documents/myws/NyaProxy)
 [10] [OKF v0.1 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+[11] [Worktree Workflow](worktree-workflow.md)

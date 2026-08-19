@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-08-19（Worktree 初始化与本目录验证）
+
+- **新增** [Worktree Workflow](engineering/worktree-workflow.md)：Git / Cursor Worktree 的共享与隔离表、`scripts/setup_worktree.py` 初始化步骤、必须在本树跑 `just check`、禁止用主仓 mini 路径冒充结果、起网关时钉 `ASTERLANE_CONFIG` 并换 bind。
+- **入口**：`.cursor/worktrees.json` 在建树后跑 `python3 scripts/setup_worktree.py`；`.cursor/rules/worktree.mdc` 始终提醒 agent 不要跳过 setup、不要拷 `target/`。`just worktree-init` / `worktree-doctor` / `worktree-env`；`just check` 把 doctor 放在最前。
+- **L0**：`AGENTS.md` 验证节写明 Worktree 走本目录；主仓 mini 路径仅当 unison 已同步当前 checkout。
+- **验证**：`python3 scripts/setup_worktree.py --self-test`；主仓 `--doctor` 与完整 init；在 `/.worktrees/_init-verify` 对独立 worktree `--root` 跑 init；`just check`（含 fmt/clippy/test/OKF）。
+
 ## 2026-08-19（MCP `tools/list` 对齐 per-key `discovery_mode: lazy`）
 
 - **行为**：Bearer 绑定的 gateway key 若 `discovery_mode: lazy`，MCP `tools/list` 只返回四个 `asterlane__*` meta-tool，`next_cursor` 为 `None`，忽略 `_meta` 过滤键；`ttlMs` / `cacheScope=private` 不变。Full（缺省）仍是 catalog 分页，末页追加 meta-tool。

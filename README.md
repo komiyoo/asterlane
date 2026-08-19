@@ -82,7 +82,7 @@ cargo run -- admin stats
 ## 构建与测试
 
 ```bash
-# 全量检查（推荐，等价于 CI）
+# 全量检查（推荐，对齐 CI 前四项；Worktree 也用这条）
 just check
 
 # 或手动逐步执行：
@@ -92,6 +92,8 @@ cargo test                    # 测试
 python3 scripts/check_okf_docs.py          # 文档校验
 cargo deny check              # 供应链审计
 ```
+
+Git / Cursor Worktree：进入新树后先 `just worktree-init`，验证仍在**该目录**跑 `just check`，不要用主仓 mini 路径冒充结果。约定见 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
 
 其他构建变体：
 
