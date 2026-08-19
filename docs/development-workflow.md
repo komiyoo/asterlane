@@ -210,5 +210,5 @@ CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny 五�
 [6] [Observability](observability.md)
 [7] [API Discovery](api-discovery.md)
 [8] [Compatibility Policy](compatibility-policy.md)
-[9] [NyaProxy local reference](/Users/ticoag/Documents/myws/NyaProxy)
+[9] [NyaProxy local reference](file:///Users/ticoag/Documents/myws/NyaProxy)
 [10] [OKF v0.1 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
