@@ -79,6 +79,8 @@ pub enum ErrorCode {
     McpInvalidToolCall,
     /// 上游 MCP server 失败。
     McpUpstreamMcpFailure,
+    /// FailClosed：至少一个 MCP 上游 `Unreachable`，拒绝把 stale 目录当权威结果。
+    McpUpstreamUnavailable,
 
     // ── transform ──
     /// 变换规则尝试设置危险 header。
@@ -132,6 +134,7 @@ impl ErrorCode {
             Self::LimitDailyCallsExhausted => "limit.daily_calls_exhausted",
             Self::McpInvalidToolCall => "mcp.invalid_tool_call",
             Self::McpUpstreamMcpFailure => "mcp.upstream_mcp_failure",
+            Self::McpUpstreamUnavailable => "mcp.upstream_unavailable",
             Self::TransformDangerousHeader => "transform.dangerous_header",
             Self::TransformInvalidPointer => "transform.invalid_pointer",
             Self::AdminUnauthorized => "admin.unauthorized",
@@ -168,7 +171,9 @@ impl ErrorCode {
             | Self::LimitQueueTimeout
             | Self::LimitCallsExhausted
             | Self::LimitDailyCallsExhausted => "limit",
-            Self::McpInvalidToolCall | Self::McpUpstreamMcpFailure => "mcp",
+            Self::McpInvalidToolCall
+            | Self::McpUpstreamMcpFailure
+            | Self::McpUpstreamUnavailable => "mcp",
             Self::TransformDangerousHeader | Self::TransformInvalidPointer => "transform",
             Self::AdminUnauthorized
             | Self::AdminInvalidQuery
@@ -384,6 +389,7 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::AuthMissingUpstreamSecret => 503,
         ErrorCode::CatalogUnknownTool => 404,
         ErrorCode::McpUpstreamMcpFailure => 502,
+        ErrorCode::McpUpstreamUnavailable => 503,
         ErrorCode::CatalogInvalidPagination
         | ErrorCode::CatalogAmbiguousToolName
         | ErrorCode::McpInvalidToolCall => 400,
@@ -488,6 +494,10 @@ mod tests {
             ErrorCode::McpUpstreamMcpFailure.as_str(),
             "mcp.upstream_mcp_failure"
         );
+        assert_eq!(
+            ErrorCode::McpUpstreamUnavailable.as_str(),
+            "mcp.upstream_unavailable"
+        );
         assert_eq!(ErrorCode::AdminUnauthorized.as_str(), "admin.unauthorized");
         assert_eq!(ErrorCode::AdminInvalidQuery.as_str(), "admin.invalid_query");
         assert_eq!(ErrorCode::AdminNotFound.as_str(), "admin.not_found");
@@ -532,6 +542,7 @@ mod tests {
         assert_eq!(ErrorCode::LimitCallsExhausted.category(), "limit");
         assert_eq!(ErrorCode::McpInvalidToolCall.category(), "mcp");
         assert_eq!(ErrorCode::McpUpstreamMcpFailure.category(), "mcp");
+        assert_eq!(ErrorCode::McpUpstreamUnavailable.category(), "mcp");
         assert_eq!(ErrorCode::AdminUnauthorized.category(), "admin");
         assert_eq!(ErrorCode::AdminInvalidQuery.category(), "admin");
         assert_eq!(ErrorCode::AdminNotFound.category(), "admin");
@@ -773,6 +784,19 @@ mod tests {
     }
 
     #[test]
+    fn http_mcp_upstream_unavailable_returns_503() {
+        let err = AsterlaneError::internal(
+            ErrorCode::McpUpstreamUnavailable,
+            "one or more MCP upstreams are unreachable",
+        );
+        let view = err.http_response();
+        assert_eq!(view.status, 503);
+        assert_eq!(view.code, ErrorCode::McpUpstreamUnavailable);
+        assert!(!view.message.contains("secret://"));
+        assert!(!view.message.contains("http"));
+    }
+
+    #[test]
     fn http_timeout_returns_408() {
         let err = AsterlaneError::internal(ErrorCode::HttpTimeout, "request timed out");
         let view = err.http_response();
@@ -896,6 +920,22 @@ mod tests {
             err.mcp_error(),
             McpErrorForm::ToolResultIsError(_)
         ));
+    }
+
+    #[test]
+    fn mcp_upstream_unavailable_returns_jsonrpc_32603() {
+        let err = AsterlaneError::internal(
+            ErrorCode::McpUpstreamUnavailable,
+            "one or more MCP upstreams are unreachable",
+        );
+        match err.mcp_error() {
+            McpErrorForm::JsonRpc(code, msg) => {
+                assert_eq!(code, -32603);
+                assert!(msg.contains("unreachable"));
+                assert!(!msg.contains("secret://"));
+            }
+            other => panic!("expected JsonRpc -32603, got {other:?}"),
+        }
     }
 
     #[test]

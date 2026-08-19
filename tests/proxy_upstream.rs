@@ -28,6 +28,7 @@ fn test_config(base_url: &str, auth: UpstreamAuth, endpoints: Vec<ToolEndpoint>)
         observability: Default::default(),
         secrets: Default::default(),
         http: Default::default(),
+        mcp: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: vec![ApiResource {
             id: "test-api".to_string(),

@@ -36,8 +36,37 @@ pub mod registry;
 mod result;
 pub mod server;
 
+use crate::config::McpFailureMode;
+
 pub use error::McpError;
 pub use health::{HealthStatus, ServerHealth};
+
+/// FailClosed 下列表是否应拒绝：registry 健康快照中存在 `Unreachable`。
+///
+/// `Disabled` / `Unknown` / `Ok` 不阻塞。无 registry 或无 server 不阻塞。
+pub fn list_blocked_by_fail_closed(
+    registry: Option<&McpServerRegistry>,
+    mode: McpFailureMode,
+) -> bool {
+    if mode != McpFailureMode::FailClosed {
+        return false;
+    }
+    let Some(registry) = registry else {
+        return false;
+    };
+    registry
+        .health_snapshot()
+        .iter()
+        .any(|health| health.status == HealthStatus::Unreachable)
+}
+
+/// FailClosed 拦截 list 时的稳定错误（HTTP 503 / MCP JSON-RPC -32603）。
+pub fn fail_closed_list_error() -> crate::error::AsterlaneError {
+    crate::error::AsterlaneError::internal(
+        crate::error::ErrorCode::McpUpstreamUnavailable,
+        "one or more MCP upstreams are unreachable",
+    )
+}
 pub use model::{
     MCP_INPUT_REQUIRED_CONTENT_TYPE, ToolCallExtras, ToolCallResult, ToolContent, ToolDescriptor,
     UpstreamCallOutcome,
@@ -45,3 +74,18 @@ pub use model::{
 pub use notify::{ToolListChangedPeers, ToolListChangedTarget, notify_peers_tool_list_changed};
 pub use registry::{McpServerRegistry, RefreshResult, RemoteMcpPeer, RmcpRemoteMcpPeer};
 pub use server::AsterlaneToolServer;
+
+#[cfg(test)]
+mod fail_closed_tests {
+    use super::*;
+    use crate::config::McpFailureMode;
+
+    #[test]
+    fn missing_registry_never_blocks() {
+        assert!(!list_blocked_by_fail_closed(
+            None,
+            McpFailureMode::FailClosed
+        ));
+        assert!(!list_blocked_by_fail_closed(None, McpFailureMode::FailOpen));
+    }
+}

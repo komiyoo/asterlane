@@ -215,6 +215,13 @@ pub async fn list_tools(
     let key_id = authenticate_request(&state, &headers, query.key.as_deref()).await?;
     let proxy_key = proxy_key_for(&config, &key_id)?;
 
+    if crate::mcp::list_blocked_by_fail_closed(
+        state.mcp_registry.as_deref(),
+        config.mcp.failure_mode,
+    ) {
+        return Err(crate::mcp::fail_closed_list_error());
+    }
+
     // Lazy mode: return only meta-tool descriptors
     if DiscoveryMode::from_config_str(proxy_key.discovery_mode.as_deref()) == DiscoveryMode::Lazy {
         let descriptors = discovery::meta_tool_descriptors();

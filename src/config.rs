@@ -23,6 +23,9 @@ pub struct GatewayConfig {
     /// 入站 HTTP 护栏（请求体上限、REST/admin 超时）。缺省 1 MiB / 30s。
     #[serde(default)]
     pub http: HttpServerConfig,
+    /// MCP 运行时：多上游失败模式、后台刷新间隔、`tools/list` TTL。
+    #[serde(default)]
+    pub mcp: McpRuntimeConfig,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     /// 平台内置 MCP preset 启用列表，加载后展开进 `mcp_servers`
@@ -106,6 +109,61 @@ impl Default for HttpServerConfig {
             max_body_bytes: default_max_body_bytes(),
             request_timeout_secs: default_request_timeout_secs(),
         }
+    }
+}
+
+fn default_mcp_refresh_interval_secs() -> u64 {
+    60
+}
+
+fn default_mcp_tools_list_ttl_ms() -> u64 {
+    60_000
+}
+
+/// 多上游 MCP 目录失败模式。非法 YAML 值启动即失败。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum McpFailureMode {
+    /// 刷新失败保留 stale 快照，`tools/list` 仍返回（0.x 缺省）。
+    #[default]
+    FailOpen,
+    /// `health_snapshot` 中任一 `Unreachable` 时拒绝 list，不把 stale 目录当权威结果。
+    FailClosed,
+}
+
+/// 顶层 `mcp` 节：失败模式、后台 `tools/list` 轮询、下游 TTL。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpRuntimeConfig {
+    #[serde(default)]
+    pub failure_mode: McpFailureMode,
+    /// 后台 refresh 间隔（秒）；缺省 60；`0` 不启动 refresh task。
+    #[serde(default = "default_mcp_refresh_interval_secs")]
+    pub refresh_interval_secs: u64,
+    /// MCP `tools/list` 的 `ttlMs`；缺省 60000；`0` 表示不设（`None`）。
+    #[serde(default = "default_mcp_tools_list_ttl_ms")]
+    pub tools_list_ttl_ms: u64,
+}
+
+impl Default for McpRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            failure_mode: McpFailureMode::FailOpen,
+            refresh_interval_secs: default_mcp_refresh_interval_secs(),
+            tools_list_ttl_ms: default_mcp_tools_list_ttl_ms(),
+        }
+    }
+}
+
+impl McpRuntimeConfig {
+    /// `0` 表示不启动后台 refresh task。
+    pub fn should_spawn_refresh(&self) -> bool {
+        self.refresh_interval_secs > 0
+    }
+
+    /// `0` 表示 `tools/list` 不设 `ttl_ms`。
+    pub fn tools_list_ttl(&self) -> Option<u64> {
+        (self.tools_list_ttl_ms > 0).then_some(self.tools_list_ttl_ms)
     }
 }
 
@@ -997,5 +1055,46 @@ http:
         assert_eq!(config.observability.request_event_retention_days, 14);
         let custom = parse("observability:\n  request_event_retention_days: 0");
         assert_eq!(custom.observability.request_event_retention_days, 0);
+    }
+
+    #[test]
+    fn mcp_runtime_defaults_to_fail_open_sixty_seconds_and_ttl() {
+        let config = parse("api_resources: []");
+        assert_eq!(config.mcp.failure_mode, McpFailureMode::FailOpen);
+        assert_eq!(config.mcp.refresh_interval_secs, 60);
+        assert_eq!(config.mcp.tools_list_ttl_ms, 60_000);
+        assert!(config.mcp.should_spawn_refresh());
+        assert_eq!(config.mcp.tools_list_ttl(), Some(60_000));
+    }
+
+    #[test]
+    fn mcp_runtime_parses_fail_closed_and_zero_interval_ttl() {
+        let config = parse(
+            r#"
+mcp:
+  failure_mode: fail_closed
+  refresh_interval_secs: 0
+  tools_list_ttl_ms: 0
+"#,
+        );
+        assert_eq!(config.mcp.failure_mode, McpFailureMode::FailClosed);
+        assert_eq!(config.mcp.refresh_interval_secs, 0);
+        assert_eq!(config.mcp.tools_list_ttl_ms, 0);
+        assert!(!config.mcp.should_spawn_refresh());
+        assert_eq!(config.mcp.tools_list_ttl(), None);
+    }
+
+    #[test]
+    fn mcp_runtime_rejects_unknown_failure_mode() {
+        let err = serde_norway::from_str::<GatewayConfig>("mcp:\n  failure_mode: explode\n")
+            .expect_err("unknown failure_mode must fail");
+        let display = err.to_string();
+        assert!(
+            display.contains("fail_open")
+                || display.contains("fail_closed")
+                || display.contains("unknown")
+                || display.contains("invalid"),
+            "unexpected parse error: {display}"
+        );
     }
 }

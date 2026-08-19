@@ -1,6 +1,5 @@
 //! MCP Server Handler：将 Asterlane gateway tools 暴露为 MCP 协议端点。
 
-use std::future::Future;
 use std::sync::Arc;
 
 use rmcp::model::{
@@ -32,8 +31,6 @@ use crate::shaping::ShapingConfig;
 
 /// 默认分页大小。
 const DEFAULT_PAGE_SIZE: usize = 50;
-/// `tools/list` / `server/discover` 缓存提示，与后台 refresh 周期对齐。
-const TOOLS_LIST_TTL_MS: u64 = 60_000;
 
 // 开放模式（无任何 key 配置 token）的全放行 key，维持历史行为；
 // required 模式下由认证 middleware 绑定真实 ProxyKey（见 resolve_proxy_key）。
@@ -190,16 +187,20 @@ impl ServerHandler for AsterlaneToolServer {
         ))
     }
 
-    fn discover(
+    async fn discover(
         &self,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<DiscoverResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(DiscoverResult::from_server_info(
+    ) -> Result<DiscoverResult, ErrorData> {
+        let config = self.state.config_snapshot().await;
+        let mut result = DiscoverResult::from_server_info(
             self.supported_protocol_versions().into_owned(),
             self.get_info(),
         )
-        .with_ttl_ms(TOOLS_LIST_TTL_MS)
-        .with_cache_scope(CacheScope::Private)))
+        .with_cache_scope(CacheScope::Private);
+        if let Some(ttl_ms) = config.mcp.tools_list_ttl() {
+            result = result.with_ttl_ms(ttl_ms);
+        }
+        Ok(result)
     }
 
     fn accepted_subscription_filter(
@@ -235,9 +236,16 @@ impl ServerHandler for AsterlaneToolServer {
         let config = self.state.config_snapshot().await;
         let key = self.resolve_proxy_key(&config, &context).await?;
 
+        if crate::mcp::list_blocked_by_fail_closed(
+            self.state.mcp_registry.as_deref(),
+            config.mcp.failure_mode,
+        ) {
+            return Err(fail_closed_list_error_data());
+        }
+
         // lazy 只收窄 list：忽略 _meta 过滤，仅返回 meta-tool。call 路径不读此分支。
         if DiscoveryMode::from_config_str(key.discovery_mode.as_deref()) == DiscoveryMode::Lazy {
-            return Ok(lazy_meta_tool_list());
+            return Ok(lazy_meta_tool_list(config.mcp.tools_list_ttl()));
         }
 
         let meta = request.as_ref().and_then(|r| r.meta.as_ref());
@@ -275,7 +283,7 @@ impl ServerHandler for AsterlaneToolServer {
             next_cursor,
             tools,
             result_type: Some(rmcp::model::ResultType::COMPLETE),
-            ttl_ms: Some(TOOLS_LIST_TTL_MS),
+            ttl_ms: config.mcp.tools_list_ttl(),
             cache_scope: Some(CacheScope::Private),
         })
     }
@@ -376,8 +384,13 @@ fn meta_str(meta: Option<&RequestMetaObject>, key: &str) -> Option<String> {
         .map(String::from)
 }
 
+/// FailClosed list 走 JSON-RPC `-32603`，消息脱敏、不提密钥或上游 URL。
+fn fail_closed_list_error_data() -> ErrorData {
+    ErrorData::internal_error("one or more MCP upstreams are unreachable", None)
+}
+
 /// `discovery_mode: lazy` 的 `tools/list`：四个 meta-tool，无 catalog、无游标。
-fn lazy_meta_tool_list() -> ListToolsResult {
+fn lazy_meta_tool_list(ttl_ms: Option<u64>) -> ListToolsResult {
     ListToolsResult {
         meta: None,
         next_cursor: None,
@@ -386,7 +399,7 @@ fn lazy_meta_tool_list() -> ListToolsResult {
             .map(descriptor_to_mcp_tool)
             .collect(),
         result_type: Some(rmcp::model::ResultType::COMPLETE),
-        ttl_ms: Some(TOOLS_LIST_TTL_MS),
+        ttl_ms,
         cache_scope: Some(CacheScope::Private),
     }
 }
@@ -542,6 +555,7 @@ mod tests {
             observability: Default::default(),
             secrets: Default::default(),
             http: Default::default(),
+            mcp: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![
@@ -771,7 +785,7 @@ mod tests {
         let (client, server_task) = serve_pair(state).await;
 
         let result = client.list_tools(None).await.expect("list_tools");
-        assert_eq!(result.ttl_ms, Some(TOOLS_LIST_TTL_MS));
+        assert_eq!(result.ttl_ms, Some(60_000));
         assert_eq!(result.cache_scope, Some(CacheScope::Private));
 
         let _ = client.cancel().await;

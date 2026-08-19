@@ -26,8 +26,9 @@ pub mod transform;
 
 pub use catalog::{ParamLocations, ToolCatalog, ToolListQuery, ToolPage, WrappedTool};
 pub use config::{
-    ApiResource, DefenseConfig, DiscoveryConfig, GatewayConfig, GatewayDefaults, McpServerConfig,
-    OpenApiSourceConfig, ProxyKey, SecurityConfig, SpecSource, ToolEndpoint,
+    ApiResource, DefenseConfig, DiscoveryConfig, GatewayConfig, GatewayDefaults, McpFailureMode,
+    McpRuntimeConfig, McpServerConfig, OpenApiSourceConfig, ProxyKey, SecurityConfig, SpecSource,
+    ToolEndpoint,
 };
 pub use discovery::{DiscoveryMode, handle_meta_tool_call, is_meta_tool, meta_tool_descriptors};
 pub use naming::ToolName;

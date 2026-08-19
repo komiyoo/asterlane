@@ -21,6 +21,7 @@ semantic_search: {}   # 可选
 secrets: {}           # 可选；Vault / Infisical
 http: {}              # 可选；请求体上限与 REST/admin 超时
 observability: {}     # 可选；负载捕获与 request_events 保留
+mcp: {}               # 可选；多上游失败模式、刷新间隔、tools/list TTL
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -97,6 +98,25 @@ http:
 - 请求体上限作用于全部路径（含 `/mcp`），超限返回 `http.body_too_large`（413）。
 - 请求超时只套 REST（`/config`、`/v1/*`）与 `/admin/*`，**不**套 `/mcp`、`/healthz`、`/versionz`、`/metrics`，以免掐断 Streamable HTTP 会话。超时返回 `http.timeout`（408）。这与 proxy 执行层的上游超时（`proxy.upstream_timeout`，504）是两道独立护栏。
 - 所有响应（含错误）附加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`。进程内不终止 TLS，因此不设 HSTS。
+
+## MCP 运行时
+
+可选。控制多上游 MCP 的目录失败模式、后台 `tools/list` 刷新间隔，以及下游 MCP `tools/list` 的 `ttlMs`。缺省与 0.x 一致：FailOpen、60 秒刷新、`ttlMs=60000`。
+
+```yaml
+mcp:
+  failure_mode: fail_open          # fail_open | fail_closed；缺省 fail_open
+  refresh_interval_secs: 60        # 后台 tools/list 轮询；缺省 60；0 = 不启动 refresh task
+  tools_list_ttl_ms: 60000         # MCP tools/list 的 ttlMs；缺省 60000；0 = 不设 ttl_ms
+```
+
+- `failure_mode` 为枚举（serde snake_case）；非法值启动即失败。
+- **FailOpen**（缺省）：刷新失败保留 stale 快照，`tools/list` 与 REST `GET /v1/tools` 仍返回当前目录。
+- **FailClosed**：`McpServerRegistry::health_snapshot()` 中任一 `HealthStatus::Unreachable` 时，MCP `tools/list`（Full 与 lazy）与 REST `GET /v1/tools`（Full 与 lazy）返回 `mcp.upstream_unavailable`（HTTP 503 / JSON-RPC `-32603`），不把 stale 上游工具当权威目录。`Disabled` / `Unknown` / `Ok` 不阻塞。无 registry 或无 server 不阻塞。
+- `tools/call` 与 REST invoke **不株连**：只对所属上游失败；其它 server `Unreachable` 不拒绝调用。
+- `GET /healthz` 不因 FailClosed 失败（Docker HEALTHCHECK 探它）。
+- 后台 refresh 在 FailClosed 下仍会 `replace_mcp_tools`（call 路径需要映射）；FailClosed 只挡 **list**。
+- `refresh_interval_secs: 0` 不 spawn 后台 refresh task；`tools_list_ttl_ms: 0` 时下游 `tools/list` 不设 `ttlMs`。
 
 ## Observability
 

@@ -628,6 +628,7 @@ mod tests {
             observability: Default::default(),
             secrets: Default::default(),
             http: Default::default(),
+            mcp: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: vec![
                 ApiResource {

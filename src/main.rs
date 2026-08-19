@@ -14,9 +14,10 @@ use tracing::{info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-/// 后台 MCP registry 刷新间隔（秒）。
-/// 暂不加 config，用常量；未来可从 GatewayConfig 读取。
-const MCP_REFRESH_INTERVAL_SECS: u64 = 60;
+/// `refresh_interval_secs == 0` 时不启动后台 refresh task。
+fn should_spawn_mcp_refresh(refresh_interval_secs: u64) -> bool {
+    refresh_interval_secs > 0
+}
 
 #[derive(Debug, Parser)]
 #[command(name = "asterlane")]
@@ -415,17 +416,19 @@ async fn serve(args: ServeArgs) -> Result<()> {
                 "integrity baseline pinned from initial mcp tools"
             );
         }
-        spawn_mcp_refresh_task(
-            registry.clone(),
-            state.catalog.clone(),
-            state.tool_list_changed_peers.clone(),
-            state.config.clone(),
-            state.integrity_baseline.clone(),
-            state.quarantined_tools.clone(),
-            state.event_repo.clone(),
-            state.secrets.clone(),
-            ct.child_token(),
-        );
+        if should_spawn_mcp_refresh(config.mcp.refresh_interval_secs) {
+            spawn_mcp_refresh_task(
+                registry.clone(),
+                state.catalog.clone(),
+                state.tool_list_changed_peers.clone(),
+                state.config.clone(),
+                state.integrity_baseline.clone(),
+                state.quarantined_tools.clone(),
+                state.event_repo.clone(),
+                state.secrets.clone(),
+                ct.child_token(),
+            );
+        }
     }
 
     let listener = tokio::net::TcpListener::bind(&args.bind)
@@ -448,7 +451,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
 
 /// 启动后台 MCP registry 刷新 task。
 ///
-/// 每 `MCP_REFRESH_INTERVAL_SECS` 秒：
+/// 每 `config.mcp.refresh_interval_secs` 秒（启动时读取；`0` 不 spawn）：
 /// 1. `registry.refresh_with_secrets()` 重新拉取上游 `tools/list`
 ///    （unreachable 的 server 用 secrets 自动重连，恢复后并入其工具）。
 /// 2. `catalog.replace_mcp_tools()` 更新工具快照。
@@ -470,7 +473,11 @@ fn spawn_mcp_refresh_task(
     ct: tokio_util::sync::CancellationToken,
 ) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(MCP_REFRESH_INTERVAL_SECS));
+        let interval_secs = config.read().await.mcp.refresh_interval_secs;
+        if !should_spawn_mcp_refresh(interval_secs) {
+            return;
+        }
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
         // 跳过第一次立即触发（启动时刚 connect_all 过）
         interval.tick().await;
         loop {
@@ -525,6 +532,12 @@ mod tests {
     #[test]
     fn serve_cli_allows_discovered_config() {
         assert!(Cli::try_parse_from(["asterlane", "serve"]).is_ok());
+    }
+
+    #[test]
+    fn refresh_interval_zero_does_not_spawn() {
+        assert!(!should_spawn_mcp_refresh(0));
+        assert!(should_spawn_mcp_refresh(60));
     }
 
     #[test]

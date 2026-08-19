@@ -106,6 +106,7 @@ proxy_keys:
 - 健康数据：`server_id, status, last_check_at, last_ok_at, latency_ms（最近成功探测耗时）, consecutive_failures, last_error（脱敏 message）, tool_count`。
 - 探测 = 未连接时先连接 + `tools/list`（与 refresh 同口径）；周期探测搭现有 refresh 任务（`disabled` 的 server 跳过，工具沿用 stale 快照）；按需探测 `probe(id)` 立即执行单服务器并更新健康与工具快照。
 - **启动降级**：`connect_all` 不再整体失败——单服务器连接失败记 `unreachable`（entry 无 peer），网关照常启动；后续 refresh/probe 成功后自动转 `ok` 并合并其工具。
+- **目录失败模式**：`mcp.failure_mode: fail_closed` 时，`health_snapshot()` 中任一 `unreachable` 会拒绝 MCP/REST `tools/list`（`mcp.upstream_unavailable`）；`tools/call` 与 `/healthz` 不株连。缺省 `fail_open` 仍返回 stale 快照。
 - registry 对外新 API（as-built，`src/mcp/health.rs` + `registry.rs`）：
   - `health_snapshot() -> Vec<ServerHealth>`
   - `probe<S: SecretStore>(server_id: &str, secrets: &S) -> Result<ServerHealth, McpError>`（重连需要 secrets；unknown id → `McpError::UnknownServer` → 404 `admin.not_found`）
