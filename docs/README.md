@@ -4,7 +4,8 @@
 
 ## 概念文档
 
-- [Architecture](architecture.md) - 系统目标、模块边界、数据流、命名、分阶段路线图。
+- [Architecture](architecture.md) - 系统目标、模块边界、数据流、命名。
+- [Roadmap](roadmap.md) - 按定位支柱评估的实现缺口、分阶段优先级与待产品决策项。
 - [MCP Protocol](mcp-protocol.md) - MCP `2026-07-28` 双栈适配：发现、路由头、缓存提示、订阅通知与 MRTR 透传。
 - [Naming Convention](naming-convention.md) - MCP 工具命名格式与映射规则（基于规范约束的决策）。
 - [Crate Selection](crate-selection.md) - 各能力维度的 Rust crate 选型矩阵与版本。
