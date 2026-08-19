@@ -4,14 +4,14 @@ title: Asterlane 演进规划
 description: 按产品定位的五根支柱评估实现缺口，给出分阶段优先级、准入准出条件与待产品决策项。
 resource: docs/product/roadmap.md
 tags: [roadmap, planning, gaps, product]
-timestamp: 2026-08-19T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 ---
 
 # 背景
 
 本文件 supersede [Architecture](../architecture/architecture.md) 原 Roadmap 节（Phase 1–6）。原 roadmap 长期停在「Phase 1（当前）」，而 Phase 1–6 的主体能力早已交付，继续保留只会误导。
 
-评估基线：截至 2026-08-19 的 `main`，并计入同日交付的 MCP `tools/list` lazy 切片。结论来自源码通读与 `docs/` 全量对照，证据以文件路径 + 符号名给出（不写行号，行号必腐烂）。
+评估基线：截至 2026-08-19 的 `main`（含同日 MCP `tools/list` lazy 切片），并计入 2026-08-20 对公开 MCP 网关讨论的吸收。结论来自源码通读与 `docs/` 全量对照，证据以文件路径 + 符号名给出（不写行号，行号必腐烂）。
 
 评估口径不是「功能清单还差几项」，而是**产品定位的每根支柱还差什么**。定位见 [Product Requirements](product-requirements.md)：面向代理原生场景的第三方资源、HTTP API、MCP 服务器与凭据访问网关，不是模型转发网关。
 
@@ -27,6 +27,18 @@ timestamp: 2026-08-19T00:00:00Z
 | **定位缺口** | 支柱本身不完整，影响网关能否替代直连上游 | 按支柱重要性排期 |
 | **生产就绪** | 单机能跑，长期运行或多副本会出事 | 与定位缺口并行，不可再推迟 |
 
+# 2026-08-20 竞品吸收
+
+对照的是 MCP **网关**（agentgateway 多上游联邦、Pomerium 上游 OAuth 桥、规范把方法/工具名放到 HTTP 头），不是搜索工具。只吸收能加强现有支柱、且不把产品变成另一种网关的项。对照物本身不进入实现。
+
+| 吸收 | 落到哪 | 明确不吸收 |
+| --- | --- | --- |
+| 上游 OAuth 由**网关持有并刷新**（Pomerium 桥模式：401 / RFC 9728 / token 不出网关）；下游认证仍是 gateway key | Phase 8 写清形态；「用户委托」另开决策，不混进同一实现 | 下游改人类 IdP / SSO；Asterlane 做 OAuth 授权服务器 |
+| 多上游 MCP fan-out 显式 **FailOpen / FailClosed**（agentgateway `failureMode`）。现有刷新失败留 stale 快照是未声明的 FailOpen | 支柱四 + Phase 8。默认保持 FailOpen，避免 0.x 行为突变 | 会话级 FailClosed（现代路径无会话）；把 `{target}_{tool}` 或 `prefixMode` 当成 canonical 名 |
+| MCP 路径计量优先读已校验的 `Mcp-Method` / `Mcp-Name`，不要为计数再拆 JSON-RPC body | Phase 10 成本核算的实现约束 | 为限流/计量手写第二套 JSON-RPC 解析（[MCP Protocol](../architecture/mcp-protocol.md) 已规定由 rmcp 校验头体） |
+
+未列入阶段的对照能力：CEL × JWT 作为主 RBAC、统一 LLM / A2A / gRPC 数据面、stdio 默认暴露 filesystem/shell、allow/deny 的前缀/后缀语法糖（正则已覆盖）。见下方非目标与待决策项。
+
 # 支柱评估
 
 ## 支柱一：凭据由网关集中持有
@@ -40,7 +52,7 @@ timestamp: 2026-08-19T00:00:00Z
 | secret 无缓存 / TTL / 轮换 / 重试 | 生产就绪 | `secrets::vault` 与 `secrets::infisical` 均为单次 HTTP GET |
 | 云 KMS 后端 | 定位缺口（轻） | [Architecture](../architecture/architecture.md) 的 Credential Vault 节列为方向，无代码 |
 
-**判断**：OAuth 缺口是本支柱唯一的结构性问题。第三方远程 MCP server 的规范授权路径就是 OAuth 2.1；面对这类上游，「网关集中持有凭据」当前只能靠人工预置长期 token 绕过，一旦上游只发短期 token 就完全失效。这是整份规划里优先级最高的单项。
+**判断**：OAuth 缺口是本支柱唯一的结构性问题。第三方远程 MCP server 的规范授权路径就是 OAuth 2.1；面对这类上游，「网关集中持有凭据」当前只能靠人工预置长期 token 绕过，一旦上游只发短期 token 就完全失效。这是整份规划里优先级最高的单项。Pomerium 验证了「网关做 OAuth 客户端、token 永不出网关」这条路径；Phase 8 只做**网关持有 client**。把终端用户对 GitHub / Linear 的同意流接进来是第二种凭据模式，须先产品决策，不能在未决策的情况下把下游改成人类登录。
 
 ## 支柱二：per-key 工具范围
 
@@ -67,11 +79,12 @@ timestamp: 2026-08-19T00:00:00Z
 | 只代理 tools，不代理 resources / prompts | 定位缺口 | `mcp::server` 的 `get_info` 仅广告 tools 能力；`RemoteMcpPeer` 只有 `list_tools` / `call_tool` |
 | 无 stdio / 本地进程 MCP server | 待决策 | `mcp::registry` 仅用 `StreamableHttpClientTransport` |
 | 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口 | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建 |
+| 多上游 MCP fan-out 无显式失败语义 | 定位缺口（轻） | `mcp::registry` 刷新失败保留 stale 快照并记 `RefreshResult.failed_server_ids`（隐式 FailOpen）；`tools/list` 仍可能暴露已不可达上游的工具。无 FailClosed：任一 enabled 上游不可达则 list/health 失败 |
 | 无 circuit breaker、无跨 provider failover | 生产就绪 | 仅同 resource 内 key 轮换（`proxy::retry` + `keys::pool`） |
 | 非幂等方法同样重试 | 生产就绪 | `proxy::retry` 只按状态码白名单判定，不看 HTTP method |
 | 每 endpoint 覆盖负载均衡策略 | 定位缺口（轻） | 策略只配在 resource 级 `key_pool.strategy`；[Product Requirements](product-requirements.md) 承诺可按 endpoint 覆盖 |
 
-**判断**：请求变换是从 NyaProxy 借鉴的既定能力，模块写完了却没接上任何调用方——这是全库最典型的兑现差，必须在下一阶段清账（接线或下线二选一，不留第三态）。
+**判断**：请求变换是从 NyaProxy 借鉴的既定能力，模块写完了却没接上任何调用方——这是全库最典型的兑现差，必须在下一阶段清账（接线或下线二选一，不留第三态）。多上游 MCP 的失败语义与 integrity 一致：默认可继续 FailOpen（可用性），但必须可配置 FailClosed，避免上游消失后仍把 stale 工具当权威目录。
 
 ## 支柱五：使用日志与管理可见性
 
@@ -120,9 +133,10 @@ timestamp: 2026-08-19T00:00:00Z
 
 **目标**：让网关能接管需要 OAuth 的第三方 MCP server，这是支柱一的结构性补齐。
 
-- 上游 MCP OAuth 2.1：`UpstreamAuth` 增 OAuth 变体，实现 401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现、token 获取与刷新、RFC 8707 resource 参数；token 落 secret 后端，永不出网关
-- 动态客户端注册（若目标上游要求）
+- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数。token 落 secret 后端，永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器
+- 动态客户端注册（若目标上游要求；CIMD / DCR 仅作为网关持有 client 的注册手段）
 - 订阅上游 `tools/list_changed`，替代固定轮询；刷新间隔与缓存 TTL 转为配置项
+- 多上游 MCP 失败语义可配置：默认维持现有 FailOpen（刷新失败留 stale）；提供 FailClosed（任一 enabled 上游不可达则 `tools/list` / 健康检查失败，不把 stale 工具继续暴露给下游）。`tools/call` 仍只对所属上游失败，不株连其他 server
 - resources / prompts 代理：先做产品决策（见下节），确定做则扩 `RemoteMcpPeer` 与下游 capabilities
 - 上游形态扩展：multipart / form-urlencoded 请求，流式响应
 
@@ -143,7 +157,7 @@ timestamp: 2026-08-19T00:00:00Z
 
 **目标**：把可观测性从「有数据」推到「能运营」。
 
-- 成本核算：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台
+- 成本核算：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
 - usage 分钟/日桶、上游耗时维度、HTTP 错误响应回填 `request_id`
 - IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（或删除死代码）
 - upstream keys admin API 与 key pool 热更新
@@ -158,17 +172,19 @@ timestamp: 2026-08-19T00:00:00Z
 | 决策 | 选项 | 影响 |
 | --- | --- | --- |
 | **请求变换是能力还是债务** | 接线 / 删除 | 决定 Phase 7 首条的工作量与 `README.md` 定位表述 |
-| **是否支持 stdio / 本地进程 MCP server** | 支持 / 明确列为非目标 | 支持则触及进程生命周期管理与安全模型，与 headless server 定位冲突；不支持则应写入非目标，停止暗示 |
+| **是否支持 stdio / 本地进程 MCP server** | 支持 / 明确列为非目标 | 支持则触及进程生命周期管理与安全模型，与 headless server 定位冲突；不支持则应写入非目标，停止暗示。即使支持，也不得默认暴露 filesystem / shell（个人 VPS MCP 反例） |
 | **是否代理 tools 之外的 MCP primitive** | resources+prompts / 仅 tools | 决定项目自称「MCP 网关」还是「MCP 工具网关」，影响对外定位表述 |
-| **多租户与 RBAC 是否进入产品** | 进入 / 长期非目标 | 现有文档列为非目标，但 Postgres 与共享状态一旦落地，补多租户的成本会显著上升，宜在 Phase 9 前定调 |
+| **上游 OAuth 是否另开用户委托模式** | Phase 8 仅网关持有 client / 另开 per-user 同意流 | 网关持有即可接管「只要 client credentials / 预置 app」的远程 MCP。用户委托（Pomerium 的 per-user GitHub / Linear token）是第二种凭据模式：下游仍必须是 gateway key，不得改成人类登录；实现与密钥隔离都要单独设计。默认建议：Phase 8 只做网关持有 |
+| **多租户与 RBAC 是否进入产品** | 进入 / 长期非目标 | 现有文档列为非目标，但 Postgres 与共享状态一旦落地，补多租户的成本会显著上升，宜在 Phase 9 前定调。进入也不采用 agentgateway 式 `jwt.sub && mcp.tool.name` CEL 作为默认模型；授权主体仍是 gateway key |
 | **成本核算的计量口径** | 按次 / 按 token / 按上游账单维度 | 决定 `request_units` 语义与 usage 表结构，改动有迁移成本 |
 
 # 不变的非目标
 
 以下在本轮评估中复核，维持非目标，不进入任何阶段：
 
-- 模型供应商路由与 LLM 转发（[Product Requirements](product-requirements.md) 首要非目标）
-- 把 Asterlane 做成 OAuth 授权服务器；下游认证维持 gateway key（[MCP Protocol](../architecture/mcp-protocol.md)）
+- 模型供应商路由与 LLM 转发（[Product Requirements](product-requirements.md) 首要非目标）；也不做成 agentgateway 式统一数据面（LLM 推理 / A2A / 微服务同一代理）
+- 把 Asterlane 做成 OAuth 授权服务器；下游认证维持 gateway key（[MCP Protocol](../architecture/mcp-protocol.md)）。不把下游改成人类 IdP / SSO
+- 用 `{target}_{tool}` 前缀拼接或 `prefixMode` 作为 canonical 工具名；canonical 仍是 `domain__provider__tool`，暴露名走既有最短无歧义 alias（[Naming Convention](../architecture/naming-convention.md)）
 - 桌面客户端外壳、AI client 配置自动检测、客户端自更新（[Product Requirements](product-requirements.md) 的 Toolport 不借鉴项）
 - human-in-the-loop 审批队列，优先级持续低于 key scope 与限流
 
@@ -181,3 +197,6 @@ timestamp: 2026-08-19T00:00:00Z
 - [5] [Observability](../architecture/observability.md) — 已标注的观测延后项
 - [6] [MCP Protocol](../architecture/mcp-protocol.md) — 下游认证与 primitive 边界
 - [7] [RFC 8707 Resource Indicators for OAuth 2.0](https://www.rfc-editor.org/rfc/rfc8707.html)
+- [8] [RFC 9728 OAuth 2.0 Protected Resource Metadata](https://www.rfc-editor.org/rfc/rfc9728.html)
+- [9] [agentgateway Virtual MCP（`failureMode` / `prefixMode`）](https://agentgateway.dev/docs/kubernetes/latest/mcp/virtual/)
+- [10] [Pomerium MCP + Upstream OAuth](https://www.pomerium.com/docs/capabilities/mcp/mcp-upstream-oauth)

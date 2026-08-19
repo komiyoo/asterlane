@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-08-20（Roadmap 吸收 MCP 网关对照项）
+
+- **文档**：[Roadmap](product/roadmap.md) 增加 2026-08-20 竞品吸收。写入阶段的只有三项：Phase 8 写清「网关作为 OAuth 客户端」；多上游 MCP FailOpen/FailClosed 可配置（默认保持现有 stale FailOpen）；Phase 10 成本核算优先读 `Mcp-Method`/`Mcp-Name`。新增待决策「用户委托 OAuth」；非目标补上统一 LLM/A2A 数据面、人类 SSO、`{target}_{tool}` canonical。
+- **不吸收**：CEL×JWT 主 RBAC、allow/deny 前缀语法糖、stdio 默认暴露 shell、审计参数（`request_args` 已有）。
+- **验证**：`python3 scripts/check_okf_docs.py`。
+
 ## 2026-08-19（文档去腐与删除 MCP 占位死代码）
 
 - **行为**：删除仅测试引用的 `PlaceholderAdapter`、`GatewayToolSource`、`UpstreamToolMapping` 与 `McpError::UpstreamNotImplemented`。上游原始名仍由 `wrap_tools` 写入 `WrappedTool.upstream_path`。`handle_meta_tool_call` 对 `asterlane__call_tool` / `asterlane__fetch_result` 返回 `mcp.invalid_tool_call`（生产路径仍由 HTTP/MCP invoke 管线分流）。
