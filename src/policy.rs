@@ -8,12 +8,12 @@ use thiserror::Error;
 /// 配置中可继续使用冒号形式（`^search:tavily:`），policy 层翻译为 wire name
 /// 形式（`^search__tavily__`）再匹配。只翻译段间分隔符（把 `:` 替换为 `__`），
 /// 不影响段内字符。同时支持已是 wire name 形式的正则（含 `__`）。
-/// 详见 docs/naming-convention.md 与 docs/config-schema.md「Proxy Keys」。
+/// 详见 docs/architecture/naming-convention.md 与 docs/runtime/config-schema.md「Proxy Keys」。
 fn translate_to_wire_regex(pattern: &str) -> String {
     pattern.replace(':', "__")
 }
 
-/// Key scope 有效判定（见 docs/mcp-governance-and-key-limits.md §2）：
+/// Key scope 有效判定（见 docs/runtime/mcp-governance-and-key-limits.md §2）：
 ///
 /// 1. `denied_tools` 正则命中 → 拒绝（最高优先）；
 /// 2. 允许 = `allowed_tools` 正则命中 ∨ `resource_id ∈ allowed_servers`

@@ -114,7 +114,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Serve(args) => serve(*args).await,
-        // run_admin 自行输出结果/错误并给出退出码（映射见 docs/error-model.md）
+        // run_admin 自行输出结果/错误并给出退出码（映射见 docs/architecture/error-model.md）
         Command::Admin(args) => std::process::exit(asterlane::cli::run_admin(*args).await),
         Command::Tools(args) => std::process::exit(asterlane::cli::run_tools(*args).await),
     }
@@ -128,21 +128,21 @@ fn load_config(path: &std::path::Path) -> Result<GatewayConfig> {
 
 /// 读取 + 解析 + YAML 级凭据校验（fail fast），**不展开** builtin preset——
 /// serve 的 DB 启动合并必须发生在展开前（DB 同 id 条目遮蔽 preset，
-/// 见 docs/key-credentials-and-persistence.md K2）。
+/// 见 docs/runtime/key-credentials-and-persistence.md K2）。
 fn parse_config_file(path: &std::path::Path) -> Result<GatewayConfig> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read config {}", path.display()))?;
     let config: GatewayConfig = serde_norway::from_str(&raw)
         .with_context(|| format!("failed to parse config {}", path.display()))?;
     // proxy key 凭据字段校验：token_ref/token_digest 互斥、摘要格式
-    // （见 docs/key-credentials-and-persistence.md K1）
+    // （见 docs/runtime/key-credentials-and-persistence.md K1）
     config
         .validate_key_credentials()
         .with_context(|| format!("invalid proxy key credentials in config {}", path.display()))?;
     Ok(config)
 }
 
-/// 内置 MCP preset 展开：未知 id fail fast（见 docs/tool-debugging-and-cli.md）。
+/// 内置 MCP preset 展开：未知 id fail fast（见 docs/admin/tool-debugging-and-cli.md）。
 fn expand_builtin(config: &mut GatewayConfig, path: &std::path::Path) -> Result<()> {
     config
         .expand_builtin_mcp()
@@ -244,7 +244,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
     }
 
     // 工具介绍 override：启动时从 store 全量加载进 catalog overlay
-    // （agent 可见描述 = override ?? 上游原始，见 docs/mcp-governance-and-key-limits.md §5）
+    // （agent 可见描述 = override ?? 上游原始，见 docs/runtime/mcp-governance-and-key-limits.md §5）
     if let Some(repo) = &state.event_repo {
         use asterlane::store::ToolMetadataRepository;
         match repo.list_tool_metadata().await {
@@ -281,7 +281,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
 
     // gateway key 认证：启动期解析 proxy key token_ref 为摘要（fail fast）；
     // 任一 key 配置 token 时 /mcp 进入 Bearer required 模式
-    // （见 docs/key-credentials-and-persistence.md K1）
+    // （见 docs/runtime/key-credentials-and-persistence.md K1）
     let gateway_auth =
         asterlane::gateway_auth::GatewayAuth::from_config(&config, state.secrets.as_ref())
             .await
@@ -309,7 +309,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
 
     // 限额引擎：启动期从配置构建（数值 0 非法 fail fast）；有 store 时用
     // 每 key 请求总数回填 max_calls 计数（减去被限流拒绝的行，与准入计数同口径；
-    // 无 store 仅内存计数，重启归零——见 docs/mcp-governance-and-key-limits.md §3）
+    // 无 store 仅内存计数，重启归零——见 docs/runtime/mcp-governance-and-key-limits.md §3）
     let limit_registry =
         asterlane::limits::LimitRegistry::from_config(&config).context("invalid limits config")?;
     if let Some(repo) = &state.event_repo {
@@ -331,7 +331,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
             Err(e) => warn!(error = %e, "failed to seed max_calls counters from store"),
         }
         // 日配额回填：当天（UTC 零点起）事件按 key 求和，与准入口径一致
-        // （近似口径，事件为异步写；见 docs/key-credentials-and-persistence.md K3）
+        // （近似口径，事件为异步写；见 docs/runtime/key-credentials-and-persistence.md K3）
         let day_start = chrono::Utc::now()
             .date_naive()
             .and_time(chrono::NaiveTime::MIN)

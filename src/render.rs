@@ -1,6 +1,6 @@
 //! Response Rendering（结果再呈现）：把上游 JSON 结果重呈现为 agent 友好格式。
 //!
-//! 设计见 `docs/response-rendering.md`。表示层纯函数，不增删语义信息：
+//! 设计见 `docs/runtime/response-rendering.md`。表示层纯函数，不增删语义信息：
 //! - `json`：透传（现状行为）
 //! - `yaml`：`serde_norway` 1:1 重序列化，无损
 //! - `markdown`：确定性投影，面向 LLM 阅读，有损
@@ -131,7 +131,7 @@ pub fn render(value: &serde_json::Value, format: ResponseFormat) -> Option<Strin
 
 // ── Markdown 投影 ──
 //
-// 确定性规则（见 docs/response-rendering.md）：
+// 确定性规则（见 docs/runtime/response-rendering.md）：
 // - 同构扁平对象数组 → 表格（列 = 键并集，单元格转义 `|` 与换行）
 // - 标量数组 → 无序列表
 // - 对象 → `**key**:` 键值列表，嵌套递归为缩进子列表

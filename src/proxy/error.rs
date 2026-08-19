@@ -1,5 +1,5 @@
 //! proxy 模块错误类型与 `AsterlaneError` 接入
-//! （见 `docs/error-model.md` proxy.* 错误码）。
+//! （见 `docs/architecture/error-model.md` proxy.* 错误码）。
 //!
 //! `ProxyError` 描述 proxy 执行层在工具解析、凭据注入、上游调用、
 //! 重试与 failover 环节的错误，通过 `From<ProxyError> for AsterlaneError`

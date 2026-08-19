@@ -1,6 +1,6 @@
 //! proxy 执行层：解析凭据、注入 header、转发上游请求、重试与 failover、记录观测。
 //!
-//! 设计依据见 `docs/architecture.md` Data Flow、Retry And Failover、Credential Vault。
+//! 设计依据见 `docs/architecture/architecture.md` Data Flow、Retry And Failover、Credential Vault。
 //! 借鉴 NyaProxy（`core/queue.py` 重试决策）并按 Asterlane 模型重新解释。
 //!
 //! # 安全
@@ -70,7 +70,7 @@ pub struct InvokeResult {
     /// True 表示 body 已被 shaping 截断，完整结果已缓存到 `ResultCache`。
     /// body 中附带了 cursor 获取提示文本。
     pub shaped: bool,
-    /// Some 表示 body 已被 render 重呈现为该格式（见 docs/response-rendering.md）。
+    /// Some 表示 body 已被 render 重呈现为该格式（见 docs/runtime/response-rendering.md）。
     /// 调用方可据此设置 `x-asterlane-format` header。
     pub rendered_format: Option<ResponseFormat>,
 }
@@ -185,7 +185,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
     /// 注入限额注册表（可选）。注入后每次调用经统一准入管线：
     /// key rps → rpm → max_calls → 上游 rps → rpm → 并发队列
-    /// （见 docs/mcp-governance-and-key-limits.md §3）。
+    /// （见 docs/runtime/mcp-governance-and-key-limits.md §3）。
     pub fn with_limits(mut self, limits: Arc<LimitRegistry>) -> Self {
         self.limits = Some(limits);
         self
@@ -206,7 +206,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         self
     }
 
-    /// 设置已解析的响应格式（见 docs/response-rendering.md）。
+    /// 设置已解析的响应格式（见 docs/runtime/response-rendering.md）。
     /// 调用方负责按 请求级 > key 级 > 全局默认 解析；缺省 `Json` 透传。
     pub fn with_response_format(mut self, format: ResponseFormat) -> Self {
         self.response_format = format;
@@ -253,9 +253,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
     /// 调用上游工具。
     ///
-    /// 流程见 `docs/architecture.md` Data Flow：
+    /// 流程见 `docs/architecture/architecture.md` Data Flow：
     /// 1. catalog 三级解析（canonical → `provider__tool` → 裸名，lookup-first；
-    ///    段内可含 `__`，不做 parse，见 docs/naming-convention.md）
+    ///    段内可含 `__`，不做 parse，见 docs/architecture/naming-convention.md）
     /// 2. canonical 贯穿下游：quarantine、registry、事件与日志键一律用 canonical
     /// 3. config 查找 resource
     /// 4. policy 校验 scope
@@ -550,7 +550,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
     /// 未注入注册表时放行；被拒时按既有 rate-limited 口径落 request event
     /// （status `Limited`、`rate_limited: true`）与 metrics 后返回 `ProxyError::Limit`。
     /// 被拒事件带 `rate_limited: true` 标记，启动回填 `max_calls` 时据此从
-    /// 行数中扣除（见 docs/mcp-governance-and-key-limits.md §3 计数口径）。
+    /// 行数中扣除（见 docs/runtime/mcp-governance-and-key-limits.md §3 计数口径）。
     async fn admit_or_record(
         &self,
         proxy_key: &ProxyKey,
@@ -1619,7 +1619,7 @@ mod tests {
         assert!(buckets[0].bucket_start.contains(":00:00"), "hour-aligned");
     }
 
-    // ── 负载捕获（见 docs/tool-debugging-and-cli.md 第 2 节）──
+    // ── 负载捕获（见 docs/admin/tool-debugging-and-cli.md 第 2 节）──
 
     #[tokio::test]
     async fn invoke_captures_args_and_redacted_response_preview() {

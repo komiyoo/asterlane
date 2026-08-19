@@ -1,5 +1,5 @@
 //! 队列准入：per-API 并发控制 + 优先级 + 超时
-//! （见 `docs/architecture.md` Rate Limit And Queue）。
+//! （见 `docs/architecture/architecture.md` Rate Limit And Queue）。
 
 use super::error::LimitError;
 use std::sync::Arc;

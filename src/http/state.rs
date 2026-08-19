@@ -38,7 +38,7 @@ pub struct AppState {
     pub secrets: Arc<DefaultSecretStore>,
     /// Shared HTTP client for upstream calls.
     pub http_client: reqwest::Client,
-    /// 限额注册表（按实体独立 quota，见 docs/mcp-governance-and-key-limits.md §3）。
+    /// 限额注册表（按实体独立 quota，见 docs/runtime/mcp-governance-and-key-limits.md §3）。
     /// `RwLock<Arc<>>` 与 `config` 同模式：CRUD 重建后原子替换，
     /// 读路径克隆 `Arc<LimitRegistry>` 后立即释放锁。缺省为空注册表（全放行）。
     pub limit_registry: Arc<RwLock<Arc<LimitRegistry>>>,

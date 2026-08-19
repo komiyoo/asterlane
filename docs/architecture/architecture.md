@@ -2,7 +2,7 @@
 type: Architecture
 title: Asterlane Architecture
 description: Defines the gateway scope, core modules, MCP wrapping model, naming, data flow, and staged roadmap.
-resource: docs/architecture.md
+resource: docs/architecture/architecture.md
 tags: [architecture, mcp, gateway, credentials]
 timestamp: 2026-07-04T00:00:00Z
 ---
@@ -13,7 +13,7 @@ Asterlane, or 星径, centralizes third-party resource access for AI agents. The
 
 Examples of upstream resources include Tavily, Jina, Exa, Firecrawl, internal REST APIs, and remote MCP servers. Agents receive a gateway key and a filtered catalog of usable tools rather than raw upstream credentials.
 
-The original product requirements are preserved in [Product Requirements](product-requirements.md). When architecture and implementation decisions conflict with that document, prefer the product requirements unless a newer decision document explicitly supersedes them. Significant supersessions are noted below and recorded in [Log](log.md).
+The original product requirements are preserved in [Product Requirements](../product/product-requirements.md). When architecture and implementation decisions conflict with that document, prefer the product requirements unless a newer decision document explicitly supersedes them. Significant supersessions are noted below and recorded in [Log](../log.md).
 
 # Design Principles
 
@@ -32,7 +32,7 @@ The original product requirements are preserved in [Product Requirements](produc
 
 # Module Map
 
-运行时按职责拆分，模块边界不得塌缩。Status 列为易变状态，截至 2026-08-19；缺口全貌见 [Roadmap](roadmap.md)。
+运行时按职责拆分，模块边界不得塌缩。Status 列为易变状态，截至 2026-08-19；缺口全貌见 [Roadmap](../product/roadmap.md)。
 
 | Module | Responsibility | Status |
 | --- | --- | --- |
@@ -41,11 +41,11 @@ The original product requirements are preserved in [Product Requirements](produc
 | `policy` | gateway key scope 与请求级收窄。 | 已实现 |
 | `catalog` | 工具目录构建、过滤、分页、metadata。 | 已实现（含 MCP + OpenAPI） |
 | `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现（23 错误码） |
-| `secrets` | secret ref 解析与脱敏。 | env/file 已接线；Vault/Infisical 后端已实现但 serve 未装配，见 [Roadmap](roadmap.md) |
+| `secrets` | secret ref 解析与脱敏。 | env/file 已接线；Vault/Infisical 后端已实现但 serve 未装配，见 [Roadmap](../product/roadmap.md) |
 | `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线） |
 | `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |
 | `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
-| `transform` | header/query/path/body 变换。 | 模块已实现（声明式 header/body 规则），未接入执行管线，无配置节，见 [Roadmap](roadmap.md) |
+| `transform` | header/query/path/body 变换。 | 模块已实现（声明式 header/body 规则），未接入执行管线，无配置节，见 [Roadmap](../product/roadmap.md) |
 | `proxy` | 上游 HTTP 执行。 | 已实现（retry + failover） |
 | `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 3.1 + `2026-07-28` 双栈） |
 | `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 已实现（metrics + store + Prometheus） |
@@ -82,7 +82,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 - **RAII guard**：`acquire()` 返回 guard，`Drop` 时自动 `release`，避免 NyaProxy 手工 `release_*` 四连调漏调。
 - **负载均衡策略**（enum + trait）：`round_robin`、`random`、`least_requests`、`fastest_response`（EWMA 替代滑动平均数组）、`weighted`（`rand::distr::WeightedIndex`，O(log n)）。
 - **冷却**：429/5xx 触发 key 冷却 `CoolingUntil(now + retry_after)`，failover 轮换到下一 key；429/503 优先采用上游 `Retry-After` 秒数。
-- **per-key 凭据**：`KeyPoolRegistry`（`src/keys/registry.rs`）持 resource_id → 池 + `KeyId`→secret ref 映射；重试循环每次尝试按配置策略 acquire、解析选中 key 的 ref 后注入（配置形态见 [Configuration Schema – Key Pool](config-schema.md)）。
+- **per-key 凭据**：`KeyPoolRegistry`（`src/keys/registry.rs`）持 resource_id → 池 + `KeyId`→secret ref 映射；重试循环每次尝试按配置策略 acquire、解析选中 key 的 ref 后注入（配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md)）。
 - **配额退还**：失败时事务性退还各维度配额（gateway key/endpoint/upstream key），封装为单一操作避免不一致。
 
 # Rate Limit And Queue
@@ -120,20 +120,20 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 # Admin Console
 
-第一阶段最小集：health/version、resource catalog、proxy key scopes、upstream key pool status、recent request events、usage summary、config validation report。区分 admin key 与 proxy key（NyaProxy 混用是反模式）。Web 控制台的形态决策、页面地图与分阶段路线见 [Admin Console](admin-console.md)；策略背景见 [Development Workflow – Admin Console Strategy](development-workflow.md)。
+第一阶段最小集：health/version、resource catalog、proxy key scopes、upstream key pool status、recent request events、usage summary、config validation report。区分 admin key 与 proxy key（NyaProxy 混用是反模式）。Web 控制台的形态决策、页面地图与分阶段路线见 [Admin Console](../admin/admin-console.md)；策略背景见 [Development Workflow – Admin Console Strategy](../engineering/development-workflow.md)。
 
 # Roadmap
 
-Phase 1–6（核心模型、HTTP 网关、MCP server、API 自动发现、凭据后端、analytics）的主体能力已交付。后续阶段划分、按定位支柱的缺口评估与待产品决策项见 [Roadmap](roadmap.md)。
+Phase 1–6（核心模型、HTTP 网关、MCP server、API 自动发现、凭据后端、analytics）的主体能力已交付。后续阶段划分、按定位支柱的缺口评估与待产品决策项见 [Roadmap](../product/roadmap.md)。
 
 # Citations
 
 - [1] [OKF v0.1 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
-- [2] [Product Requirements](product-requirements.md)
+- [2] [Product Requirements](../product/product-requirements.md)
 - [3] [Naming Convention](naming-convention.md)
 - [4] [Crate Selection](crate-selection.md)
 - [5] [Error Model](error-model.md)
 - [6] [Observability](observability.md)
-- [7] [API Discovery](api-discovery.md)
+- [7] [API Discovery](../runtime/api-discovery.md)
 - [8] [Compatibility Policy](compatibility-policy.md)
 - [9] [NyaProxy local reference](file:///Users/ticoag/Documents/myws/NyaProxy)

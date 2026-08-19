@@ -2,7 +2,7 @@
 type: Guide
 title: 项目内置 Agent Skill
 description: 说明用于操作与扩展 Asterlane 的项目本地 Codex skill。
-resource: docs/agent-skill.md
+resource: docs/engineering/agent-skill.md
 tags: [skill, agents, workflow, cli]
 timestamp: 2026-07-23T00:00:00+08:00
 ---
@@ -51,11 +51,11 @@ cargo run -- tools list --format json | jq '.tools[].name'
 
 `search__exa__neural_search` 的真实上游调用要求网关进程启动时可读取 `EXA_DEFAULT`；该变量来自示例配置的 `secret://exa/default`，不得把真实值写入文档或仓库。
 
-成功输出格式优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认：交互式终端默认 markdown，pipe 默认 JSON。`tools search` 与 `tools call` 在传输层显式请求 REST JSON，再只在客户端渲染；它们不修改服务端 REST 默认，也不改变 MCP `tools/call` 固定 JSON 的边界。完整架构见 [统一 CLI 客户端架构](cli-client-architecture.md)。
+成功输出格式优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认：交互式终端默认 markdown，pipe 默认 JSON。`tools search` 与 `tools call` 在传输层显式请求 REST JSON，再只在客户端渲染；它们不修改服务端 REST 默认，也不改变 MCP `tools/call` 固定 JSON 的边界。完整架构见 [统一 CLI 客户端架构](../admin/cli-client-architecture.md)。
 
 # CLI 操作段
 
-skill 的「Operate The Gateway With The CLI」段沉淀了 `asterlane admin` 子命令组的完整工作流（契约见 [Tool Debugging and CLI](tool-debugging-and-cli.md) 第 4 节）：
+skill 的「Operate The Gateway With The CLI」段沉淀了 `asterlane admin` 子命令组的完整工作流（契约见 [Tool Debugging and CLI](../admin/tool-debugging-and-cli.md) 第 4 节）：
 
 - 启动网关：`builtin_mcp: [exa]` 一行启用内置 MCP preset，`admin.keys` 暴露 admin API
 - 连接与认证：`--server` / env `ASTERLANE_SERVER`；token 只从环境变量读（缺省 `ASTERLANE_ADMIN_TOKEN`，`--token-env` 改名），无明文 `--token` 参数
@@ -63,7 +63,7 @@ skill 的「Operate The Gateway With The CLI」段沉淀了 `asterlane admin` �
 - 调试调用：`invoke --use-defaults --save-defaults`，复用与正常调用相同的执行管线
 - 观测：`events --tool` 查看每请求的 `request_args`/`response_preview`/`upstream_latency_ms`
 - 成功输出：支持 `json|yaml|markdown`；`--format` > `ASTERLANE_FORMAT` > TTY 默认，TTY 为 markdown、pipe 为 JSON
-- 退出码遵循 [Error Model](error-model.md) 的 CLI 映射；错误写到 stderr
+- 退出码遵循 [Error Model](../architecture/error-model.md) 的 CLI 映射；错误写到 stderr
 
 # Skill 边界
 
@@ -71,10 +71,10 @@ skill 必须优先保证 gateway 核心正确性：
 
 - 仓库文件中不出现原始 secret 值；
 - key scope 变更必须明确 allow/deny 意图；
-- wrapped tool name 遵循 `domain__provider__tool`（双下划线分隔三段式，见 [Naming Convention](naming-convention.md)）；
+- wrapped tool name 遵循 `domain__provider__tool`（双下划线分隔三段式，见 [Naming Convention](../architecture/naming-convention.md)）；
 - discovery 保持可过滤、可分页；
 - policy 与 catalog 变更必须有测试覆盖。
 
 # Citations
 
-[1] [项目内置 Asterlane Skill](../.codex/skills/asterlane/SKILL.md)
+[1] [项目内置 Asterlane Skill](../../.codex/skills/asterlane/SKILL.md)

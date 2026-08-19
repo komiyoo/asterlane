@@ -2,14 +2,14 @@
 type: Convention
 title: 工程约定
 description: 分层依赖方向、代码组织硬预算、类型系统、错误、日志与防臃肿的纲领性约定与已知债务台账。
-resource: docs/engineering-conventions.md
+resource: docs/engineering/engineering-conventions.md
 tags: [conventions, architecture, errors, observability, code-quality]
 timestamp: 2026-07-05T00:00:00Z
 ---
 
 # 背景
 
-本文档沉淀 2026-07-05 全库工程评估得出的约定，是 `AGENTS.md`「工程纲领」的展开。模块职责表见 [Development Workflow](development-workflow.md)，错误码全表与边界转换见 [Error Model](error-model.md)，观测字段与指标族见 [Observability](observability.md)。本文只定"代码怎么写才不腐烂"的规则，不重复上述内容。
+本文档沉淀 2026-07-05 全库工程评估得出的约定，是 `AGENTS.md`「工程纲领」的展开。模块职责表见 [Development Workflow](development-workflow.md)，错误码全表与边界转换见 [Error Model](../architecture/error-model.md)，观测字段与指标族见 [Observability](../architecture/observability.md)。本文只定"代码怎么写才不腐烂"的规则，不重复上述内容。
 
 # 分层与依赖方向
 
@@ -40,7 +40,7 @@ timestamp: 2026-07-05T00:00:00Z
 - **函数预算**：超过 80 行或嵌套超过 3 层——拆。
 - `#[allow(clippy::too_many_arguments)]` 是拆分信号而非常规工具：出现即说明该函数在聚合本应成为 struct 的状态。现存两处已入债务台账。
 - 模块晋升：单文件模块出现第二个内聚子单元（典型标志：需要自己的 `error.rs`）时晋升为目录；不预先建目录。
-- `lib.rs` 只 re-export 稳定对外类型；新增 `pub use` 视为公共 API 承诺（见 [Compatibility Policy](compatibility-policy.md)）。
+- `lib.rs` 只 re-export 稳定对外类型；新增 `pub use` 视为公共 API 承诺（见 [Compatibility Policy](../architecture/compatibility-policy.md)）。
 
 # 类型系统约定
 
@@ -53,7 +53,7 @@ timestamp: 2026-07-05T00:00:00Z
 
 # 错误约定
 
-硬规则（细节见 [Error Model](error-model.md)）：
+硬规则（细节见 [Error Model](../architecture/error-model.md)）：
 
 - 生产代码禁 `unwrap` / `expect` / `panic!` / `todo!`，由 `Cargo.toml [lints]` + CI `-D warnings` 强制；测试豁免在 `clippy.toml`。
 - 每个模块自己的 `thiserror` 枚举；接入顶层走 `impl From<ModuleError> for AsterlaneError`，不改 `src/error.rs`。
@@ -64,7 +64,7 @@ timestamp: 2026-07-05T00:00:00Z
 
 # 日志与观测约定
 
-字段命名、指标族、脱敏规则见 [Observability](observability.md)；本节定使用规则：
+字段命名、指标族、脱敏规则见 [Observability](../architecture/observability.md)；本节定使用规则：
 
 - `tracing` 是唯一日志通道：生产代码禁 `println!` / `eprintln!`（lint 强制）；CLI 用户输出豁免须像 `src/main.rs` 头部那样 `allow` + 一行理由注释。
 - 结构化字段，不写自由文本插值：`info!(pinned = n, "baseline pinned")`，不是 `info!("pinned {n}")`。
@@ -79,7 +79,7 @@ timestamp: 2026-07-05T00:00:00Z
 
 # 防臃肿纲领
 
-- 复用阶梯，写代码前依次问：本仓已有 helper？→ std？→ 已有依赖？→ 新依赖（先过 [Crate Selection](crate-selection.md)）→ 才手写。
+- 复用阶梯，写代码前依次问：本仓已有 helper？→ std？→ 已有依赖？→ 新依赖（先过 [Crate Selection](../architecture/crate-selection.md)）→ 才手写。
 - 删除优先：无调用方的 pub API、无第二使用者的抽象、被 supersede 的兼容路径，见到即删（兼容承诺期内的除外）。
 - 每个抽象需要第二个使用者或一条文档化理由；"未来可能用"不算理由。
 - 注释写不变式与约束，不写迭代编号与行号引用："批1/批2"这类开发批次黑话、"见 xx.md 第 N 行"这类行号引用都会腐烂——用锚点、小节名或符号名。

@@ -3,7 +3,7 @@ import { api, esc, objTable } from "../core.js";
 export async function loadKeyPools(view) {
   const pools = await api("/admin/key-pools");
   if (!pools.length) {
-    view.innerHTML = '<p class="empty">未配置 key pool（资源级 key_pool 配置见 docs/config-schema.md）</p>';
+    view.innerHTML = '<p class="empty">未配置 key pool（资源级 key_pool 配置见 docs/runtime/config-schema.md）</p>';
     return;
   }
   view.innerHTML = pools.map(p =>

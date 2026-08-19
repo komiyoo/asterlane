@@ -3,7 +3,7 @@
 //! 在 `Lazy` 模式下，网关仅暴露 4 个 meta-tool，代理通过它们按需发现和调用
 //! 真实工具，避免一次性下发大量 tool descriptor。
 //!
-//! 设计依据见 `docs/api-discovery.md` 和 `docs/product-requirements.md`。
+//! 设计依据见 `docs/runtime/api-discovery.md` 和 `docs/product/product-requirements.md`。
 
 use crate::catalog::ToolCatalog;
 use crate::config::{GatewayConfig, ProxyKey};

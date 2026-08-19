@@ -1,4 +1,4 @@
-//! Admin API 认证：Bearer token 校验（见 docs/admin-console.md C0）。
+//! Admin API 认证：Bearer token 校验（见 docs/admin/admin-console.md C0）。
 //!
 //! admin key 与 proxy key 物理分离：token 只存 secret ref，启动时经
 //! `secrets` 模块解析一次，内存只保留 SHA-256 摘要（不留明文）。

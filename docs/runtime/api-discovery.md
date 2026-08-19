@@ -2,7 +2,7 @@
 type: Architecture Decision
 title: API 自动发现与 MCP 转换
 description: 定义从 OpenAPI spec 自动生成 endpoint 目录、HTTP API 转 MCP tool、第三方 MCP server 代理发现与缓存失效的机制。
-resource: docs/api-discovery.md
+resource: docs/runtime/api-discovery.md
 tags: [discovery, openapi, mcp, architecture]
 timestamp: 2026-07-07T00:00:00Z
 ---
@@ -28,7 +28,7 @@ timestamp: 2026-07-07T00:00:00Z
 - `operationId` 存在时，作为 `tool` 段（归一化为 `[a-z0-9_]`）。
 - `operationId` 缺失时，回退到 `{method}_{path_slug}`，如 `get_search`、`post_users_query`。
 - `domain` 与 `provider` 由资源配置指定（spec 不决定）。
-- 最终 wire name：`{domain}__{provider}__{tool}`（HTTP method 是路由层细节，不进名字），受长度预算约束（见 [Naming Convention](naming-convention.md)）。
+- 最终 wire name：`{domain}__{provider}__{tool}`（HTTP method 是路由层细节，不进名字），受长度预算约束（见 [Naming Convention](../architecture/naming-convention.md)）。
 
 ### 参数合并
 
@@ -41,7 +41,7 @@ OpenAPI operation 的参数分布在 path/query/header/cookie/body，合并为�
 | header | `_{name}` 前缀 | 避免与 path/query 冲突；鉴权 header 由网关注入，不暴露 |
 | body | `body` | request body schema 嵌入 |
 
-调用时由 proxy 执行层拆解 `inputSchema` 参数，注入到对应位置（见 [Architecture – proxy execution](architecture.md)）。
+调用时由 proxy 执行层拆解 `inputSchema` 参数，注入到对应位置（见 [Architecture – proxy execution](../architecture/architecture.md)）。
 
 ### 裁剪
 
@@ -87,13 +87,13 @@ api_resources:
 1. gateway 启动时读取顶层 `mcp_servers`，作为 MCP 客户端（rmcp `transport-streamable-http-client-reqwest`）连接上游 MCP server。
 2. 调用上游 `tools/list`，获取上游工具列表。
 3. 包装为 Asterlane wire name：`{domain}__{provider}__{normalizedOriginalTool}`，例如 `travel__rollinggo__searchairports`。
-4. 合并进 catalog，并维护 `(wire name ↔ 上游 server + 原始 tool name)` 映射；invoke 时使用保存的原始 upstream tool name 调用 remote MCP server（见 [Naming Convention – 上游转发剥前缀](naming-convention.md)）。
+4. 合并进 catalog，并维护 `(wire name ↔ 上游 server + 原始 tool name)` 映射；invoke 时使用保存的原始 upstream tool name 调用 remote MCP server（见 [Naming Convention – 上游转发剥前缀](../architecture/naming-convention.md)）。
 
 ### 缓存与失效
 
 - 上游 `tools/list` 结果缓存在 `moka`（TTL 可配，默认 5 分钟）。当前阶段以 `McpServerRegistry` 内部 `RwLock<Vec<McpServerEntry>>` 持有最新快照，后台周期性 `refresh()`（默认 60s）重拉上游 `tools/list`；moka TTL 缓存为后续优化。
 - 监听上游 `notifications/tools/list_changed`，收到即失效缓存并重拉。当前阶段未接入上游 notify 监听，以周期性 refresh 兜底；未来补充上游 notify 监听以实现即时失效。
-- 网关自身向下游声明 `listChanged = true`。legacy session 仍注册 `Peer` 并 `notify_tool_list_changed`；`2026-07-28` 客户端经 `subscriptions/listen` 收变更。详见 [MCP Protocol](mcp-protocol.md)。
+- 网关自身向下游声明 `listChanged = true`。legacy session 仍注册 `Peer` 并 `notify_tool_list_changed`；`2026-07-28` 客户端经 `subscriptions/listen` 收变更。详见 [MCP Protocol](../architecture/mcp-protocol.md)。
 - 上游不可达时降级使用缓存（标记 stale），不阻塞下游 `tools/list`。当前实现：refresh 时上游 `list_tools` 或工具包装失败的 entry 保留上一次成功的 `tools`/`descriptors` 快照，并在 `RefreshResult.failed_server_ids` 标记失败上游，避免临时网络失败污染 integrity baseline。
 
 ### 上游鉴权
@@ -108,7 +108,7 @@ api_resources:
 
 # 渐进式发现
 
-`tools/list` 的过滤与分页机制（详见 [Naming Convention – 过滤与发现](naming-convention.md)）：
+`tools/list` 的过滤与分页机制（详见 [Naming Convention – 过滤与发现](../architecture/naming-convention.md)）：
 
 - 标准分页：opaque cursor，服务端决定 page size，客户端不假设固定大小。
 - 过滤参数走 `_meta` 扩展通道（键名带反向域名前缀 `asterlane.dev/*`），因为 MCP 规范未定义 `tools/list` 的自定义参数，通用客户端不会传。
@@ -127,7 +127,7 @@ meta-tool `asterlane__call_tool` 间接调用已发现工具，参数：
 | `domain` | string | 否 | 可选限定字段，无状态收窄 `name` 的解析歧义 |
 | `provider` | string | 否 | 同上，按 provider 收窄 |
 
-`name` 按三级优先解析（canonical 精确匹配 → `provider__tool` → 裸 tool 名，见 [Naming Convention – 调用解析三级优先](naming-convention.md)）。同层多候选时报歧义错误并列出候选 canonical（截断 8 个），agent 补 `domain`/`provider` 限定或改用 canonical 重试即可自愈；alias 只匹配到 key scope 外工具时视为不存在（不泄漏存在性）。网关不维护 session 级过滤状态，限定字段每次调用显式传入。
+`name` 按三级优先解析（canonical 精确匹配 → `provider__tool` → 裸 tool 名，见 [Naming Convention – 调用解析三级优先](../architecture/naming-convention.md)）。同层多候选时报歧义错误并列出候选 canonical（截断 8 个），agent 补 `domain`/`provider` 限定或改用 canonical 重试即可自愈；alias 只匹配到 key scope 外工具时视为不存在（不泄漏存在性）。网关不维护 session 级过滤状态，限定字段每次调用显式传入。
 
 `_meta` 扩展示例：
 
@@ -170,11 +170,11 @@ meta-tool `asterlane__call_tool` 间接调用已发现工具，参数：
 
 # Citations
 
-- [1] [Product Requirements – HTTP API Wrapper / Remote MCP Proxy](product-requirements.md)
+- [1] [Product Requirements – HTTP API Wrapper / Remote MCP Proxy](../product/product-requirements.md)
 - [2] [openapiv3 crate](https://docs.rs/openapiv3)
 - [3] [MCP 2026-07-28 – tools/list pagination](https://modelcontextprotocol.io/specification/2026-07-28/server/utilities/pagination)
 - [4] [SEP-1923 summary/get two-stage discovery](https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/1923)
-- [5] [Naming Convention](naming-convention.md)
-- [6] [Architecture](architecture.md)
+- [5] [Naming Convention](../architecture/naming-convention.md)
+- [6] [Architecture](../architecture/architecture.md)
 - [7] [Exa MCP Server](https://exa.ai/mcp)
-- [8] [MCP Protocol](mcp-protocol.md)
+- [8] [MCP Protocol](../architecture/mcp-protocol.md)

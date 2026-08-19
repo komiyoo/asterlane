@@ -1,6 +1,6 @@
 //! HTTP 边界错误转换：把 `AsterlaneError` 转换为 axum 响应。
 //!
-//! JSON body 形态见 `docs/error-model.md`：
+//! JSON body 形态见 `docs/architecture/error-model.md`：
 //! ```json
 //! { "error": { "code": "...", "message": "...", "request_id": "..." } }
 //! ```

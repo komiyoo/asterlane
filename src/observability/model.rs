@@ -1,4 +1,4 @@
-//! 请求事件模型与状态枚举（见 `docs/observability.md`「请求事件模型」）。
+//! 请求事件模型与状态枚举（见 `docs/architecture/observability.md`「请求事件模型」）。
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

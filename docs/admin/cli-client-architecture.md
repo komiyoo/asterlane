@@ -2,7 +2,7 @@
 type: Architecture Decision
 title: 统一 CLI 客户端架构
 description: 定义 gateway-key tools CLI、admin 输出格式化、共享客户端模块边界，以及 MCP 与 REST 的格式责任。
-resource: docs/cli-client-architecture.md
+resource: docs/admin/cli-client-architecture.md
 tags: [cli, architecture, tools, admin, rendering, mcp]
 timestamp: 2026-07-23T00:00:00+08:00
 ---
@@ -107,12 +107,12 @@ clap args
 
 `tools search` 在 HTTP 与输出层之间增加一次窄归一化，把 meta-tool 的 `ToolCallResult` 文本载荷还原为 JSON 数组。它不复制 catalog 搜索算法。
 
-MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`，但传给 executor 的格式固定为 JSON。普通 REST 消费者仍按 [Response Rendering](response-rendering.md) 的既有协商规则运行；CLI 只是利用最高优先级的请求 override 固定自身传输格式，因此不改变服务端契约。
+MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`，但传给 executor 的格式固定为 JSON。普通 REST 消费者仍按 [Response Rendering](../runtime/response-rendering.md) 的既有协商规则运行；CLI 只是利用最高优先级的请求 override 固定自身传输格式，因此不改变服务端契约。
 
 # 错误与安全
 
 - token 继续使用 `SecretString`，不实现 `Debug`，不进入错误、日志或输出。
-- CLI 非 2xx 响应沿用 [Error Model](error-model.md) 的 category 到退出码映射。
+- CLI 非 2xx 响应沿用 [Error Model](../architecture/error-model.md) 的 category 到退出码映射。
 - 输出格式错误、参数文件读取失败、JSON 形状错误和搜索响应形状错误属于本地错误，退出码为 1。
 - 服务端错误无论成功输出选择何种格式，都保持 JSON 写入 stderr，便于脚本稳定解析。
 - stdout 仅包含成功数据；提示与错误写入 stderr，pipe 不受污染。
@@ -121,7 +121,7 @@ MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`�
 
 - 新增 `tools` 命令和 `admin --format` 是增量 CLI 能力。
 - admin 在交互式终端中的默认成功输出从 pretty JSON 变为 markdown；脚本和 pipe 默认仍为 JSON，也可用 `--format json` 固定。
-- MCP 忽略格式 override 是行为变更；已同步更正 [Response Rendering](response-rendering.md)、[Compatibility Policy](compatibility-policy.md) 与 [Documentation Log](log.md)。
+- MCP 忽略格式 override 是行为变更；已同步更正 [Response Rendering](../runtime/response-rendering.md)、[Compatibility Policy](../architecture/compatibility-policy.md) 与 [Documentation Log](../log.md)。
 - REST 格式协商不变。本次不删除配置字段，也不改变 `/v1/tools` DTO。
 - 不新增依赖；TTY 检测使用 `std::io::IsTerminal`，格式解析复用 `ResponseFormat::from_str`。
 
@@ -160,11 +160,11 @@ cargo run -- tools call --help
 
 # Citations
 
-[1] [Engineering Conventions](engineering-conventions.md)
-[2] [Response Rendering](response-rendering.md)
-[3] [API Discovery](api-discovery.md)
-[4] [Error Model](error-model.md)
-[5] [Compatibility Policy](compatibility-policy.md)
-[6] [`src/cli.rs`](../src/cli.rs) 与 [`src/cli/client.rs`](../src/cli/client.rs)
-[7] [`src/http/routes.rs`](../src/http/routes.rs) 与 [`src/mcp/server.rs`](../src/mcp/server.rs)
+[1] [Engineering Conventions](../engineering/engineering-conventions.md)
+[2] [Response Rendering](../runtime/response-rendering.md)
+[3] [API Discovery](../runtime/api-discovery.md)
+[4] [Error Model](../architecture/error-model.md)
+[5] [Compatibility Policy](../architecture/compatibility-policy.md)
+[6] [`src/cli.rs`](../../src/cli.rs) 与 [`src/cli/client.rs`](../../src/cli/client.rs)
+[7] [`src/http/routes.rs`](../../src/http/routes.rs) 与 [`src/mcp/server.rs`](../../src/mcp/server.rs)
 [8] [OKF v0.1 draft specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)

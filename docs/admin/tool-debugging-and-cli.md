@@ -2,7 +2,7 @@
 type: Design
 title: 内置 MCP、调试调用与配套 CLI
 description: 内置免费 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用，以及 admin/tools CLI 的设计契约。
-resource: docs/tool-debugging-and-cli.md
+resource: docs/admin/tool-debugging-and-cli.md
 tags: [mcp, presets, debugging, defaults, cli, observability, admin, tools]
 timestamp: 2026-07-23T00:00:00+08:00
 ---
@@ -76,7 +76,7 @@ observability:
 - tracing：落库同时在请求 span 内输出 `info!` 事件（截断脱敏后的 `request_args`/`response_preview` 与 `upstream_latency_ms` 字段），日志与 DB 口径一致。
 - metrics：新增第八项指标族 `asterlane_upstream_duration_seconds` histogram（标签 `resource_id`, `tool`），观测上游服务端耗时分布（与既有端到端 `asterlane_request_duration_seconds` 区分）。
 - migration：`request_events` 追加 `request_args TEXT`、`response_preview TEXT`、`upstream_latency_ms INTEGER` 三列 nullable，向后兼容；`RequestEventFilter` 增加 `tool_name` 过滤（`/admin/events?tool_name=` 同步支持）。`usage_buckets` 暂不加上游耗时维度（控制台出现聚合需求时再扩）。
-- 安全口径变更：此前 observability 约定「上游响应体不记录」，本设计改为「默认记录截断预览，可全局关闭」；预览仍不含 Authorization header，密钥模式一律脱敏。变更登记于 [Observability](observability.md) 与 [Compatibility Policy](compatibility-policy.md)。
+- 安全口径变更：此前 observability 约定「上游响应体不记录」，本设计改为「默认记录截断预览，可全局关闭」；预览仍不含 Authorization header，密钥模式一律脱敏。变更登记于 [Observability](../architecture/observability.md) 与 [Compatibility Policy](../architecture/compatibility-policy.md)。
 
 # 3. 工具默认调用参数
 
@@ -112,7 +112,7 @@ CREATE TABLE tool_defaults (
 
 - 同一二进制提供 `admin` 子命令组；参数与执行分别位于 `src/cli/admin.rs`、`src/cli/admin/run.rs`，Bearer HTTP 客户端复用 `src/cli/client.rs`（`main.rs` 只做 dispatch）。
 - 连接与认证：`--server`（缺省取 env `ASTERLANE_SERVER`，再缺省 `http://127.0.0.1:3000`）；admin token 只从环境变量读取（缺省 `ASTERLANE_ADMIN_TOKEN`，`--token-env NAME` 可改名），**不提供**明文 `--token` 参数（argv 经 `ps` 可见）。
-- 成功输出支持 `json|yaml|markdown`：`--format/-f` > `ASTERLANE_FORMAT` > TTY 默认；TTY 默认 markdown，pipe 默认 JSON。非 2xx 错误写入 stderr，退出码按 [Error Model](error-model.md) CLI 映射。
+- 成功输出支持 `json|yaml|markdown`：`--format/-f` > `ASTERLANE_FORMAT` > TTY 默认；TTY 默认 markdown，pipe 默认 JSON。非 2xx 错误写入 stderr，退出码按 [Error Model](../architecture/error-model.md) CLI 映射。
 - 命令树：
 
 ```text
@@ -135,7 +135,7 @@ asterlane admin [--server URL] [--token-env NAME] [--format json|yaml|markdown] 
   invoke <tool> [--args JSON | --args-file PATH] [--use-defaults] [--save-defaults]
 ```
 
-- skill 同步：`.codex/skills/asterlane/SKILL.md` 增加「Operate The Gateway With The CLI」段（含 AI 配置默认参数、读取事件负载、调试调用的完整工作流示例），`docs/agent-skill.md` 同步说明。
+- skill 同步：`.codex/skills/asterlane/SKILL.md` 增加「Operate The Gateway With The CLI」段（含 AI 配置默认参数、读取事件负载、调试调用的完整工作流示例），`docs/engineering/agent-skill.md` 同步说明。
 
 # 5. Gateway Tools CLI（`asterlane tools`）
 
@@ -153,10 +153,10 @@ asterlane tools [--server URL] [--token-env NAME] [--format json|yaml|markdown] 
 
 # Citations
 
-- [1] [Configuration Schema](config-schema.md)
+- [1] [Configuration Schema](../runtime/config-schema.md)
 - [2] [Admin Console](admin-console.md)
-- [3] [Observability](observability.md)
-- [4] [Error Model](error-model.md)
-- [5] [Agent Skill](agent-skill.md)
+- [3] [Observability](../architecture/observability.md)
+- [4] [Error Model](../architecture/error-model.md)
+- [5] [Agent Skill](../engineering/agent-skill.md)
 - [6] [统一 CLI 客户端架构](cli-client-architecture.md)
 - [7] [Exa hosted MCP](https://mcp.exa.ai/mcp)、[DeepWiki MCP](https://mcp.deepwiki.com/mcp)、[Context7 MCP](https://mcp.context7.com/mcp)

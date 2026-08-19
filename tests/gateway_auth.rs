@@ -1,5 +1,5 @@
 //! Gateway key 凭据化认证端到端测试
-//! （契约见 docs/key-credentials-and-persistence.md K1：Bearer 摘要认证、
+//! （契约见 docs/runtime/key-credentials-and-persistence.md K1：Bearer 摘要认证、
 //! legacy `?key=` 兼容、过期语义、`/mcp` required/开放模式）。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -285,7 +285,7 @@ async fn mcp_required_mode_binds_key_and_filters_scope() {
 
     let tools = client.peer().list_all_tools().await.expect("list tools");
     let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
-    // tools/list 暴露 key 可见集内最短无歧义名（docs/naming-convention.md）：
+    // tools/list 暴露 key 可见集内最短无歧义名（docs/architecture/naming-convention.md）：
     // scope 内唯一裸名 "search" 可见；scope 外 docs 工具任何形式不得泄漏
     assert!(names.contains(&"search"), "scope 内工具应可见: {names:?}");
     assert!(

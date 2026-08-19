@@ -1,4 +1,4 @@
-//! Secret ref 解析与凭据 vault（见 `docs/architecture.md` Credential Vault）。
+//! Secret ref 解析与凭据 vault（见 `docs/architecture/architecture.md` Credential Vault）。
 //!
 //! 配置只存 secret ref（`secret://provider/name`），不存明文。
 //! 明文只在 [`SecretString::expose_secret`] 瞬间可访问，不进日志/错误/Display。

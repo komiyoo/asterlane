@@ -1,4 +1,4 @@
-//! 负载均衡策略枚举（见 `docs/architecture.md` Key Pool And Load Balancing）。
+//! 负载均衡策略枚举（见 `docs/architecture/architecture.md` Key Pool And Load Balancing）。
 
 use rand::RngExt;
 use rand::distr::Distribution;

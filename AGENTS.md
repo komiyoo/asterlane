@@ -12,12 +12,12 @@ Asterlane / 星径 是一个 Rust 项目，目标是为代理原生场景提供�
 
 - `README.md` - 项目概览和当前可用命令
 - `docs/README.md` - 文档入口
-- `docs/product-requirements.md` - 产品意图和非目标
-- `docs/architecture.md` - 稳定架构和命名方向
-- `docs/config-schema.md` - 配置与发现查询形态
-- `docs/development-workflow.md` - 实现规划、模块边界、crate 选择和子代理任务模式
-- `docs/engineering-conventions.md` - 工程纲领的展开：分层、预算、类型、错误、日志、防臃肿与债务台账
-- `docs/documentation-conventions.md` - 文档层级、生命周期与自进化约定
+- `docs/product/product-requirements.md` - 产品意图和非目标
+- `docs/architecture/architecture.md` - 稳定架构和命名方向
+- `docs/runtime/config-schema.md` - 配置与发现查询形态
+- `docs/engineering/development-workflow.md` - 实现规划、模块边界、crate 选择和子代理任务模式
+- `docs/engineering/engineering-conventions.md` - 工程纲领的展开：分层、预算、类型、错误、日志、防臃肿与债务台账
+- `docs/engineering/documentation-conventions.md` - 文档层级、生命周期与自进化约定
 - `.codex/skills/asterlane/SKILL.md` - 项目本地 Codex skill
 
 # 工作方式
@@ -37,12 +37,12 @@ Asterlane / 星径 是一个 Rust 项目，目标是为代理原生场景提供�
 `docs/` 目录是一个小型 OKF 文档包
 
 - 非保留 Markdown 概念文件必须有 YAML frontmatter，并且包含非空 `type`
-- `README.md` 用作导航
+- `README.md` 用作导航（根文件列分类，分类目录再列概念）
 - `log.md` 用作时间顺序历史
-- 新增或修改持久知识时，更新相关概念文档；如果影响发现路径，同步更新 `docs/README.md`；并更新 `docs/log.md`
+- 新增或修改持久知识时，更新相关概念文档；如果影响发现路径，同步更新所属分类 `README.md`（新分类还要更新 `docs/README.md`）；并更新 `docs/log.md`
 - 文档正文优先使用中文；外部引用标题、协议字段、代码路径、命令和错误码可保留英文
 - 当外部资料或本地源码证据影响设计决策时，在相关文档中引用来源
-- 层级组织、文档生命周期、引用规则与腐烂信号见 `docs/documentation-conventions.md`
+- 层级组织、文档生命周期、引用规则与腐烂信号见 `docs/engineering/documentation-conventions.md`
 
 # 研发约束
 
@@ -72,18 +72,18 @@ Asterlane / 星径 是一个 Rust 项目，目标是为代理原生场景提供�
 | 数据库            | `sqlx` SQLite → Postgres                      | diesel, sea-orm         |
 | 错误              | `thiserror`（库）+ `anyhow`（CLI 边界）       | 手写 From impl 链       |
 
-新增依赖前必须检查 `docs/crate-selection.md` 并更新该文档
+新增依赖前必须检查 `docs/architecture/crate-selection.md` 并更新该文档
 
 ## 工程纲领
 
-硬规则速览，展开、依据与债务台账见 `docs/engineering-conventions.md`：
+硬规则速览，展开、依据与债务台账见 `docs/engineering/engineering-conventions.md`：
 
 - **分层单向**：naming/policy/catalog/error 等纯核心不得依赖 axum/sqlx/rmcp；错误→输出转换只发生在 http/admin/main 边界；`main.rs` 只装配不编排
 - **错误有码且脱敏**：生产代码禁 unwrap/expect/panic（lint 强制）；新错误必须挂稳定错误码；`Display` 可直接给用户看，内部细节走 tracing 字段；`let _ =` 吞错必须补 `warn!`
 - **类型即校验**：域概念用 newtype 构造即校验（`ToolName` 模式）；公共 enum 加 `non_exhaustive`；密钥一律 `secrecy` 包裹并手写 Debug
-- **日志结构化**：tracing 是唯一日志通道；请求路径必须在带 `request_id` 的 span 内；字段名与 `docs/observability.md` 对齐；密钥零泄漏
+- **日志结构化**：tracing 是唯一日志通道；请求路径必须在带 `request_id` 的 span 内；字段名与 `docs/architecture/observability.md` 对齐；密钥零泄漏
 - **预算硬约束**：单文件生产代码（不含测试）超 500 行先拆再改；函数超 80 行或嵌套超 3 层拆；`#[allow(too_many_arguments)]` 是拆分信号
-- **复用阶梯**：本仓已有 > std > 已有依赖 > 新依赖（过 `docs/crate-selection.md`）> 手写；抽象需第二使用者或文档化理由
+- **复用阶梯**：本仓已有 > std > 已有依赖 > 新依赖（过 `docs/architecture/crate-selection.md`）> 手写；抽象需第二使用者或文档化理由
 
 # 产品与架构护栏
 
@@ -137,6 +137,6 @@ cargo test
 
 以上三项与 CI（`.github/workflows/ci.yml`）对齐；clippy 覆盖测试代码（`--all-targets`），漏跑会在 push 后才暴露
 
-文档改动还要运行 `docs/development-workflow.md` 中说明的 OKF frontmatter/type 检查
+文档改动还要运行 `python3 scripts/check_okf_docs.py`（说明见 `scripts/README.md`）
 
 如果无法完成验证，最终回复要说明未运行或失败的精确命令，以及原因

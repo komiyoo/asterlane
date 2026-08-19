@@ -1,5 +1,5 @@
 //! 请求负载捕获：UTF-8 安全截断 + 自由文本密钥模式脱敏
-//! （见 `docs/tool-debugging-and-cli.md`「请求负载捕获与上游观测」）。
+//! （见 `docs/admin/tool-debugging-and-cli.md`「请求负载捕获与上游观测」）。
 //!
 //! 捕获顺序固定为「先截断到 `capture_max_bytes`，再脱敏」；
 //! 单值脱敏复用 [`redaction`](super::redaction) 的既有 helper。
@@ -57,7 +57,7 @@ pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
     &s[..end]
 }
 
-/// 对自由文本执行已知密钥模式脱敏（`docs/observability.md`「脱敏规则」表）。
+/// 对自由文本执行已知密钥模式脱敏（`docs/architecture/observability.md`「脱敏规则」表）。
 ///
 /// 覆盖 `sk-`/`pk-` 前缀 key、`secret://` 引用、`Bearer` token 与
 /// `authorization`/`x-api-key` 头样式值。

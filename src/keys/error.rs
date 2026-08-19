@@ -1,5 +1,5 @@
 //! keys 模块错误类型与 `AsterlaneError` 接入
-//! （见 `docs/error-model.md` proxy.* 错误码、`docs/architecture.md` Key Pool）。
+//! （见 `docs/architecture/error-model.md` proxy.* 错误码、`docs/architecture/architecture.md` Key Pool）。
 //!
 //! `KeyPoolError` 描述上游 key 池在选取、冷却、释放环节的错误，通过
 //! `From<KeyPoolError> for AsterlaneError` 接入顶层错误，映射到

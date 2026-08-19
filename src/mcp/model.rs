@@ -6,10 +6,10 @@
 //! catalog、policy、proxy 调用方。
 //!
 //! 设计依据：
-//! - `docs/development-workflow.md` First Milestone #7
-//! - `docs/naming-convention.md` wire name `domain__provider__tool__method`
-//! - `docs/api-discovery.md` 第三方 MCP server 代理发现
-//! - `docs/error-model.md` MCP 边界 `isError` vs JSON-RPC error
+//! - `docs/engineering/development-workflow.md` First Milestone #7
+//! - `docs/architecture/naming-convention.md` wire name `domain__provider__tool__method`
+//! - `docs/runtime/api-discovery.md` 第三方 MCP server 代理发现
+//! - `docs/architecture/error-model.md` MCP 边界 `isError` vs JSON-RPC error
 
 use serde::{Deserialize, Serialize};
 

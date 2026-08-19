@@ -1,5 +1,5 @@
 //! 安全事件模型：承载 integrity drift 与 content defense 两类安全事件
-//! （见 `docs/observability.md` 与 `docs/product-requirements.md` 第 296-321 行）。
+//! （见 `docs/architecture/observability.md` 与 `docs/product/product-requirements.md` 第 296-321 行）。
 //!
 //! 这些事件由后续 subagent 在 proxy/mcp 执行路径接入时产生，
 //! 经 `SecurityEventRepository` 持久化，供 admin 查询与告警。

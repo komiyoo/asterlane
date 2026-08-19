@@ -1,6 +1,6 @@
 //! MCP 模块错误类型与边界映射。
 //!
-//! 设计依据见 `docs/error-model.md`。`McpError` 描述 MCP adapter 边界的
+//! 设计依据见 `docs/architecture/error-model.md`。`McpError` 描述 MCP adapter 边界的
 //! 错误，通过 `From<McpError> for AsterlaneError` 接入顶层错误，映射到
 //! `AsterlaneError::Internal { code, message }`（见 `src/error.rs`）。
 //!

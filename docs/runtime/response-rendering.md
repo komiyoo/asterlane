@@ -2,7 +2,7 @@
 type: Design
 title: Response Rendering
 description: 定义 REST invoke 的服务端结果渲染规则，以及它与固定 JSON 的 MCP 和客户端 CLI 渲染之间的边界。
-resource: docs/response-rendering.md
+resource: docs/runtime/response-rendering.md
 tags: [rendering, response-format, markdown, yaml, mcp, agent-native]
 timestamp: 2026-07-22T00:00:00+08:00
 ---
@@ -111,7 +111,7 @@ proxy_keys:
     allowed_tools: ['^search__tavily__.*$']
 ```
 
-顶层 `defaults` 为新增 section，所有字段有缺省值，符合 [Compatibility Policy](compatibility-policy.md) 的向后兼容要求。
+顶层 `defaults` 为新增 section，所有字段有缺省值，符合 [Compatibility Policy](../architecture/compatibility-policy.md) 的向后兼容要求。
 
 # 模块与接口形态
 
@@ -192,7 +192,7 @@ Exa MCP 的 `web_search_exa` / `web_fetch_exa` 返回的 `content[].Text` 是**�
 - [1] [RFC 9512: YAML Media Type](https://www.rfc-editor.org/rfc/rfc9512)
 - [2] [RFC 7763: The text/markdown Media Type](https://www.rfc-editor.org/rfc/rfc7763)
 - [3] [MCP specification – Tools (structuredContent / outputSchema)](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
-- [4] [Architecture](architecture.md)
+- [4] [Architecture](../architecture/architecture.md)
 - [5] [Configuration Schema](config-schema.md)
-- [6] [Error Model](error-model.md)
-- [7] [Compatibility Policy](compatibility-policy.md)
+- [6] [Error Model](../architecture/error-model.md)
+- [7] [Compatibility Policy](../architecture/compatibility-policy.md)

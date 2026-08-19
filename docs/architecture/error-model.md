@@ -2,7 +2,7 @@
 type: Architecture Decision
 title: 错误模型
 description: 定义 Asterlane 的错误分类、错误码、边界转换、脱敏与可观测字段映射。
-resource: docs/error-model.md
+resource: docs/architecture/error-model.md
 tags: [errors, architecture, observability, security]
 timestamp: 2026-07-03T00:00:00Z
 ---
@@ -174,7 +174,7 @@ src/limits/    -> LimitError
 
 # Citations
 
-- [1] [Development Workflow – Error System](development-workflow.md)
+- [1] [Development Workflow – Error System](../engineering/development-workflow.md)
 - [2] [MCP 2026-07-28 – Error Handling](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 - [3] [thiserror crate](https://docs.rs/thiserror)
 - [4] [Observability](observability.md)

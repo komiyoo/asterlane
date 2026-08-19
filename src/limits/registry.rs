@@ -1,6 +1,6 @@
 //! LimitRegistry：按实体独立 quota 的限额引擎
-//! （见 docs/mcp-governance-and-key-limits.md §3、
-//! docs/key-credentials-and-persistence.md §K3）。
+//! （见 docs/runtime/mcp-governance-and-key-limits.md §3、
+//! docs/runtime/key-credentials-and-persistence.md §K3）。
 //!
 //! 每个配置了 `limits` 的实体持有独立 governor GCRA 限流器实例：
 //! - 上游实体（api resource id / mcp server id）：rps、rpm、并发队列；

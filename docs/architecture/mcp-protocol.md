@@ -2,7 +2,7 @@
 type: Architecture Decision
 title: MCP 协议版本与网关适配
 description: 将 Asterlane 对齐 MCP 2026-07-28，同时双栈兼容 2025-11-25 客户端与上游。
-resource: docs/mcp-protocol.md
+resource: docs/architecture/mcp-protocol.md
 tags: [mcp, protocol, rmcp, compatibility]
 timestamp: 2026-08-17T00:00:00Z
 ---

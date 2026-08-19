@@ -1,5 +1,5 @@
-//! Admin 工具默认参数与调试调用（见 docs/tool-debugging-and-cli.md 第 3 节、
-//! docs/admin-console.md C4）。
+//! Admin 工具默认参数与调试调用（见 docs/admin/tool-debugging-and-cli.md 第 3 节、
+//! docs/admin/admin-console.md C4）。
 //!
 //! defaults CRUD 落 `tool_defaults` 表，写操作记 `AdminAudit` 审计事件；
 //! 调试调用复用 `/v1/tools/{name}/invoke` 的执行管线（`http::execute_invoke`），

@@ -159,7 +159,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         }
 
         // Render：非 error 结果的 JSON 文本内容重呈现（defense 之后、shaping 之前）。
-        // is_error 结果与非 JSON 文本原样保留（docs/response-rendering.md 转换边界）。
+        // is_error 结果与非 JSON 文本原样保留（docs/runtime/response-rendering.md 转换边界）。
         let mut rendered_format = None;
         if self.response_format != ResponseFormat::Json && !tool_result.is_error {
             let mut any_rendered = false;

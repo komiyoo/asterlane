@@ -1,6 +1,6 @@
 //! 限额引擎与 proxy key 结构化范围的 HTTP 端到端测试
 //! （REST `/v1/tools/{name}/invoke` 边界，契约见
-//! docs/mcp-governance-and-key-limits.md §2/§3）。
+//! docs/runtime/mcp-governance-and-key-limits.md §2/§3）。
 #![allow(clippy::expect_used)]
 
 use std::net::SocketAddr;

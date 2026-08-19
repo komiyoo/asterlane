@@ -1,4 +1,4 @@
-//! 指标族定义与记录 helper（见 `docs/observability.md`「指标族」表）。
+//! 指标族定义与记录 helper（见 `docs/architecture/observability.md`「指标族」表）。
 //!
 //! 使用 `metrics` facade：未设导出器时调用为 no-op，不会 panic。
 

@@ -1,5 +1,5 @@
 //! 聚合口径：按时间桶预聚合的使用量类型与维度枚举
-//! （见 `docs/observability.md`「聚合口径」）。
+//! （见 `docs/architecture/observability.md`「聚合口径」）。
 
 use crate::observability::model::{RequestEvent, RequestStatus};
 use chrono::{DateTime, Timelike, Utc};

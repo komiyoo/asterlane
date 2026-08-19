@@ -2,14 +2,14 @@
 type: Schema
 title: Gateway Configuration Schema
 description: Documents the YAML configuration for upstream API resources, OpenAPI discovery, proxy key scopes, and tool discovery queries.
-resource: docs/config-schema.md
+resource: docs/runtime/config-schema.md
 tags: [configuration, schema, credentials, discovery]
 timestamp: 2026-07-22T00:00:00+08:00
 ---
 
 # Context
 
-The initial gateway config is YAML. It should be easy to review in git and later migrate into a database-backed control plane. 配置向后兼容，新增字段有默认值，详见 [Compatibility Policy](compatibility-policy.md)。
+The initial gateway config is YAML. It should be easy to review in git and later migrate into a database-backed control plane. 配置向后兼容，新增字段有默认值，详见 [Compatibility Policy](../architecture/compatibility-policy.md)。
 
 # Top-Level Shape
 
@@ -41,7 +41,7 @@ admin:
       token_ref: secret://env/ASTERLANE_ADMIN_TOKEN
 ```
 
-admin key 用于 `/admin/*` API 与 Web 控制台的 Bearer 认证（见 [Admin Console](admin-console.md)）：
+admin key 用于 `/admin/*` API 与 Web 控制台的 Bearer 认证（见 [Admin Console](../admin/admin-console.md)）：
 
 - `token_ref` 是 secret ref，启动时解析一次并 fail fast；内存只保留 token 摘要，不留明文。
 - `keys` 为空或缺省时，`/admin/*`（含 `/admin/ui`）整体不挂载，探活使用公开 `/healthz`。
@@ -85,7 +85,7 @@ api_resources:
       result_budget_bytes: 49152
 ```
 
-`domain`/`provider`/`tool` 决定 wire name `domain__provider__tool`（见 [Naming Convention](naming-convention.md)）。`provider` 缺失时回退到 `id`。`method`（`POST`/`GET` 等）仅用于路由层 HTTP 请求，不参与 wire name 构成。
+`domain`/`provider`/`tool` 决定 wire name `domain__provider__tool`（见 [Naming Convention](../architecture/naming-convention.md)）。`provider` 缺失时回退到 `id`。`method`（`POST`/`GET` 等）仅用于路由层 HTTP 请求，不参与 wire name 构成。
 
 ## Auth Types
 
@@ -107,7 +107,7 @@ auth:
   value_ref: secret://provider/name
 ```
 
-Secret references are identifiers only. Implementations must resolve them on the gateway side and must not expose raw values in MCP tool schemas, agent prompts, logs, or responses. 详见 [Architecture – Credential Vault](architecture.md)。
+Secret references are identifiers only. Implementations must resolve them on the gateway side and must not expose raw values in MCP tool schemas, agent prompts, logs, or responses. 详见 [Architecture – Credential Vault](../architecture/architecture.md)。
 
 ## Key Pool
 
@@ -219,7 +219,7 @@ gateway 启动时连接每个 remote MCP server，调用上游 `tools/list`，�
 
 ## Builtin MCP Presets
 
-平台内置若干免鉴权 hosted MCP server preset，顶层 `builtin_mcp`（字符串列表，缺省空）一行启用（设计契约见 [内置 MCP、调试调用与配套 CLI](tool-debugging-and-cli.md)）：
+平台内置若干免鉴权 hosted MCP server preset，顶层 `builtin_mcp`（字符串列表，缺省空）一行启用（设计契约见 [内置 MCP、调试调用与配套 CLI](../admin/tool-debugging-and-cli.md)）：
 
 ```yaml
 builtin_mcp: [exa, deepwiki]
@@ -278,7 +278,7 @@ Rules use Rust regex syntax. 配置中的正则可使用冒号形式（`^search:
 
 # Tool Discovery Query
 
-The MCP `tools/list` extension supports filtering via `_meta` (see [Naming Convention – 过滤与发现](naming-convention.md) and [API Discovery – 渐进式发现](api-discovery.md)):
+The MCP `tools/list` extension supports filtering via `_meta` (see [Naming Convention – 过滤与发现](../architecture/naming-convention.md) and [API Discovery – 渐进式发现](api-discovery.md)):
 
 ```json
 {
@@ -328,11 +328,11 @@ cargo run -- serve --config examples/gateway-mcp.yaml --bind 127.0.0.1:3000
 | reader | jina | reader | `reader__jina__reader` |
 | travel | rollinggo | searchAirports | `travel__rollinggo__searchairports` |
 
-详见 [Naming Convention](naming-convention.md)。
+详见 [Naming Convention](../architecture/naming-convention.md)。
 
 # Citations
 
 - [1] [Rust regex crate documentation](https://docs.rs/regex/latest/regex/)
-- [2] [Naming Convention](naming-convention.md)
+- [2] [Naming Convention](../architecture/naming-convention.md)
 - [3] [API Discovery](api-discovery.md)
-- [4] [Compatibility Policy](compatibility-policy.md)
+- [4] [Compatibility Policy](../architecture/compatibility-policy.md)

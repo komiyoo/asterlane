@@ -1,4 +1,4 @@
-//! Admin CRUD 路由：resources / proxy keys 写路径、配置校验（见 docs/admin-console.md C3）。
+//! Admin CRUD 路由：resources / proxy keys 写路径、配置校验（见 docs/admin/admin-console.md C3）。
 //!
 //! 所有写操作落审计事件（`SecurityEventKind::AdminAudit`），
 //! 完成后原子替换内存配置 + 重建 catalog。
@@ -351,7 +351,7 @@ fn proxy_key_from_input(input: &ProxyKeyInput) -> ProxyKey {
 /// （limits 0 值、token_ref 解析失败等报错时整体拒绝本次写操作，内存态不变）；
 /// 重建的注册表携带旧表仍存在 key 的 `max_calls` 已用计数，热更新不清零累计
 /// 配额。gateway 认证随每次 swap 从新快照重建：CRUD 增删 key、token 签发/
-/// 吊销即时生效（见 docs/key-credentials-and-persistence.md K1）。
+/// 吊销即时生效（见 docs/runtime/key-credentials-and-persistence.md K1）。
 /// mcp-servers CRUD（`super::mcp`）与 token 端点（`super::tokens`）复用。
 pub(super) async fn swap_config_and_catalog(
     state: &AppState,
@@ -510,7 +510,7 @@ mod tests {
     }
 
     /// 写读往返：`to_db_proxy_key` → `merge_db_into_config` 反向映射必须保真，
-    /// 否则签发落库后重启丢凭据（见 docs/key-credentials-and-persistence.md K2）。
+    /// 否则签发落库后重启丢凭据（见 docs/runtime/key-credentials-and-persistence.md K2）。
     #[test]
     fn proxy_key_db_round_trip_preserves_all_fields() {
         let digest = "a".repeat(64);

@@ -2,7 +2,7 @@
 type: Design
 title: Proxy Key 凭据化与配置持久化闭环
 description: Proxy key 真实 token 签发/吊销/过期与 /mcp 端点认证、在线配置的启动回读与导出、per-key 日配额与用量面板、审计视图的需求与设计契约。
-resource: docs/key-credentials-and-persistence.md
+resource: docs/runtime/key-credentials-and-persistence.md
 tags: [keys, auth, tokens, persistence, quota, audit, admin]
 timestamp: 2026-07-22T00:00:00+08:00
 ---
@@ -90,11 +90,11 @@ proxy_keys:
 
 | 切片 | 内容 | 拥有文件 |
 | --- | --- | --- |
-| W0 地基（主代理，先行） | ProxyKey 三字段 + KeyLimits.max_calls_per_day + 校验 + 两个新错误码 + 全仓字面量 + config-schema.md | `src/config.rs`、`src/error.rs`、受字面量影响文件、`docs/config-schema.md` |
+| W0 地基（主代理，先行） | ProxyKey 三字段 + KeyLimits.max_calls_per_day + 校验 + 两个新错误码 + 全仓字面量 + config-schema.md | `src/config.rs`、`src/error.rs`、受字面量影响文件、`docs/runtime/config-schema.md` |
 | K-A 认证核心 | gateway_auth.rs、Bearer/legacy 解析、/v1 与 /mcp 绑定、main.rs 装配、e2e 测试 | `src/gateway_auth.rs`（新）、`src/lib.rs`、`src/http/*`、`src/mcp/server.rs`、`src/main.rs`、`tests/gateway_auth.rs`（新） |
 | K-B 持久化合并 | `merge_db_into_config` 纯函数 + 单测（不接线） | `src/store/*` |
 | K-C 日配额核心 | 日计数/翻转/回填 seed/getter/准入插桩 | `src/limits/*` |
-| K-D admin 面（wave 2） | 签发/吊销端点、export、proxy-keys usage 与 auth_mode 输出、kind 参数、main.rs 合并接线与日配额 seed、CLI、docs | `src/admin/*`（console.html 除外）、`src/cli*.rs`、`src/main.rs`、`docs/admin-console.md`、`docs/error-model.md`、`.codex/skills/asterlane/SKILL.md` |
+| K-D admin 面（wave 2） | 签发/吊销端点、export、proxy-keys usage 与 auth_mode 输出、kind 参数、main.rs 合并接线与日配额 seed、CLI、docs | `src/admin/*`（console.html 除外）、`src/cli*.rs`、`src/main.rs`、`docs/admin/admin-console.md`、`docs/architecture/error-model.md`、`.codex/skills/asterlane/SKILL.md` |
 | K-E 控制台（wave 2） | token 签发弹窗/吊销、auth_mode 徽标、配额进度条、审计 tab、导出按钮 | `src/admin/console.html` |
 | W3 验收（主代理） | just check、真机冒烟（Bearer 认证/吊销失效/重启回读）、log.md/README | 文档与修补 |
 
@@ -108,7 +108,7 @@ proxy_keys:
 # Citations
 
 - [1] [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md)
-- [2] [Admin Console](admin-console.md)
-- [3] [Error Model](error-model.md)
+- [2] [Admin Console](../admin/admin-console.md)
+- [3] [Error Model](../architecture/error-model.md)
 - [4] [Configuration Schema](config-schema.md)
-- [5] [Compatibility Policy](compatibility-policy.md)
+- [5] [Compatibility Policy](../architecture/compatibility-policy.md)

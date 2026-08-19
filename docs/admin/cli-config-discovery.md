@@ -2,7 +2,7 @@
 type: Architecture Decision
 title: CLI 配置发现与离线目录预览
 description: 定义 serve 与离线 list-tools 的配置路径发现优先级、跨平台默认目录、安全边界和兼容策略。
-resource: docs/cli-config-discovery.md
+resource: docs/admin/cli-config-discovery.md
 tags: [cli, configuration, discovery, compatibility, security]
 timestamp: 2026-07-23T00:00:00+08:00
 ---
@@ -125,10 +125,10 @@ asterlane list-tools [--config PATH] --key ID [FILTERS]
 
 # Citations
 
-[1] [当前 CLI 组合根](../src/main.rs)
+[1] [当前 CLI 组合根](../../src/main.rs)
 [2] [统一 CLI 客户端架构](cli-client-architecture.md)
-[3] [Gateway Configuration Schema](config-schema.md)
-[4] [Compatibility Policy](compatibility-policy.md)
+[3] [Gateway Configuration Schema](../runtime/config-schema.md)
+[4] [Compatibility Policy](../architecture/compatibility-policy.md)
 [5] [Tool Debugging & CLI](tool-debugging-and-cli.md)
-[6] [Engineering Conventions](engineering-conventions.md)
+[6] [Engineering Conventions](../engineering/engineering-conventions.md)
 [7] [OKF v0.1 draft specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)

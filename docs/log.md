@@ -1,18 +1,26 @@
 # Documentation Update Log
 
+## 2026-08-19（文档模块化归类与渐进式索引）
+
+- **结构**：概念文档从 `docs/*.md` 迁入五个分类目录，根 `docs/README.md` 只列分类，分类 `README.md` 再列概念。分类为 [产品与规划](product/)、[架构与决策](architecture/)、[配置与运行时](runtime/)、[管理面与 CLI](admin/)、[工程与文档](engineering/)。`docs/log.md` 仍留在 bundle 根。
+- **约定**：supersede [Documentation Conventions](engineering/documentation-conventions.md) 的扁平 L1/L2；改为 L1 分类导航、L1.5 分类索引、L2 `docs/<category>/*.md`。导航继续用 `README.md`（GitHub 目录页），`index.md` 仅作 OKF 保留名。
+- **脚本**：新增 [scripts/README.md](../scripts/README.md)，作为 `scripts/` 与根 `justfile` 的索引。`scripts/check_okf_docs.py` 增加分类 README 覆盖检查、子目录导航检查，并保留 `index.md`。
+- **引用**：同步更新 `AGENTS.md`、根 `README.md`、skill、PR 模板，以及代码注释中的 `docs/*.md` 路径；分类内相对链接改为跨目录 `../<category>/...`。
+- **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py` 全通过。
+
 ## 2026-08-19（新增 PR 模板）
 
 - **新增** `.github/PULL_REQUEST_TEMPLATE.md`：改动摘要 + 验证表格 + 分块自查 + 备注。验证表格列出与 CI 对齐的四条命令并要求填**实际结果**而非打勾，未通过项须写出精确命令与原因；自查分文档（OKF 三问 + supersede 就地更正）、工程纲领（分层单向、错误码、禁 unwrap、500 行预算、新依赖过 crate-selection）、安全（密钥零提交、错误可安全展示）三块，按改动相关性选填。
-- **依据**：模板门槛取自 `AGENTS.md` 的验证节与工程纲领、[Documentation Conventions](documentation-conventions.md) 的自进化三问、[Engineering Conventions](engineering-conventions.md) 的硬规则；标题约定沿用仓库既有的 Conventional Commits 前缀。
-- **文档**：[Development Workflow](development-workflow.md) 验证节补一行指向模板。
+- **依据**：模板门槛取自 `AGENTS.md` 的验证节与工程纲领、[Documentation Conventions](engineering/documentation-conventions.md) 的自进化三问、[Engineering Conventions](engineering/engineering-conventions.md) 的硬规则；标题约定沿用仓库既有的 Conventional Commits 前缀。
+- **文档**：[Development Workflow](engineering/development-workflow.md) 验证节补一行指向模板。
 - **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py` 全通过。
 
 ## 2026-08-19（按定位支柱评估缺口，新增演进规划）
 
-- **新增** [Roadmap](roadmap.md)：以产品定位的五根支柱（凭据集中持有、per-key 范围、渐进式发现、统一上游接入、使用日志与可见性）加一条横切生产就绪线为口径，评估截至 2026-08-19 的实现缺口，划分 Phase 7–10，并列出五项待产品决策项与复核后维持的非目标。
+- **新增** [Roadmap](product/roadmap.md)：以产品定位的五根支柱（凭据集中持有、per-key 范围、渐进式发现、统一上游接入、使用日志与可见性）加一条横切生产就绪线为口径，评估截至 2026-08-19 的实现缺口，划分 Phase 7–10，并列出五项待产品决策项与复核后维持的非目标。
 - **缺口分三类**：**兑现差**（文档已声称、代码未接线）——请求变换模块零调用方、Vault/Infisical 未装配、MCP `tools/list` 不认 `discovery_mode: lazy`、配额失败不退还、admin CLI 缺写操作、`RateLimits` 的 IP/UpstreamKey 维度未接线；**定位缺口**——上游 MCP 无 OAuth 2.1 运行时（判定为优先级最高单项）、只代理 tools 不代理 resources/prompts、不监听上游 `tools/list_changed`、无成本核算；**生产就绪**——`request_events` 无保留策略、仅 SQLite、状态全进程内致多副本失效、HTTP 边界无体积/超时护栏、容器以 root 运行、无发布工程。
-- **supersede**：[Architecture](architecture.md) 的 Phase 1–6 roadmap 收敛为一句现状 + 指向 roadmap.md。原文长期停在「Phase 1（当前）」，与 Phase 1–6 已交付的事实矛盾。
-- **去腐**：architecture 模块表 Status 列按 [Documentation Conventions](documentation-conventions.md) 标注「截至 2026-08-19」（该表此前正是约定里点名的腐烂反例）；`transform` 由「已实现」改为「未接入执行管线」、`secrets` 标注 Vault/Infisical 未装配、`admin` 的「7 端点」改为不易腐的描述（实际 25 条路由注册）。
+- **supersede**：[Architecture](architecture/architecture.md) 的 Phase 1–6 roadmap 收敛为一句现状 + 指向 roadmap.md。原文长期停在「Phase 1（当前）」，与 Phase 1–6 已交付的事实矛盾。
+- **去腐**：architecture 模块表 Status 列按 [Documentation Conventions](engineering/documentation-conventions.md) 标注「截至 2026-08-19」（该表此前正是约定里点名的腐烂反例）；`transform` 由「已实现」改为「未接入执行管线」、`secrets` 标注 Vault/Infisical 未装配、`admin` 的「7 端点」改为不易腐的描述（实际 25 条路由注册）。
 - **type 登记**：`Roadmap` 追加进 documentation-conventions 的 type 现用值。
 - **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py` 全通过（本次为纯文档改动，跑全量以确认基线未受影响）。
 
@@ -32,7 +40,7 @@
 
 ## 2026-08-17（MCP 2026-07-28 双栈适配）
 
-- **规范**：现行 MCP 版本改为 `2026-07-28`；新增 [MCP Protocol](mcp-protocol.md) 记录双栈、路由头、缓存提示、`subscriptions/listen` 与 MRTR 透传。
+- **规范**：现行 MCP 版本改为 `2026-07-28`；新增 [MCP Protocol](architecture/mcp-protocol.md) 记录双栈、路由头、缓存提示、`subscriptions/listen` 与 MRTR 透传。
 - **SDK**：`rmcp` 2.1 → 3.1.2，MSRV 1.85 → 1.88。上游 client 用 `ClientLifecycleMode::Auto` + `call_tool_once`。
 - **下游 `/mcp`**：保留 `legacy_session_mode` 以服务 initialize 客户端；实现 `server/discover`；`tools/list` 返回 `ttlMs=60000` / `cacheScope=private`；现代客户端经 `subscriptions/listen` 收 `tools/list_changed`。
 - **MRTR**：上游 `input_required` 不在网关内自动补全，原样回传；REST 使用 `application/vnd.mcp.input-required+json`。
@@ -110,7 +118,7 @@
 
 ## 2026-07-06（Key 凭据化与配置持久化闭环交付）
 
-按 `docs/key-credentials-and-persistence.md` 契约，K-W0 地基主代理先行，五个 subagent 两波交付，主代理验收：
+按 `docs/runtime/key-credentials-and-persistence.md` 契约，K-W0 地基主代理先行，五个 subagent 两波交付，主代理验收：
 
 - **Proxy key 凭据化（K1）**：`ProxyKey.{token_ref, token_digest, expires_at}`（互斥校验接入 load_config）；`src/gateway_auth.rs` `GatewayAuth`（SHA-256 摘要表，模式同 admin/auth.rs）——Bearer `alk_<64hex>` 认证、带 token 的 key 拒绝 `?key=` id-only（错误不区分「不存在/错 token」防枚举）、过期 401 `auth.expired_gateway_key`、legacy（无 token）key 保持 `?key=` 兼容；`/mcp` 端点经 axum middleware + rmcp RequestContext extensions 绑定真实 ProxyKey（scope/限额生效；response format 已于 2026-07-22 改为 MCP 固定 JSON、key 默认仅用于 REST invoke），任一 key 配 token 即强制 Bearer，否则维持开放模式（启动日志明示）；`POST/DELETE /admin/proxy-keys/{id}/token` 签发/轮换/吊销（明文仅返回一次，审计不含 token 材料），swap 统一重建 GatewayAuth（修复运行期 CRUD 增删 key 不更新认证）。
 - **持久化闭环（K2）**：`store/config_merge.rs` `merge_db_into_config`（YAML 胜 + shadowed 警告 + 坏行跳过）+ `merge_db_config` 聚合；serve() 重排为 DB 合并先于 catalog/registry 构建，在线创建的 resources/mcp_servers/proxy_keys 跨重启存活；`GET /admin/config/export` 导出合并快照 YAML；crud 写路径与反向映射补齐凭据字段往返（顺带修复 update_proxy_key 抹掉已签发摘要的问题）。
@@ -122,7 +130,7 @@
 
 ## 2026-07-06（MCP 治理与 Key 限额交付）
 
-按 `docs/mcp-governance-and-key-limits.md` 契约，W0 配置地基由主代理先行（避免并行类型冲突），五个 subagent 两波交付，主代理集成验收：
+按 `docs/runtime/mcp-governance-and-key-limits.md` 契约，W0 配置地基由主代理先行（避免并行类型冲突），五个 subagent 两波交付，主代理集成验收：
 
 - **配置**：`UpstreamLimits`（rps/rpm/max_concurrent/queue_timeout_secs，挂 `api_resources[]`/`mcp_servers[]`）、`KeyLimits`（rps/rpm/max_calls）与结构化范围（`allowed_servers`/`allowed_tool_names`）挂 `proxy_keys[]`、`HealthCheckConfig` 挂 `mcp_servers[]`；全部 `serde(default)` 向后兼容。config-schema.md 增 Upstream Limits / MCP Health Check / Proxy Keys 三处。
 - **限额引擎**：`limits/registry.rs` `LimitRegistry`（按实体独立 GCRA quota + 并发队列）、`LimiterKey::Principal`、`max_calls` 计数（store 回填，seed = request_count − rate_limit_hits）；executor 内单一准入 choke point（key rps→rpm→max_calls→上游 rps→rpm→并发队列，permit 持有至上游返回），REST/MCP（含 lazy call_tool）/admin 调试共管线；429 带 Retry-After，新错误码 `limit.calls_exhausted`；命中落 `Limited` 事件与 metrics；CRUD swap 重建限流器并携带已用计数。
@@ -136,7 +144,7 @@
 
 ## 2026-07-05（Phase 9 交付：内置 MCP / 负载捕获 / 默认参数与调试调用 / CLI）
 
-按 `docs/tool-debugging-and-cli.md` 契约，四个 subagent 分两个 wave 交付，主代理集成：
+按 `docs/admin/tool-debugging-and-cli.md` 契约，四个 subagent 分两个 wave 交付，主代理集成：
 
 - **内置 MCP presets**：`src/presets.rs` 静态表（exa/deepwiki/context7，免鉴权）+ `GatewayConfig::expand_builtin_mcp()`（`builtin_mcp: [exa]` 一行启用；显式同 id 优先、未知 id 报 `config.unknown_resource` fail fast）+ `GET /admin/mcp-presets`（enabled 状态）。config-schema.md 增「Builtin MCP Presets」节。
 - **请求负载捕获与上游观测**（原生默认开）：`RequestEvent` 增 `request_args`/`response_preview`（`observability/capture.rs` 先 UTF-8 安全截断后脱敏）与 `upstream_latency_ms`（复用 EWMA 计时点，区分端到端 `latency_ms`）；四个 `record_event` 站点 + remote MCP 转发分支全接线；捕获开启时请求 span 内 `info!` 同口径输出；第八项指标族 `asterlane_upstream_duration_seconds`；migration `20260705000001` 三列 additive；`/admin/events?tool_name=` 过滤。observability.md 更新（「上游响应体不记录」口径废止）。
@@ -279,7 +287,7 @@
 - **Admin API**: `/admin` 路由组（7 端点：health / resources / proxy-keys / tools / events / security-events / stats），挂载到主 router。
 - **wiremock 集成测试**: `tests/proxy_upstream.rs`（6 个测试：bearer auth 注入、custom header auth、503 重试后成功、持久失败重试耗尽、JSON body POST、路径参数替换）。dev-dependency `wiremock` 0.6。
 - **KeyId 统一**: `limits::key::KeyId(String)` 移除，统一使用 `keys::KeyId(u64)`。
-- **依赖**: `metrics-exporter-prometheus = "0.18"`、`wiremock = "0.6"`（dev）已在 `docs/crate-selection.md` 记录。
+- **依赖**: `metrics-exporter-prometheus = "0.18"`、`wiremock = "0.6"`（dev）已在 `docs/architecture/crate-selection.md` 记录。
 - **验证**: 411 tests passed（405 unit + 6 wiremock integration），`cargo fmt -- --check` 通过。
 
 ## 2026-07-04（Phase 5 API 自动发现）
@@ -291,7 +299,7 @@
 - **Config 扩展**: `ApiResource` 新增 `discovery: Option<DiscoveryConfig>`，子结构 `OpenApiSourceConfig` 含 source（file/url）、path/url、过滤字段。与手写 `endpoints` 可共存合并。
 - **Catalog 集成**: `ToolCatalog::from_config` 同时处理手写 endpoints 与 `discovery.openapi` → 调用 `openapi::discover_endpoints()` → 生成 `WrappedTool`。
 - **Proxy 参数分解**: `execute_with_retry` 接受 `param_locations`，新增 `apply_params()` 按元数据将 args 拆解为 query string、request headers 与 body（替代原来的 all-args-as-body）。
-- **依赖**: `openapiv3 = "2.0"`（已在 `docs/crate-selection.md` 记录）。
+- **依赖**: `openapiv3 = "2.0"`（已在 `docs/architecture/crate-selection.md` 记录）。
 - **验证**: 13 openapi 测试覆盖全部场景。`cargo fmt && cargo test` 需在有 Rust 工具链的环境中运行。
 
 ## 2026-07-04（Phase 4 content defense / result shaping 执行接入）
@@ -321,7 +329,7 @@
 - **Catalog 同步**: 新增 `ToolCatalog::replace_mcp_tools(new, mcp_resource_ids)`，refresh 后替换 catalog 中 MCP 工具快照，保留 HTTP API 工具不变。`AppState.catalog` 改为 `Arc<tokio::sync::RwLock<ToolCatalog>>` 支持后台原子替换。
 - **后台刷新 task**: `serve` 启动周期性 task（`MCP_REFRESH_INTERVAL_SECS = 60`），调用 `registry.refresh()` + `catalog.replace_mcp_tools()` + `notify_peers_tool_list_changed()`，graceful shutdown 时通过 `CancellationToken` 取消。tracing 结构化记录工具数变化与失败上游 id。
 - **notify_tool_list_changed 实现**: 调研 rmcp 2.1 确认可从外部后台任务触发。`AsterlaneToolServer::list_tools` 从 `RequestContext<RoleServer>.peer` 捕获 `Peer` 存入 `AppState.tool_list_changed_peers`（`Arc<RwLock<Vec<Peer<RoleServer>>>>`）。refresh 后 `notify_peers_tool_list_changed()` 遍历 peer 调 `Peer::notify_tool_list_changed()`，失败的 peer（TransportClosed）自动清理。
-- **文档**: `docs/api-discovery.md` 缓存与失效节更新实现状态。
+- **文档**: `docs/runtime/api-discovery.md` 缓存与失效节更新实现状态。
 
 ## 2026-07-04（Remote MCP proxy 接线）
 
@@ -342,7 +350,7 @@
 - **Result Shaping**：大结果截断 + cursor 分页，进程内 LRU 缓存。纳入 Phase 4。
 
 文档变更：
-- `docs/product-requirements.md`：新增「竞品借鉴：Toolport」章节，记录借鉴项与不借鉴项。
+- `docs/product/product-requirements.md`：新增「竞品借鉴：Toolport」章节，记录借鉴项与不借鉴项。
 - `task.md`：重整 Phase 3-7 结构，新增 Phase 4（安全与完整性），更新优先级排序。
 
 ## 2026-07-03（HTTP Gateway 批 3 接线）
@@ -357,7 +365,7 @@
 
 ## 2026-07-03（First Milestone 实现）
 
-按 `docs/development-workflow.md` First Milestone，以子代理分批实现运行时基础（批1：命名/目录/错误/可观测；批2：store/http/mcp adapter）。模块边界保持不塌缩。
+按 `docs/engineering/development-workflow.md` First Milestone，以子代理分批实现运行时基础（批1：命名/目录/错误/可观测；批2：store/http/mcp adapter）。模块边界保持不塌缩。
 
 - **Naming**: `src/naming.rs` ToolName 三段冒号→四段 `domain__provider__tool__method`，加 `provider` 段、`to_wire_name()`/`FromStr` 双向转换、64 字符长度校验（`ToolNameError::Overlong`，不静默截断）。
 - **Config**: `src/config.rs` `ApiResource` 加 `provider` 段（缺失回退 `id`）。

@@ -1,4 +1,4 @@
-//! Key 池与 RAII guard（见 `docs/architecture.md` Key Pool And Load Balancing）。
+//! Key 池与 RAII guard（见 `docs/architecture/architecture.md` Key Pool And Load Balancing）。
 //!
 //! 借鉴 NyaProxy（`core/control.py`）并按 Asterlane 模型重新设计：
 //! - **RAII guard**：`acquire()` 返回 `KeyGuard`，`Drop` 时自动 `release`

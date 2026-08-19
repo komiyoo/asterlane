@@ -1,6 +1,6 @@
 //! Secret backend 实现：env、file 与组合 resolver。
 //!
-//! 映射规则（见任务说明与 `docs/config-schema.md` auth 配置）：
+//! 映射规则（见任务说明与 `docs/runtime/config-schema.md` auth 配置）：
 //! - `backend == "env"` → env var 名 = `path`
 //! - `backend == "file"` → 文件路径 = `path`
 //! - 其他 backend（如 `tavily`）→ 默认 env backend，

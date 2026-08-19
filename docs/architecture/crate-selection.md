@@ -2,7 +2,7 @@
 type: Architecture Decision
 title: Crate 选型矩阵
 description: 基于 2026-08 官方文档与 crates.io 核实，确定 Asterlane 各能力维度的 Rust crate 选型与版本。
-resource: docs/crate-selection.md
+resource: docs/architecture/crate-selection.md
 tags: [crates, dependencies, architecture, rust]
 timestamp: 2026-08-17T00:00:00Z
 ---
@@ -97,7 +97,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 
 | 能力 | Crate | 版本 | 理由 |
 | --- | --- | --- | --- |
-| OpenAPI 3.x 解析 | `openapiv3` | 2.2 | 官方 OpenAPI 3.0/3.1 类型定义，用于读取第三方 spec 并提取 operation/params/schema。仅做解析，不依赖 codegen。详见 [API Discovery](api-discovery.md)。 |
+| OpenAPI 3.x 解析 | `openapiv3` | 2.2 | 官方 OpenAPI 3.0/3.1 类型定义，用于读取第三方 spec 并提取 operation/params/schema。仅做解析，不依赖 codegen。详见 [API Discovery](../runtime/api-discovery.md)。 |
 
 # 依赖增减规则
 
@@ -122,4 +122,4 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 - [5] [schemars crate](https://crates.io/crates/schemars)
 - [6] [governor crate](https://crates.io/crates/governor)
 - [7] [backon crate](https://crates.io/crates/backon)
-- [8] [Development Workflow – Crate Policy](development-workflow.md)
+- [8] [Development Workflow – Crate Policy](../engineering/development-workflow.md)

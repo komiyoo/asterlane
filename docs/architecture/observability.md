@@ -2,7 +2,7 @@
 type: Architecture Decision
 title: 可观测性设计
 description: 定义请求事件、负载捕获、指标、脱敏、聚合口径与导出方式，覆盖 NyaProxy 可借鉴的观测字段。
-resource: docs/observability.md
+resource: docs/architecture/observability.md
 tags: [observability, metrics, tracing, security, capture]
 timestamp: 2026-07-05T00:00:00Z
 ---
@@ -43,13 +43,13 @@ struct RequestEvent {
 }
 ```
 
-落库表 `request_events`（见 [Development Workflow – Store Strategy](development-workflow.md)），同时作为 tracing 事件输出。`RequestEventFilter` 支持按 proxy key、resource、tool wire name 与时间范围过滤。
+落库表 `request_events`（见 [Development Workflow – Store Strategy](../engineering/development-workflow.md)），同时作为 tracing 事件输出。`RequestEventFilter` 支持按 proxy key、resource、tool wire name 与时间范围过滤。
 
 **status 口径（2026-07-06 决策）**：`status` 记录的是网络/传输层结果，不是业务层结果。remote MCP 工具返回 `ToolCallResult.is_error = true` 时传输本身成功，事件仍记 `Success`；业务级错误内容体现在 `response_preview`（is_error 字段随预览可见）。HTTP 上游的 4xx/5xx 属传输层可观测状态，照旧记 `UpstreamError(status)`。
 
 ## 请求负载捕获
 
-负载捕获是网关的原生观测能力（设计契约见 [Tool Debugging And CLI](tool-debugging-and-cli.md) 第 2 节）：全部工具调用流量都经过网关，因此默认对所有请求捕获调用参数与结果预览，`observability.capture_payloads: false` 开关仅保留给极端合规场景。
+负载捕获是网关的原生观测能力（设计契约见 [Tool Debugging And CLI](../admin/tool-debugging-and-cli.md) 第 2 节）：全部工具调用流量都经过网关，因此默认对所有请求捕获调用参数与结果预览，`observability.capture_payloads: false` 开关仅保留给极端合规场景。
 
 - 采集点：`ProxyExecutor` 执行管线，HTTP API 上游与 remote MCP（`McpServerRegistry` 转发）两条路径共用；REST `/v1/tools/{name}/invoke` 与 MCP `tools/call`（含 lazy discovery `asterlane__call_tool`）两个入口全部覆盖。
 - 顺序固定：先 UTF-8 安全截断到 `observability.capture_max_bytes`（默认 4096），再经 `src/observability/capture.rs` 的模式脱敏（复用 redaction helper）；非 UTF-8 响应体记 `<non-utf8 N bytes>` 占位。remote MCP 路径以 `ToolCallResult` 序列化结果作预览。
@@ -116,7 +116,7 @@ struct SecurityEvent {
 | `secret://tavily/default` | `secret://tavily/` | 暴露 provider，隐藏具体路径段 |
 | `Bearer abc123...` | `<redacted>` | 整体替换 |
 | `x-api-key: abc123` | `<redacted>` | 整体替换 |
-| 上游响应体 | 截断预览 | 默认记录截断预览（`capture_max_bytes`，UTF-8 安全截断）并经上述模式脱敏；`observability.capture_payloads: false` 全局关闭（见 [Tool Debugging And CLI](tool-debugging-and-cli.md)） |
+| 上游响应体 | 截断预览 | 默认记录截断预览（`capture_max_bytes`，UTF-8 安全截断）并经上述模式脱敏；`observability.capture_payloads: false` 全局关闭（见 [Tool Debugging And CLI](../admin/tool-debugging-and-cli.md)） |
 
 预览仍不含 Authorization header，密钥模式一律脱敏。脱敏在写入 tracing 字段或 store 之前应用；模块内部错误携带引用类型（`KeyId`、`SecretRef`），其 `Display` 实现输出脱敏形式，避免脱敏遗漏。
 
@@ -149,9 +149,9 @@ MCP 语义约定已有社区草案（`gen_ai.tool.name`、`mcp.method.name`、`m
 
 # Citations
 
-- [1] [Product Requirements – 可观测性要求](product-requirements.md)
+- [1] [Product Requirements – 可观测性要求](../product/product-requirements.md)
 - [2] [NyaProxy metrics.py](file:///Users/ticoag/Documents/myws/NyaProxy/nya/services/metrics.py)
 - [3] [MCP semantic conventions (draft)](https://opentelemetry.io/docs/specs/semconv/)
 - [4] [metrics crate](https://docs.rs/metrics)
 - [5] [Error Model – tracing 字段映射](error-model.md)
-- [6] [Tool Debugging And CLI – 请求负载捕获与上游观测](tool-debugging-and-cli.md)
+- [6] [Tool Debugging And CLI – 请求负载捕获与上游观测](../admin/tool-debugging-and-cli.md)

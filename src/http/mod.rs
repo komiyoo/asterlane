@@ -60,7 +60,7 @@ pub fn build_app_with_ct(
             transport_config,
         );
     // /mcp gateway key 认证：required 模式（任一 key 配 token）校验 Bearer 并注入
-    // GatewayKeyId extension；开放模式放行（见 docs/key-credentials-and-persistence.md K1）
+    // GatewayKeyId extension；开放模式放行（见 docs/runtime/key-credentials-and-persistence.md K1）
     let mcp_router = Router::new().nest_service("/mcp", mcp_service).layer(
         axum::middleware::from_fn_with_state(state.clone(), crate::gateway_auth::require_mcp_auth),
     );
@@ -73,7 +73,7 @@ pub fn build_app_with_ct(
         .route("/v1/tools", get(routes::list_tools))
         .route("/v1/tools/{name}/invoke", post(routes::invoke_tool))
         .merge(mcp_router);
-    // admin API 仅在配置了 admin key 时挂载（见 docs/admin-console.md C0）
+    // admin API 仅在配置了 admin key 时挂载（见 docs/admin/admin-console.md C0）
     if state.admin_auth.is_some() {
         router = router.nest("/admin", crate::admin::router(&state)).route(
             "/",
@@ -1001,7 +1001,7 @@ mod tests {
         assert!(json["error"].get("request_id").is_some());
     }
 
-    // ── admin auth（见 docs/admin-console.md C0/C1）──
+    // ── admin auth（见 docs/admin/admin-console.md C0/C1）──
 
     fn admin_state() -> AppState {
         test_state().with_admin_auth(Arc::new(crate::admin::AdminAuth::from_plain(&[(
@@ -1103,7 +1103,7 @@ mod tests {
         assert!(!html.contains("test-admin-token"));
     }
 
-    // ── admin usage / stats / events（C2，见 docs/admin-console.md）──
+    // ── admin usage / stats / events（C2，见 docs/admin/admin-console.md）──
 
     fn admin_get(uri: &str) -> Request<Body> {
         Request::builder()

@@ -1,5 +1,5 @@
 //! Admin MCP server 治理端点：列表/详情/CRUD/按需探测
-//! （契约见 docs/mcp-governance-and-key-limits.md §6，JSON 形状钉死）。
+//! （契约见 docs/runtime/mcp-governance-and-key-limits.md §6，JSON 形状钉死）。
 //!
 //! 列表 = 配置快照 `mcp_servers` 与 registry 健康快照按 id 合并；网关未配
 //! 任何 MCP server 启动时（registry 不存在）health 全 `unknown`。

@@ -1,6 +1,6 @@
 //! Gateway proxy key 认证：Bearer token SHA-256 摘要校验 + legacy id-only 兼容。
 //!
-//! 契约见 docs/key-credentials-and-persistence.md K1，模式照抄 `src/admin/auth.rs`：
+//! 契约见 docs/runtime/key-credentials-and-persistence.md K1，模式照抄 `src/admin/auth.rs`：
 //! 内存只保留 token 摘要（定长数组 key 查 HashMap，不泄漏原文时序），
 //! 明文 token 与摘要不落日志、不进 `Debug`。
 //!
@@ -264,7 +264,7 @@ fn decode_digest_hex(hex: &str) -> Option<[u8; 32]> {
 /// required 模式（任一 key 配 token）：必须带有效 Bearer（`?key=` 不接受），
 /// 认证得到的 key id 以 [`GatewayKeyId`] 注入 request extensions；
 /// 开放模式（全部 key 无 token）：直接放行，MCP handler 维持 mcp_default_key
-/// 现状（向后兼容，见 docs/key-credentials-and-persistence.md K1）。
+/// 现状（向后兼容，见 docs/runtime/key-credentials-and-persistence.md K1）。
 pub async fn require_mcp_auth(
     State(state): State<AppState>,
     mut request: Request,

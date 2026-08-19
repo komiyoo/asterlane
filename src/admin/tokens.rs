@@ -1,5 +1,5 @@
 //! Proxy key token 签发/轮换/吊销端点
-//! （契约见 docs/key-credentials-and-persistence.md K1「签发 API」）。
+//! （契约见 docs/runtime/key-credentials-and-persistence.md K1「签发 API」）。
 //!
 //! 安全红线：token 明文只出现在签发响应体中一次；内存与 DB 只保留 SHA-256
 //! 摘要；审计事件与日志不含任何 token 材料。

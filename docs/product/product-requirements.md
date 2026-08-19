@@ -2,7 +2,7 @@
 type: Product Requirements
 title: Asterlane Original Product Requirements
 description: Captures the original product intent for Asterlane as an agent-native third-party resource and MCP credential gateway.
-resource: docs/product-requirements.md
+resource: docs/product/product-requirements.md
 tags: [requirements, product, agent-native, mcp, credentials]
 timestamp: 2026-07-03T00:00:00Z
 ---
@@ -256,9 +256,9 @@ gateway-facing key 是 agent 或应用身份。每个 key 有自己的 tool scop
 
 本文件保留原始需求作为历史记录。以下条目已被后续架构决策文档 supersede：
 
-- **MCP tool 命名格式**：原始需求采用冒号四段 `domain:provider:tool:method`。经两轮演进：(1) 冒号改为双下划线（MCP/LLM API 字符集限制）；(2) 移除 `method` 段（HTTP method 为路由细节，MCP 代理固定 `call`，信息量为零）。当前格式为三段 `domain__provider__tool`。详见 [Naming Convention](naming-convention.md)。
-- **crate 选型**：`serde_yaml` 已 archived，改选 `serde_norway`；MCP SDK 确定为 `rmcp` 2.1。详见 [Crate Selection](crate-selection.md)。
-- **错误系统、可观测性、API 发现、兼容性**：分别见 [Error Model](error-model.md)、[Observability](observability.md)、[API Discovery](api-discovery.md)、[Compatibility Policy](compatibility-policy.md)。
+- **MCP tool 命名格式**：原始需求采用冒号四段 `domain:provider:tool:method`。经两轮演进：(1) 冒号改为双下划线（MCP/LLM API 字符集限制）；(2) 移除 `method` 段（HTTP method 为路由细节，MCP 代理固定 `call`，信息量为零）。当前格式为三段 `domain__provider__tool`。详见 [Naming Convention](../architecture/naming-convention.md)。
+- **crate 选型**：`serde_yaml` 已 archived，改选 `serde_norway`；MCP SDK 确定为 `rmcp` 2.1。详见 [Crate Selection](../architecture/crate-selection.md)。
+- **错误系统、可观测性、API 发现、兼容性**：分别见 [Error Model](../architecture/error-model.md)、[Observability](../architecture/observability.md)、[API Discovery](../runtime/api-discovery.md)、[Compatibility Policy](../architecture/compatibility-policy.md)。
 
 # 竞品借鉴：Toolport（2026-07-04）
 
@@ -334,9 +334,9 @@ Meta-tool 设计（Asterlane 版）：
 
 # Citations
 
-[1] [Architecture](architecture.md)
-[2] [Configuration Schema](config-schema.md)
-[3] [Naming Convention](naming-convention.md)
-[4] [Crate Selection](crate-selection.md)
+[1] [Architecture](../architecture/architecture.md)
+[2] [Configuration Schema](../runtime/config-schema.md)
+[3] [Naming Convention](../architecture/naming-convention.md)
+[4] [Crate Selection](../architecture/crate-selection.md)
 [5] [NyaProxy README](https://github.com/Nya-Foundation/NyaProxy)
 [6] [Toolport GitHub](https://github.com/tsouth89/toolport) — MIT, v1.3.0, 竞品参考

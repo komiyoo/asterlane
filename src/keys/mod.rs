@@ -1,6 +1,6 @@
 //! keys 模块:上游 key 池、冷却、负载均衡与 RAII guard。
 //!
-//! 设计依据见 `docs/architecture.md` Key Pool And Load Balancing。
+//! 设计依据见 `docs/architecture/architecture.md` Key Pool And Load Balancing。
 //! 借鉴 NyaProxy（`core/control.py`、`services/lb.py`）并按 Asterlane 模型
 //! 重新设计:
 //!

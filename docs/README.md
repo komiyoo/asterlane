@@ -1,33 +1,15 @@
 # Asterlane Docs
 
-本文档包按 OKF 组织，供 agent 与人类渐进式加载项目知识。
+本文档包按 [OKF v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) 组织。先打开分类索引，再加载对应概念文档。
 
-## 概念文档
+## 分类
 
-- [Architecture](architecture.md) - 系统目标、模块边界、数据流、命名。
-- [Roadmap](roadmap.md) - 按定位支柱评估的实现缺口、分阶段优先级与待产品决策项。
-- [MCP Protocol](mcp-protocol.md) - MCP `2026-07-28` 双栈适配：发现、路由头、缓存提示、订阅通知与 MRTR 透传。
-- [Naming Convention](naming-convention.md) - MCP 工具命名格式与映射规则（基于规范约束的决策）。
-- [Crate Selection](crate-selection.md) - 各能力维度的 Rust crate 选型矩阵与版本。
-- [Error Model](error-model.md) - 错误分类、错误码、边界转换、脱敏。
-- [Observability](observability.md) - 请求事件、指标、脱敏、聚合口径。
-- [API Discovery](api-discovery.md) - OpenAPI 自动发现与 MCP 转换、第三方 MCP 代理发现。
-- [Compatibility Policy](compatibility-policy.md) - 配置、工具名、错误码、公共 API 的兼容边界。
-- [Response Rendering](response-rendering.md) - 结果再呈现层：JSON 结果转 markdown/yaml 的格式协商、转换边界与管线位置。
-- [Admin Console](admin-console.md) - Web 管理控制台：形态决策、页面地图、admin API 缺口与分阶段路线。
-- [Tool Debugging & CLI](tool-debugging-and-cli.md) - 内置 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用与 `asterlane admin` CLI 的设计契约。
-- [CLI Client Architecture](cli-client-architecture.md) - gateway-key `tools` CLI、admin 输出格式化、共享客户端模块边界与 MCP/REST 格式责任。
-- [CLI Config Discovery](cli-config-discovery.md) - `serve`/离线 `list-tools` 的配置发现优先级、跨平台默认目录与安全边界。
-- [MCP Governance & Key Limits](mcp-governance-and-key-limits.md) - MCP 供应商治理（详情、测活、介绍、上游限额）与 key 分发范围/限额的需求与设计契约。
-- [Key Credentials & Persistence](key-credentials-and-persistence.md) - Proxy key 真实 token 签发/过期/吊销、/mcp 认证、在线配置持久化闭环、日配额与审计视图的设计契约。
-- [Product Requirements](product-requirements.md) - 原始产品意图与 agent-native 要求。
-- [Configuration Schema](config-schema.md) - YAML 配置形态。
-- [Development Workflow](development-workflow.md) - 模块边界、crate 策略、子代理任务模式、验证规则。
-- [Engineering Conventions](engineering-conventions.md) - 工程约定：分层依赖、代码预算、类型/错误/日志规则、防臃肿纲领与已知债务台账。
-- [Documentation Conventions](documentation-conventions.md) - 文档体系约定：层级、生命周期、引用规则与自进化检查。
-- [Agent Skill](agent-skill.md) - 项目本地 Codex skill 使用说明。
+- [产品与规划](product/) - 产品意图、非目标与演进缺口。
+- [架构与决策](architecture/) - 模块边界、命名、协议、错误、观测、兼容与 crate 选型。
+- [配置与运行时](runtime/) - YAML schema、发现、渲染、MCP 治理与 key 凭据。
+- [管理面与 CLI](admin/) - Web 控制台、调试调用、tools/admin 客户端与配置发现。
+- [工程与文档](engineering/) - 工作流、工程纲领、文档约定、agent skill 与仓库脚本。
+
+## 时间线
+
 - [Log](log.md) - 文档更新历史。
-
-## External Format Reference
-
-- [OKF v0.1 draft specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)

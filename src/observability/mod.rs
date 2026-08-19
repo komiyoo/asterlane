@@ -1,5 +1,5 @@
 //! 可观测性模块：请求事件模型、脱敏 helper、指标族与聚合口径
-//! （见 `docs/observability.md`）。
+//! （见 `docs/architecture/observability.md`）。
 //!
 //! 设计原则：
 //! - **结构化优先**：所有日志/事件走 `tracing` 结构化字段。

@@ -10,7 +10,7 @@
 //! - [`adapter`]：`PlaceholderAdapter`（占位实现，`call_tool` 返回 `UpstreamNotImplemented`）。
 //! - [`error`]：`McpError` 及 `From<McpError> for AsterlaneError` 边界映射。
 //! - [`health`]：`HealthStatus`/`ServerHealth` 健康模型、降级启动与
-//!   probe/add/update/remove（契约见 docs/mcp-governance-and-key-limits.md §4）。
+//!   probe/add/update/remove（契约见 docs/runtime/mcp-governance-and-key-limits.md §4）。
 //!
 //! ## 设计要点
 //!

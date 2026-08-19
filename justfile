@@ -1,4 +1,5 @@
 # Asterlane 任务运行器。安装: cargo install just 或 brew install just
+# 脚本说明见 scripts/README.md
 
 # 列出可用任务
 default:

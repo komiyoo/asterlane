@@ -1,6 +1,6 @@
 //! HTTP 路由 handler 与响应 DTO。
 //!
-//! 第一阶段路由（见 `docs/development-workflow.md` First Milestone #6）：
+//! 第一阶段路由（见 `docs/engineering/development-workflow.md` First Milestone #6）：
 //! - `GET /healthz` — 健康检查
 //! - `GET /versionz` — 版本
 //! - `GET /config` — 配置概要（脱敏）
@@ -57,7 +57,7 @@ pub async fn versionz() -> Json<VersionResponse> {
 ///
 /// 不包含 `auth` 的 `token_ref`/`value_ref`，也不包含 proxy key 的
 /// `allowed_tools`/`denied_tools`/`default_tool_page_size`。
-/// 详见 `docs/error-model.md` 脱敏规则与 `docs/config-schema.md`。
+/// 详见 `docs/architecture/error-model.md` 脱敏规则与 `docs/runtime/config-schema.md`。
 #[derive(Debug, Serialize)]
 pub struct ConfigSummary {
     pub resources: Vec<ResourceSummary>,
@@ -106,7 +106,7 @@ impl From<&GatewayConfig> for ConfigSummary {
 }
 
 /// 统一 gateway key 认证：`Authorization: Bearer` 优先，legacy `?key=` 兼容
-/// （契约见 docs/key-credentials-and-persistence.md K1）。返回认证后的 key id。
+/// （契约见 docs/runtime/key-credentials-and-persistence.md K1）。返回认证后的 key id。
 async fn authenticate_request(
     state: &AppState,
     headers: &HeaderMap,
@@ -148,7 +148,7 @@ pub async fn get_config(
 
 /// `GET /v1/tools` 的 query 参数。
 ///
-/// 字段映射到 `ToolListQuery`（见 `docs/config-schema.md` 过滤字段）。
+/// 字段映射到 `ToolListQuery`（见 `docs/runtime/config-schema.md` 过滤字段）。
 #[derive(Debug, Deserialize)]
 pub struct ToolsQuery {
     pub key: Option<String>,
@@ -264,7 +264,7 @@ pub async fn list_tools(
 /// `/v1/tools/{name}/invoke`、meta-tool `asterlane__call_tool` 透传与
 /// admin 调试调用（`POST /admin/tools/{name}/invoke`）共用此路径，
 /// 保证 limits / key pool / 隔离 / content defense / shaping / 事件记录口径一致
-/// （见 docs/tool-debugging-and-cli.md 第 3 节）。
+/// （见 docs/admin/tool-debugging-and-cli.md 第 3 节）。
 pub(crate) async fn execute_invoke(
     state: &AppState,
     config: Arc<GatewayConfig>,
@@ -419,7 +419,7 @@ async fn handle_meta_tool_with_proxy(
             })?;
             let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
             // 可选 domain/provider 限定字段，与 MCP server 层同口径
-            // （见 docs/api-discovery.md「asterlane__call_tool 参数」）：
+            // （见 docs/runtime/api-discovery.md「asterlane__call_tool 参数」）：
             // 先解析出 canonical，remote MCP 判定与 invoke 都用 canonical。
             let qualifiers = ToolQualifiers {
                 domain: args.get("domain").and_then(|v| v.as_str()),

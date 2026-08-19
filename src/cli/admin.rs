@@ -31,7 +31,7 @@ pub struct AdminArgs {
     pub command: AdminCommand,
 }
 
-/// admin 子命令树（见 docs/tool-debugging-and-cli.md 第 4 节）。
+/// admin 子命令树（见 docs/admin/tool-debugging-and-cli.md 第 4 节）。
 #[derive(Debug, clap::Subcommand)]
 pub enum AdminCommand {
     /// 总体请求统计（GET /admin/stats）

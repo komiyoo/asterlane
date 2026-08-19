@@ -1,5 +1,5 @@
 //! limits 模块错误类型与 `AsterlaneError` 接入
-//! （见 `docs/error-model.md` limit.* 错误码）。
+//! （见 `docs/architecture/error-model.md` limit.* 错误码）。
 
 use crate::error::{AsterlaneError, ErrorCode};
 use std::time::Duration;
@@ -30,7 +30,7 @@ pub enum LimitError {
 
     /// Per-key 累计调用配额（`max_calls`）耗尽，需管理员调高配额。
     ///
-    /// 消息不含内部计数细节（见 docs/mcp-governance-and-key-limits.md 安全红线）。
+    /// 消息不含内部计数细节（见 docs/runtime/mcp-governance-and-key-limits.md 安全红线）。
     #[error("cumulative call quota exhausted for this key")]
     CallsExhausted,
 

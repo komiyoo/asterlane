@@ -1,6 +1,6 @@
 //! Repository trait 定义：store 抽象层，不绑定具体后端。
 //!
-//! 遵循 `docs/development-workflow.md` Store Strategy：
+//! 遵循 `docs/engineering/development-workflow.md` Store Strategy：
 //! handler 不直接写 SQL，所有数据库操作走 repository trait。
 
 use crate::observability::{RequestEvent, SecurityEvent, SecurityEventKind};

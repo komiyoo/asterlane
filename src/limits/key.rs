@@ -1,4 +1,4 @@
-//! 限流维度 key 与标识 newtype（见 `docs/architecture.md` Rate Limit And Queue）。
+//! 限流维度 key 与标识 newtype（见 `docs/architecture/architecture.md` Rate Limit And Queue）。
 //!
 //! 纠正 NyaProxy `{api}_key_{sk-xxx}` 明文拼接反模式：所有维度以类型化
 //! newtype（`ApiId`/`KeyId`/`PrincipalId`）做索引，不以明文密钥为键。
@@ -70,7 +70,7 @@ pub enum LimiterKey {
     GatewayPrincipal(ApiId, PrincipalId),
     /// 按网关 principal（proxy key）全局维度限流，per-key rps/rpm 限额用它
     /// （`GatewayPrincipal` 保留给未来 per-key-per-resource 需求，
-    /// 见 docs/mcp-governance-and-key-limits.md §3）。
+    /// 见 docs/runtime/mcp-governance-and-key-limits.md §3）。
     Principal(PrincipalId),
 }
 

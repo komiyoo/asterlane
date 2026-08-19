@@ -1,5 +1,5 @@
 //! API HTTP 客户端层：连接解析、认证、URL/query 组装、
-//! 响应体解析、错误与退出码映射（docs/error-model.md「CLI 边界」）。
+//! 响应体解析、错误与退出码映射（docs/architecture/error-model.md「CLI 边界」）。
 //!
 //! token 以 [`SecretString`] 持有且不实现 Debug；任何输出不回显 token。
 
@@ -51,7 +51,7 @@ impl CliError {
     }
 }
 
-/// 按错误码类别映射 CLI 退出码（docs/error-model.md「CLI 边界」）。
+/// 按错误码类别映射 CLI 退出码（docs/architecture/error-model.md「CLI 边界」）。
 fn exit_code_for_code(code: &str) -> i32 {
     match code.split('.').next().unwrap_or_default() {
         "config" => 2,

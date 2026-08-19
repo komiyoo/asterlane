@@ -1,5 +1,5 @@
 //! Store 模块：数据库抽象、迁移与 repository 实现
-//! （见 `docs/development-workflow.md` Store Strategy）。
+//! （见 `docs/engineering/development-workflow.md` Store Strategy）。
 //!
 //! 模块边界：handler 不直接写 SQL，所有操作走 repository trait。
 //! 当前提供 SQLite 实现，后续可加 Postgres。

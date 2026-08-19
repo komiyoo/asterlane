@@ -1,5 +1,5 @@
 //! Store 模块错误类型与 `AsterlaneError` 接入
-//! （见 `docs/error-model.md` store.* 错误码）。
+//! （见 `docs/architecture/error-model.md` store.* 错误码）。
 
 use crate::error::{AsterlaneError, ErrorCode};
 use thiserror::Error;

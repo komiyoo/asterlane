@@ -14,14 +14,15 @@ Use this skill to keep Asterlane changes aligned with the project goal: agents r
 Before changing behavior, read only the closest documents needed for the task:
 
 - `README.md` for current status and commands.
-- `docs/architecture.md` for boundaries, naming, and roadmap.
-- `docs/config-schema.md` before editing `examples/gateway.yaml` or config structs.
+- `docs/README.md` for the category index, then the closest concept document.
+- `docs/architecture/architecture.md` for boundaries, naming, and roadmap.
+- `docs/runtime/config-schema.md` before editing `examples/gateway.yaml` or config structs.
 - `src/config.rs`, `src/catalog.rs`, `src/policy.rs`, and `src/naming.rs` before changing core model behavior.
 
 ## Core Rules
 
 - Do not commit raw upstream secrets. Use secret references such as `secret://tavily/default`.
-- Keep exposed MCP tool names in `domain__provider__tool` form (three segments, double underscore separated). See `docs/naming-convention.md` for the rationale — colons violate MCP 2025-11-25 spec and LLM API constraints.
+- Keep exposed MCP tool names in `domain__provider__tool` form (three segments, double underscore separated). See `docs/architecture/naming-convention.md` for the rationale — colons violate MCP 2025-11-25 spec and LLM API constraints.
 - Treat proxy-key request filters as narrowing filters only. They must never expand access beyond `allowed_tools` and `denied_tools`.
 - Deny rules override allow rules.
 - Keep discovery progressive: every list operation should support filtering and pagination when the catalog may grow.
@@ -140,7 +141,7 @@ cargo run -- admin proxy-keys revoke-token agent-a   # key falls back to legacy 
 cargo run -- admin security-events --kind admin_audit  # audit trail of admin writes
 ```
 
-成功输出支持 `json|yaml|markdown`，优先级同样为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。服务端错误写入 stderr；退出码遵循 `docs/error-model.md` 的 CLI 映射（例如 `auth.*`/`admin.*` → 3，`proxy.*` → 6）。
+成功输出支持 `json|yaml|markdown`，优先级同样为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。服务端错误写入 stderr；退出码遵循 `docs/architecture/error-model.md` 的 CLI 映射（例如 `auth.*`/`admin.*` → 3，`proxy.*` → 6）。
 
 ### Configure Tool Default Arguments (AI Workflow)
 

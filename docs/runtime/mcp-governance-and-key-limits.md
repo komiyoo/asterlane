@@ -2,14 +2,14 @@
 type: Design
 title: MCP 治理与 Key 限额
 description: MCP 供应商可观测/可管理（详情页、测活、工具介绍、上游限额）与 key 分发的结构化范围选择、rps/rpm/调用次数限额的需求梳理与设计契约。
-resource: docs/mcp-governance-and-key-limits.md
+resource: docs/runtime/mcp-governance-and-key-limits.md
 tags: [mcp, admin, console, limits, keys, health, governance]
 timestamp: 2026-07-22T00:00:00+08:00
 ---
 
 # 背景
 
-控制台（C0–C4，见 [Admin Console](admin-console.md)）已覆盖只读观测、CRUD 与工具调试，但 MCP 供应商维度的治理能力缺失。运维痛点：
+控制台（C0–C4，见 [Admin Console](../admin/admin-console.md)）已覆盖只读观测、CRUD 与工具调试，但 MCP 供应商维度的治理能力缺失。运维痛点：
 
 - 看不到配置了哪些 MCP 供应商：`/admin/resources` 只列 `api_resources`，`mcp_servers` 没有任何列表/详情端点（仅 `/admin/mcp-presets` 展示内置 preset 目录）。
 - 无法设定某个 MCP 是否需要 key（auth 形态不可见、不可改——mcp_servers 无 CRUD）。
@@ -71,7 +71,7 @@ proxy_keys:
       max_calls: 10000         # 累计调用配额
 ```
 
-- 所有新字段 `#[serde(default)]`，向后兼容（对齐 [Compatibility Policy](compatibility-policy.md)）。
+- 所有新字段 `#[serde(default)]`，向后兼容（对齐 [Compatibility Policy](../architecture/compatibility-policy.md)）。
 - `rps`/`rpm`/`max_concurrent` 配置值为普通整数，构建限流器时校验 `> 0`，非法值启动/CRUD 校验期报 `config.*` 错误 fail fast。
 - Rust 形态：`UpstreamLimits { rps, rpm, max_concurrent, queue_timeout_secs }`（挂 `ApiResource.limits` 与 `McpServerConfig.limits`）、`KeyLimits { rps, rpm, max_calls }`（挂 `ProxyKey.limits`）、`HealthCheckConfig { enabled }`（挂 `McpServerConfig.health_check`）。
 
@@ -173,11 +173,11 @@ CREATE TABLE tool_metadata (
 
 | 切片 | 内容 | 拥有文件 |
 | --- | --- | --- |
-| W0 配置地基（主代理，先行） | 配置结构体新字段 + 全仓字面量修复 + config-schema.md | `src/config.rs`、受字面量影响的测试、`docs/config-schema.md` |
+| W0 配置地基（主代理，先行） | 配置结构体新字段 + 全仓字面量修复 + config-schema.md | `src/config.rs`、受字面量影响的测试、`docs/runtime/config-schema.md` |
 | W1-A 限额引擎与 key 范围 | `LimitRegistry`、`Principal` 维度、`max_calls` 计数、policy 结构化范围、入口管线 enforcement、CRUD 字段透传、示例配置 | `src/limits/*`、`src/policy.rs`、`src/http/routes.rs`、`src/mcp/server.rs`、`src/proxy/executor.rs`、`src/admin/crud.rs`、`src/main.rs`、`src/catalog.rs`（scope 调用点）、`examples/*` |
 | W1-B MCP 健康与降级 | 降级启动、健康快照、probe、add/update/remove server | `src/mcp/registry.rs`、`src/mcp/mod.rs`、`src/mcp/error.rs` |
 | W1-C 工具介绍存储 | `tool_metadata` 表 + repository | `src/store/*` |
-| W2-D admin 后端 | mcp-servers 列表/详情/CRUD/probe 端点、metadata 端点、catalog overlay 接线、`mcp_servers` DB 表、CLI 子命令、admin-console.md 更新 | `src/admin/*`（console.html 除外）、`src/http/state.rs`、`src/catalog.rs`（overlay）、`src/main.rs`（接线）、`src/cli*.rs`、`src/store/sqlite.rs`（mcp_servers 表）、`docs/admin-console.md` |
+| W2-D admin 后端 | mcp-servers 列表/详情/CRUD/probe 端点、metadata 端点、catalog overlay 接线、`mcp_servers` DB 表、CLI 子命令、admin-console.md 更新 | `src/admin/*`（console.html 除外）、`src/http/state.rs`、`src/catalog.rs`（overlay）、`src/main.rs`（接线）、`src/cli*.rs`、`src/store/sqlite.rs`（mcp_servers 表）、`docs/admin/admin-console.md` |
 | W2-E 控制台 | 上节页面增量 | `src/admin/console.html` |
 | W3 验收（主代理） | `just check`（fmt/clippy/test/OKF）、examples 校验、docs/log.md 与 README 同步 | 文档与修补 |
 
@@ -190,10 +190,10 @@ CREATE TABLE tool_metadata (
 
 # Citations
 
-- [1] [Admin Console](admin-console.md)
+- [1] [Admin Console](../admin/admin-console.md)
 - [2] [Configuration Schema](config-schema.md)
-- [3] [Tool Debugging And CLI](tool-debugging-and-cli.md)
-- [4] [Error Model](error-model.md)
-- [5] [Compatibility Policy](compatibility-policy.md)
-- [6] [Engineering Conventions](engineering-conventions.md)
+- [3] [Tool Debugging And CLI](../admin/tool-debugging-and-cli.md)
+- [4] [Error Model](../architecture/error-model.md)
+- [5] [Compatibility Policy](../architecture/compatibility-policy.md)
+- [6] [Engineering Conventions](../engineering/engineering-conventions.md)
 - [7] [governor crate](https://docs.rs/governor/latest/governor/)

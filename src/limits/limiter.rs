@@ -1,5 +1,5 @@
 //! governor GCRA 限流器与队列准入占位
-//! （见 `docs/architecture.md` Rate Limit And Queue）。
+//! （见 `docs/architecture/architecture.md` Rate Limit And Queue）。
 
 use super::error::LimitError;
 use super::key::LimiterKey;

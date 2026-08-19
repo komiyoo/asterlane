@@ -2,7 +2,7 @@
 type: Design
 title: Admin Console
 description: Web 管理控制台的形态决策、页面地图、admin API 缺口清单与分阶段路线。
-resource: docs/admin-console.md
+resource: docs/admin/admin-console.md
 tags: [admin, console, ui, observability, design]
 timestamp: 2026-07-06T00:00:00Z
 ---
@@ -27,7 +27,7 @@ timestamp: 2026-07-06T00:00:00Z
 | 部署形态 | 与网关同进程同端口，`GET /admin/ui` 返回页面 | 单二进制交付；同源部署免 CORS |
 | 认证 | 独立 admin key（Bearer），与 proxy key 物理分离 | 架构护栏：admin key 与 proxy key 不得混用（NyaProxy 混用是反模式） |
 | C1 技术栈 | vanilla JS + 静态 CSS，源码按 tab 拆为 `src/admin/ui/` 下免构建 ES module（`app.js` 入口 + 共享 `core.js` + `tabs/*.js` + `styles.css`），逐个 `include_str!` 嵌入，`GET /admin/ui/{*path}` 静态服务 | 零新 crate、零 node 工具链；每个 tab 独立文件，按需只改一个 tab |
-| C3 升级条件 | 表单编辑、多步交互、客户端状态需求以**模块化**应对（per-tab ES module + 共享 `core.js`，仍免构建、仍 `include_str!` 嵌入），不迁 Vite/重框架；单二进制交付不变 | 遵循 [Development Workflow – Admin Console Strategy](development-workflow.md)：数据模型稳定前不承诺重前端 |
+| C3 升级条件 | 表单编辑、多步交互、客户端状态需求以**模块化**应对（per-tab ES module + 共享 `core.js`，仍免构建、仍 `include_str!` 嵌入），不迁 Vite/重框架；单二进制交付不变 | 遵循 [Development Workflow – Admin Console Strategy](../engineering/development-workflow.md)：数据模型稳定前不承诺重前端 |
 | token 传递 | 浏览器端 admin key 手输、存 sessionStorage、随 fetch 走 `Authorization: Bearer` | 不写 cookie，同源 + Bearer 天然免 CSRF |
 
 `/admin/ui` 页面本身不含敏感数据，可不带鉴权返回（登录引导页）；所有数据请求必须带 admin key。
@@ -46,8 +46,8 @@ admin:
 ```
 
 - `/admin/*` 数据端点挂 Bearer 校验 middleware；未配置任何 admin key 时不挂载 admin 路由（探活走公开 `/healthz`）。
-- 校验失败统一返回 `admin.unauthorized`（401，见 [Error Model](error-model.md)），响应与日志不回显任何 token 信息。
-- 配置 schema 见 [Configuration Schema – Admin](config-schema.md)。
+- 校验失败统一返回 `admin.unauthorized`（401，见 [Error Model](../architecture/error-model.md)），响应与日志不回显任何 token 信息。
+- 配置 schema 见 [Configuration Schema – Admin](../runtime/config-schema.md)。
 
 # 页面地图与 API 缺口
 
@@ -59,19 +59,19 @@ admin:
 | Resources | 上游资源清单（id、domain、provider、base_url、endpoint 数） | `/admin/resources` | 已上线（C1） |
 | Tools | wrapped tool 目录（name、description，客户端过滤）；每行「调试」展开面板 = 参数 textarea（预填已存默认）+ 调用 + 存为默认 + 结果/耗时/request_id 显示 | `/admin/tools`、`GET/PUT/DELETE /admin/tools/{name}/defaults`、`POST /admin/tools/{name}/invoke` | 已上线（C1，调试面板随 C4）；catalog 大时改服务端过滤，复用 `catalog` 的过滤/分页 |
 | Proxy Keys | key scope 一览（allow/deny 正则、分页大小） | `/admin/proxy-keys` | 已上线（C1） |
-| Key Pools | upstream key 池状态：available/cooling/leased、冷却剩余、权重、EWMA 延迟、LB 策略 | `/admin/key-pools` | 已上线（C2）：key 以脱敏 `key#000N` 展示，ref 隐藏路径段；配置形态见 [Configuration Schema – Key Pool](config-schema.md) |
+| Key Pools | upstream key 池状态：available/cooling/leased、冷却剩余、权重、EWMA 延迟、LB 策略 | `/admin/key-pools` | 已上线（C2）：key 以脱敏 `key#000N` 展示，ref 隐藏路径段；配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md) |
 | Events | 请求事件查询（key/resource/tool/时间范围过滤，时间游标分页）；行「详情」展示负载捕获字段 `request_args`/`response_preview`/`upstream_latency_ms`，含 `request_args` 的行提供「存为默认参数」（前端 PUT 到该 tool 的 defaults） | `/admin/events`（`?tool_name=` 精确过滤） | 已上线（C2，行详情随 C4）：`from`/`to` 为 RFC3339；`to` 不含边界，兼作游标——下一页传上一页末行 `timestamp`（同一时间戳的并发行可能被跳过，微秒精度下可接受） |
 | Security Events | integrity drift、content defense 事件 | `/admin/security-events` | 已上线（C1） |
 | Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中） | `/admin/usage?group_by=&from=&to=` | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
 | Config | 配置校验报告、资源与 key 的 CRUD | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3） |
 | （跨页面）Tool Defaults | 工具默认调用参数全量列表（Tools 调试面板与 CLI 消费） | `GET /admin/tool-defaults` | 已上线（C4） |
-| MCP Servers | MCP 供应商列表（健康状态、builtin/requires_key 标记、tool_count、探测按钮）；页顶「内置集成」区始终可见地列出全部 preset（状态 + 免费/需 key 标记 + 申请 key 链接）：keyless 一键「启用」、keyed「配置 key 启用」预填 url/domain/provider/auth 类型只需填 secret ref；行展开详情 = 元信息 + 健康 + 限额 + security + 工具表（介绍编辑、行内调试）；server 增删改表单创建/编辑均可编辑 security（`integrity_policy` warn/quarantine/block、`defense.enabled`、`result_budget_bytes`；注意写入嵌套 `defense:{enabled}`、读出扁平 `defense_enabled`，无 `deny_unknown_fields`） | `GET/POST /admin/mcp-servers`、`GET/PUT/DELETE /admin/mcp-servers/{id}`、`POST /admin/mcp-servers/{id}/probe`、`GET /admin/mcp-presets` | 已上线（C5，2026-07-06；security 编辑 2026-07-06；内置集成可见区 + 只配 key + rollinggo/exa 预集成 2026-07-07）：JSON 形状钉死于 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §6 |
+| MCP Servers | MCP 供应商列表（健康状态、builtin/requires_key 标记、tool_count、探测按钮）；页顶「内置集成」区始终可见地列出全部 preset（状态 + 免费/需 key 标记 + 申请 key 链接）：keyless 一键「启用」、keyed「配置 key 启用」预填 url/domain/provider/auth 类型只需填 secret ref；行展开详情 = 元信息 + 健康 + 限额 + security + 工具表（介绍编辑、行内调试）；server 增删改表单创建/编辑均可编辑 security（`integrity_policy` warn/quarantine/block、`defense.enabled`、`result_budget_bytes`；注意写入嵌套 `defense:{enabled}`、读出扁平 `defense_enabled`，无 `deny_unknown_fields`） | `GET/POST /admin/mcp-servers`、`GET/PUT/DELETE /admin/mcp-servers/{id}`、`POST /admin/mcp-servers/{id}/probe`、`GET /admin/mcp-presets` | 已上线（C5，2026-07-06；security 编辑 2026-07-06；内置集成可见区 + 只配 key + rollinggo/exa 预集成 2026-07-07）：JSON 形状钉死于 [MCP 治理与 Key 限额](../runtime/mcp-governance-and-key-limits.md) §6 |
 | （跨页面）Tool Metadata | 工具介绍 override（覆盖上游 description；agent 可见描述 = override ?? 原始）；`/admin/tools` 行含 `resource_id`/`description_override` | `GET /admin/tool-metadata`、`GET/PUT/DELETE /admin/tools/{name}/metadata` | 已上线（C5，2026-07-06） |
 | Proxy Keys（token 签发） | key 行「签发/轮换」「吊销」按钮 + token 一次性弹窗（明文仅此一次）、`auth_mode` 徽标、过期时间输入、总量/当日配额进度条；列表行含 `auth_mode`/`expires_at`/`usage`，永不回显摘要或明文 | `POST/DELETE /admin/proxy-keys/{id}/token`、`/admin/proxy-keys` | 已上线（C6，2026-07-06） |
 | 审计 | AdminAudit 审计流水（时间/admin_key_id/action/target），预置 kind=admin_audit，沿用事件页分页；非法 kind 400 `admin.invalid_query` | `/admin/security-events?kind=` | 已上线（C6，2026-07-06） |
 | Config（导出） | 「导出 YAML」按钮：当前合并快照（`text/yaml`，只含 secret ref 与 token 摘要，无明文密钥） | `GET /admin/config/export` | 已上线（C6，2026-07-06） |
 
-除 Key Pools（依赖尚未接线的运行时能力）外，覆盖 [Architecture – Admin Console](architecture.md) 第一阶段最小集。
+除 Key Pools（依赖尚未接线的运行时能力）外，覆盖 [Architecture – Admin Console](../architecture/architecture.md) 第一阶段最小集。
 
 # 分阶段路线
 
@@ -86,8 +86,8 @@ admin:
   - `DELETE /admin/tools/{name}/defaults` — 不存在 404；
   - `POST /admin/tools/{name}/invoke?use_defaults=&save=` — 调试调用，args 优先级 = body 非空 > body 空且 `use_defaults=true` 用存储默认 > `{}`；`save=true` 且调用成功时把实际使用的 args 存为默认（`source=captured`）并记审计；响应 `{request_id, status, latency_ms, result}`。
   - 调试调用复用 `/v1/tools/{name}/invoke` 执行管线（`http::execute_invoke`：limits、key pool、隔离、content defense、shaping、事件记录与负载捕获全部生效）；事件 `proxy_key_id` 记 `admin:{admin_key_id}`，通过合成 ProxyKey（allow `.*`）绕过 proxy key scope，合成 key 不写入配置。defaults 写操作（set/delete/capture）均落 `AdminAudit`。未配置 store 时写路径报 503 `store.unavailable`。控制台新增 Tools 行内调试面板与事件行详情（见页面地图）。
-- **C5 MCP 治理（已交付 2026-07-06）**：设计契约见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.md) §6。`/admin/mcp-servers` 列表/详情/CRUD/`probe`（`src/admin/mcp.rs`）：列表合并配置快照与 registry 健康快照（未配 MCP 时 health 全 `unknown`）；POST 创建即尝试连接，失败仍保存并返回 `unreachable`（201）；写路径复用 C3 `swap_config_and_catalog` 原子替换，另同步 registry 工具进 catalog 并 rebase integrity baseline，DB 持久化走新 `mcp_servers` 表（`config_json` 模式同 `resources`，启动不回读）。工具介绍 override（`src/admin/metadata.rs` + `tool_metadata` 表 + catalog overlay）：`PUT/DELETE /admin/tools/{name}/metadata` 即时生效于 agent 可见描述（override ?? 上游原始），integrity fingerprint 仍用上游原始描述。CLI 新增 `admin mcp-servers [get|probe]` 与 `admin metadata list/get/set/rm`。全部写操作落 `AdminAudit`；响应永不含 secret ref。控制台新增 MCP Servers 页（W2-E）。
-- **C6 Key 凭据与持久化（已交付 2026-07-06）**：设计契约见 [Proxy Key 凭据化与配置持久化闭环](key-credentials-and-persistence.md)。token 签发/轮换/吊销端点（`src/admin/tokens.rs`）：明文 `alk_` token 只出现在签发响应一次，内存/DB/导出只存 SHA-256 摘要；`swap_config_and_catalog` 每次写操作从新快照重建 GatewayAuth（CRUD 增删 key 与签发/吊销即时生效；新快照 token_ref 解析失败则整体拒绝该次写入，内存态不变）。`/admin/proxy-keys` 行扩展 `auth_mode`/`expires_at`/`usage`；`GET /admin/config/export` 导出合并快照 YAML；`/admin/security-events?kind=` 过滤 + 控制台审计 tab。serve 启动回读 DB 合并（同 id YAML 胜，K2 闭环）与日配额计数回填。CLI 新增 `admin proxy-keys issue/revoke-token`、`admin security-events --kind`。
+- **C5 MCP 治理（已交付 2026-07-06）**：设计契约见 [MCP 治理与 Key 限额](../runtime/mcp-governance-and-key-limits.md) §6。`/admin/mcp-servers` 列表/详情/CRUD/`probe`（`src/admin/mcp.rs`）：列表合并配置快照与 registry 健康快照（未配 MCP 时 health 全 `unknown`）；POST 创建即尝试连接，失败仍保存并返回 `unreachable`（201）；写路径复用 C3 `swap_config_and_catalog` 原子替换，另同步 registry 工具进 catalog 并 rebase integrity baseline，DB 持久化走新 `mcp_servers` 表（`config_json` 模式同 `resources`，启动不回读）。工具介绍 override（`src/admin/metadata.rs` + `tool_metadata` 表 + catalog overlay）：`PUT/DELETE /admin/tools/{name}/metadata` 即时生效于 agent 可见描述（override ?? 上游原始），integrity fingerprint 仍用上游原始描述。CLI 新增 `admin mcp-servers [get|probe]` 与 `admin metadata list/get/set/rm`。全部写操作落 `AdminAudit`；响应永不含 secret ref。控制台新增 MCP Servers 页（W2-E）。
+- **C6 Key 凭据与持久化（已交付 2026-07-06）**：设计契约见 [Proxy Key 凭据化与配置持久化闭环](../runtime/key-credentials-and-persistence.md)。token 签发/轮换/吊销端点（`src/admin/tokens.rs`）：明文 `alk_` token 只出现在签发响应一次，内存/DB/导出只存 SHA-256 摘要；`swap_config_and_catalog` 每次写操作从新快照重建 GatewayAuth（CRUD 增删 key 与签发/吊销即时生效；新快照 token_ref 解析失败则整体拒绝该次写入，内存态不变）。`/admin/proxy-keys` 行扩展 `auth_mode`/`expires_at`/`usage`；`GET /admin/config/export` 导出合并快照 YAML；`/admin/security-events?kind=` 过滤 + 控制台审计 tab。serve 启动回读 DB 合并（同 id YAML 胜，K2 闭环）与日配额计数回填。CLI 新增 `admin proxy-keys issue/revoke-token`、`admin security-events --kind`。
 - **远期（不排期）**：多管理员 RBAC、SSE live tail、SSO。
 
 每阶段独立可交付：C0/C1 合起来就是可用的最小控制台，C2/C3 按需求节奏推进。
@@ -97,15 +97,15 @@ admin:
 - admin key 与 proxy key、上游凭据、secret ref 四者概念独立，配置分节、校验分 middleware。
 - 任何 admin 响应不得含明文密钥：upstream key 只以 KeyId/secret ref 出现（现有端点已满足，新端点同守）。
 - 写操作（C3 起）必须产生审计记录，包含 admin key id、操作、目标、结果。
-- admin 请求同样在带 `request_id` 的 span 内；`Authorization` header 永不落日志（对齐 [Observability](observability.md)）。
+- admin 请求同样在带 `request_id` 的 span 内；`Authorization` header 永不落日志（对齐 [Observability](../architecture/observability.md)）。
 - 不开 CORS；生产部署建议 admin 面经内网或反代 TLS 暴露（部署事项，不进代码）。
 
 # Citations
 
-- [1] [Architecture – Admin Console](architecture.md)
-- [2] [Development Workflow – Admin Console Strategy](development-workflow.md)
-- [3] [Product Requirements – Control Plane](product-requirements.md)
-- [4] [Error Model](error-model.md)
-- [5] [Observability](observability.md)
-- [6] [Configuration Schema](config-schema.md)
+- [1] [Architecture – Admin Console](../architecture/architecture.md)
+- [2] [Development Workflow – Admin Console Strategy](../engineering/development-workflow.md)
+- [3] [Product Requirements – Control Plane](../product/product-requirements.md)
+- [4] [Error Model](../architecture/error-model.md)
+- [5] [Observability](../architecture/observability.md)
+- [6] [Configuration Schema](../runtime/config-schema.md)
 - [7] [Tool Debugging And CLI](tool-debugging-and-cli.md)

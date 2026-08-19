@@ -2,14 +2,14 @@
 type: Roadmap
 title: Asterlane 演进规划
 description: 按产品定位的五根支柱评估实现缺口，给出分阶段优先级、准入准出条件与待产品决策项。
-resource: docs/roadmap.md
+resource: docs/product/roadmap.md
 tags: [roadmap, planning, gaps, product]
 timestamp: 2026-08-19T00:00:00Z
 ---
 
 # 背景
 
-本文件 supersede [Architecture](architecture.md) 原 Roadmap 节（Phase 1–6）。原 roadmap 长期停在「Phase 1（当前）」，而 Phase 1–6 的主体能力早已交付，继续保留只会误导。
+本文件 supersede [Architecture](../architecture/architecture.md) 原 Roadmap 节（Phase 1–6）。原 roadmap 长期停在「Phase 1（当前）」，而 Phase 1–6 的主体能力早已交付，继续保留只会误导。
 
 评估基线：截至 2026-08-19 的 `main`。结论来自源码通读与 `docs/` 全量对照，证据以文件路径 + 符号名给出（不写行号，行号必腐烂）。
 
@@ -38,7 +38,7 @@ timestamp: 2026-08-19T00:00:00Z
 | **上游 MCP 无 OAuth 2.1 运行时**：只支持静态凭据注入 | 定位缺口（最重） | `config::UpstreamAuth` 仅 `None`/`Header`/`Bearer`；`mcp::registry` 的 `transport_config` 据此注入静态头。无 401 `WWW-Authenticate` 挑战处理、无动态客户端注册、无 token 刷新、无 RFC 8707 resource 参数 |
 | **Vault / Infisical 未装配**：后端实现与集成测试都在，但生产起不来 | 兑现差 | `DefaultSecretStore::with_vault` / `with_infisical` 存在且有 `tests/secret_backends.rs` 覆盖，但 `src/main.rs` 的 serve 装配只调 `with_backends()`，且 `GatewayConfig` 无对应配置节；运行时解析 `secret://vault/...` 直接报 backend not configured |
 | secret 无缓存 / TTL / 轮换 / 重试 | 生产就绪 | `secrets::vault` 与 `secrets::infisical` 均为单次 HTTP GET |
-| 云 KMS 后端 | 定位缺口（轻） | [Architecture](architecture.md) 的 Credential Vault 节列为方向，无代码 |
+| 云 KMS 后端 | 定位缺口（轻） | [Architecture](../architecture/architecture.md) 的 Credential Vault 节列为方向，无代码 |
 
 **判断**：OAuth 缺口是本支柱唯一的结构性问题。第三方远程 MCP server 的规范授权路径就是 OAuth 2.1；面对这类上游，「网关集中持有凭据」当前只能靠人工预置长期 token 绕过，一旦上游只发短期 token 就完全失效。这是整份规划里优先级最高的单项。
 
@@ -46,16 +46,16 @@ timestamp: 2026-08-19T00:00:00Z
 
 **基本完整**，是完成度最高的支柱。allow/deny 正则、请求级只收窄不扩权、canonical/alias 三级解析、影子保护都已落地（`policy`、`catalog::resolve_for_key`、`naming`）。
 
-剩余仅两项轻量项：wire name 变更时的 deprecated alias 转发（[Compatibility Policy](compatibility-policy.md) 承诺，无实现）；连接级视图（[Naming Convention](naming-convention.md) 明确标为未来方向）。均不阻塞。
+剩余仅两项轻量项：wire name 变更时的 deprecated alias 转发（[Compatibility Policy](../architecture/compatibility-policy.md) 承诺，无实现）；连接级视图（[Naming Convention](../architecture/naming-convention.md) 明确标为未来方向）。均不阻塞。
 
 ## 支柱三：渐进式工具发现
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
 | **MCP 路径不认 lazy 模式** | 兑现差（重） | `DiscoveryMode` 只在 `http::routes` 的 REST `GET /v1/tools` 分支判断；`mcp::server` 的 `list_tools` 不读 key 的 `discovery_mode`，始终返回 catalog 分页 |
-| 不监听上游 `tools/list_changed`，仅 60s 轮询 | 定位缺口 | `src/main.rs` 的后台 refresh task 用常量 `MCP_REFRESH_INTERVAL_SECS`；`mcp::registry` 的 `RemoteMcpPeer` 无通知订阅。[API Discovery](api-discovery.md) 承诺即时失效 |
+| 不监听上游 `tools/list_changed`，仅 60s 轮询 | 定位缺口 | `src/main.rs` 的后台 refresh task 用常量 `MCP_REFRESH_INTERVAL_SECS`；`mcp::registry` 的 `RemoteMcpPeer` 无通知订阅。[API Discovery](../runtime/api-discovery.md) 承诺即时失效 |
 | 刷新间隔与 `tools/list` 缓存 TTL 硬编码 | 生产就绪 | 同上常量；`mcp::server` 的 TTL 常量 |
-| `_meta` 过滤键形态文档与实现不一致 | 文档腐烂 | 实现读扁平键，[API Discovery](api-discovery.md) 写嵌套 `asterlane.dev/filter` |
+| `_meta` 过滤键形态文档与实现不一致 | 文档腐烂 | 实现读扁平键，[API Discovery](../runtime/api-discovery.md) 写嵌套 `asterlane.dev/filter` |
 
 **判断**：MCP `tools/list` 是代理接入的主路径，REST 是旁路。渐进式发现是本项目对外的核心差异点，却恰好在主路径上不生效——这个反差必须尽快消除。
 
@@ -78,12 +78,12 @@ timestamp: 2026-08-19T00:00:00Z
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
 | **`request_events` 无限增长**，无保留策略 | 生产就绪（重） | `migrations/` 与 `src/store/` 无删除、归档或分区路径 |
-| **配额失败不退还** | 兑现差 | [Architecture](architecture.md) 明写「失败时事务性退还各维度配额」；`limits::registry` 在准入通过后即 `record_call`，无退还路径 |
+| **配额失败不退还** | 兑现差 | [Architecture](../architecture/architecture.md) 明写「失败时事务性退还各维度配额」；`limits::registry` 在准入通过后即 `record_call`，无退还路径 |
 | **成本 / 额度统计未实现** | 定位缺口 | `request_units` 在 `proxy::post` 恒为 1。[Product Requirements](product-requirements.md) 明确列入观测要求 |
 | **admin CLI 缺写操作** | 兑现差 | `cli::admin` 的 `AdminCommand` 无 resources / proxy-keys / mcp-servers 的 create / update / delete；根 `README.md` 称 CLI「覆盖全部管理接口」 |
 | upstream keys 无 admin API，key pool 不支持热更新 | 定位缺口 | `upstream_keys` 表与 repository 存在但运行时不写；`admin::crud` 的配置热替换不重建 `KeyPoolRegistry` |
 | IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
-| usage 只有小时桶；无上游耗时聚合；HTTP 错误无 `request_id` | 生产就绪 | [Observability](observability.md) 已标注为延后项；`http::mod` 的错误响应 `request_id` 为空 |
+| usage 只有小时桶；无上游耗时聚合；HTTP 错误无 `request_id` | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项；`http::mod` 的错误响应 `request_id` 为空 |
 | 无告警规则 / Grafana dashboard 示例 | 生产就绪（轻） | 仓库内无相关资产 |
 
 ## 横切：生产就绪
@@ -104,23 +104,23 @@ timestamp: 2026-08-19T00:00:00Z
 | 占位死代码：`mcp::adapter::PlaceholderAdapter`、`mcp::model::UpstreamToolMapping`、`GatewayToolSource` 仅测试引用；真实映射在 `mcp::registry` 的 `wrap_tools` 写入 `WrappedTool.upstream_path` | 生产路径已 bypass，注释仍称「第一阶段占位」 |
 | `mcp` 模块注释称「不引入 rmcp」，实际已依赖 rmcp 3.x | `src/mcp/mod.rs`、`src/mcp/adapter.rs` |
 | `discovery::handle_meta_tool_call` 对 `call_tool` / `fetch_result` 仍返回占位错误 | 生产路径在 `mcp::server` 与 `http::routes` 提前分流，占位分支误导直接调用方 |
-| 根目录 `task.md` 被 [Tool Debugging & CLI](tool-debugging-and-cli.md) 与 [Log](log.md) 引用，文件不存在 | 失效引用 |
+| 根目录 `task.md` 被 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md) 与 [Log](../log.md) 引用，文件不存在 | 失效引用 |
 | [Product Requirements](product-requirements.md) 的「当前实现状态」仍描述 MVP 骨架 | 与实际能力差距极大 |
 | 根 `README.md` 能力概览声称请求变换、Vault/Infisical 凭据解析、admin CLI「覆盖全部管理接口」 | 三项均为上文的兑现差；README 措辞待 Phase 7 定案后一并订正 |
-| [Admin Console](admin-console.md) 称 Key Pools 页依赖未接线能力；[MCP Governance & Key Limits](mcp-governance-and-key-limits.md) 背景节称 limits 未接线 | 均已交付，背景段落未回填 |
+| [Admin Console](../admin/admin-console.md) 称 Key Pools 页依赖未接线能力；[MCP Governance & Key Limits](../runtime/mcp-governance-and-key-limits.md) 背景节称 limits 未接线 | 均已交付，背景段落未回填 |
 
 # 分阶段规划
 
-阶段编号接续 [Architecture](architecture.md) 原 Phase 1–6。每阶段可独立交付，阶段内条目按依赖排序。
+阶段编号接续 [Architecture](../architecture/architecture.md) 原 Phase 1–6。每阶段可独立交付，阶段内条目按依赖排序。
 
 ## Phase 7：兑现差清账与生产护栏
 
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。这是唯一一个不接受部分交付的阶段——兑现差的存量会持续侵蚀文档可信度。
 
-- 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 `README.md` 与 [Architecture](architecture.md) 的声明
+- 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 `README.md` 与 [Architecture](../architecture/architecture.md) 的声明
 - Vault / Infisical 装配：配置 schema + `main.rs` 按配置调 `with_vault` / `with_infisical`，补启动期可达性校验
 - MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐
-- 配额退还：上游失败时按 [Architecture](architecture.md) 的顺序退还各维度计数，退还与扣减封装为单一操作
+- 配额退还：上游失败时按 [Architecture](../architecture/architecture.md) 的顺序退还各维度计数，退还与扣减封装为单一操作
 - admin CLI 补齐 resources / proxy-keys / mcp-servers 的写操作，或下调 `README.md` 声明
 - `request_events` 保留策略：可配置窗口 + 后台清理任务
 - HTTP 边界：请求体大小上限、请求超时、基础安全响应头
@@ -181,16 +181,16 @@ timestamp: 2026-08-19T00:00:00Z
 以下在本轮评估中复核，维持非目标，不进入任何阶段：
 
 - 模型供应商路由与 LLM 转发（[Product Requirements](product-requirements.md) 首要非目标）
-- 把 Asterlane 做成 OAuth 授权服务器；下游认证维持 gateway key（[MCP Protocol](mcp-protocol.md)）
+- 把 Asterlane 做成 OAuth 授权服务器；下游认证维持 gateway key（[MCP Protocol](../architecture/mcp-protocol.md)）
 - 桌面客户端外壳、AI client 配置自动检测、客户端自更新（[Product Requirements](product-requirements.md) 的 Toolport 不借鉴项）
 - human-in-the-loop 审批队列，优先级持续低于 key scope 与限流
 
 # Citations
 
-- [1] [Architecture](architecture.md) — 被本文件 supersede 的原 Phase 1–6 roadmap
+- [1] [Architecture](../architecture/architecture.md) — 被本文件 supersede 的原 Phase 1–6 roadmap
 - [2] [Product Requirements](product-requirements.md) — 定位、支柱与非目标
-- [3] [Engineering Conventions](engineering-conventions.md) — 债务台账口径
-- [4] [Documentation Conventions](documentation-conventions.md) — 腐烂信号与生命周期规则
-- [5] [Observability](observability.md) — 已标注的观测延后项
-- [6] [MCP Protocol](mcp-protocol.md) — 下游认证与 primitive 边界
+- [3] [Engineering Conventions](../engineering/engineering-conventions.md) — 债务台账口径
+- [4] [Documentation Conventions](../engineering/documentation-conventions.md) — 腐烂信号与生命周期规则
+- [5] [Observability](../architecture/observability.md) — 已标注的观测延后项
+- [6] [MCP Protocol](../architecture/mcp-protocol.md) — 下游认证与 primitive 边界
 - [7] [RFC 8707 Resource Indicators for OAuth 2.0](https://www.rfc-editor.org/rfc/rfc8707.html)

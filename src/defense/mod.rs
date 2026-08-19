@@ -1,6 +1,6 @@
 //! Content defense 模块：检测 prompt injection 样式内容。
 //!
-//! 设计依据见 `docs/product-requirements.md` 第 308-321 行：
+//! 设计依据见 `docs/product/product-requirements.md` 第 308-321 行：
 //! - 检测注入样式内容，标记 external data
 //! - 不阻断调用（阻断是 integrity policy 的职责）
 //! - per-resource `result_budget_bytes`

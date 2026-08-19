@@ -1,4 +1,4 @@
-//! 在线配置持久化合并（见 docs/key-credentials-and-persistence.md K2）。
+//! 在线配置持久化合并（见 docs/runtime/key-credentials-and-persistence.md K2）。
 //!
 //! 启动时把 admin CRUD 落库的 resources / mcp_servers / proxy_keys 回读并
 //! 并入 YAML 配置：同 id 冲突 YAML 胜（git 为 source of truth，DB 行被

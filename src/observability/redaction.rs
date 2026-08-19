@@ -1,4 +1,4 @@
-//! 脱敏 helper（见 `docs/observability.md`「脱敏规则」表）。
+//! 脱敏 helper（见 `docs/architecture/observability.md`「脱敏规则」表）。
 //!
 //! 所有脱敏在写入 tracing 字段或 store 之前应用。
 //! 明文密钥不得出现在任何观测输出中。

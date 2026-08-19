@@ -1,5 +1,5 @@
 //! Secret 模块错误类型与 `AsterlaneError` 接入
-//! （见 `docs/error-model.md` `auth.missing_upstream_secret` 错误码）。
+//! （见 `docs/architecture/error-model.md` `auth.missing_upstream_secret` 错误码）。
 //!
 //! 错误构造时不携带明文密钥；secret ref 以脱敏形式（`secret://provider/`）存储，
 //! 由 [`crate::observability::redact_secret_ref`] 统一脱敏。

@@ -6,7 +6,7 @@
 //!
 //! Provider 形态借鉴 smart-search CLI：可配置 base_url + model + key，
 //! 兼容 OpenAI / Zhipu / Ollama / vLLM 等 `/v1/embeddings` 端点。
-//! 设计见 `docs/api-discovery.md`「Semantic Search」。
+//! 设计见 `docs/runtime/api-discovery.md`「Semantic Search」。
 //!
 //! # 安全
 //!

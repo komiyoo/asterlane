@@ -1,4 +1,4 @@
-//! MCP server 健康模型与运行期增删改（契约见 docs/mcp-governance-and-key-limits.md §4）。
+//! MCP server 健康模型与运行期增删改（契约见 docs/runtime/mcp-governance-and-key-limits.md §4）。
 //!
 //! 状态机：`ok`（最近一次探测成功）| `unreachable`（最近一次探测失败）|
 //! `unknown`（尚未探测）| `disabled`（`health_check.enabled: false`，不参与

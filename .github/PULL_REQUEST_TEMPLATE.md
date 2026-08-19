@@ -30,17 +30,17 @@ feat / fix / refactor / docs / test / chore / ci / build / style，例如 `feat(
 **文档**（改动影响配置 schema、模块边界、产品行为、错误模型或 UX 时必须过一遍）
 
 - [ ] 持久知识写进了对应 `docs/` 概念文档，没有只留在代码或本 PR 描述里
-- [ ] 新增文档带 OKF frontmatter（非空 `type`），并在 `docs/README.md` 加了一行
+- [ ] 新增文档带 OKF frontmatter（非空 `type`），并在所属分类 `docs/<category>/README.md` 加了一行
 - [ ] `docs/log.md` 记了一条
 - [ ] 被 supersede 的内容就地更正，未留下矛盾段落共存
 
-**工程纲领**（展开见 `docs/engineering-conventions.md`）
+**工程纲领**（展开见 `docs/engineering/engineering-conventions.md`）
 
 - [ ] 分层单向：`naming`/`policy`/`catalog`/`error` 等纯核心未引入 axum/sqlx/rmcp；错误→输出转换只发生在 http/admin/main 边界
 - [ ] 新增错误挂了稳定错误码，`Display` 可直接展示给用户
 - [ ] 生产代码无 `unwrap`/`expect`/`panic!`；`let _ =` 吞错补了 `warn!`
 - [ ] 单文件生产代码（不含测试）未超 500 行预算
-- [ ] 新增依赖已过 `docs/crate-selection.md` 并更新了该文档
+- [ ] 新增依赖已过 `docs/architecture/crate-selection.md` 并更新了该文档
 
 **安全**
 

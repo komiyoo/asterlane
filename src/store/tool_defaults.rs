@@ -1,4 +1,4 @@
-//! 工具默认调用参数 repository（见 docs/tool-debugging-and-cli.md 第 3 节）。
+//! 工具默认调用参数 repository（见 docs/admin/tool-debugging-and-cli.md 第 3 节）。
 //!
 //! 平台级、按工具维度的调试辅助：只在控制台/CLI 调试调用显式选择时合并，
 //! 不参与 agent 正常调用路径。trait + SQLite 实现独立成文件，

@@ -1,7 +1,7 @@
 //! Admin API 路由：运维与管理端点（不面向代理）。
 //!
 //! 提供健康检查、资源/key/工具目录概览、事件查询、基础统计与
-//! Web 控制台页面（见 docs/admin-console.md）。
+//! Web 控制台页面（见 docs/admin/admin-console.md）。
 //! 所有响应脱敏，不暴露密钥或 auth 配置。
 //!
 //! 数据端点全部经 [`auth::require_admin`] Bearer 校验；
@@ -37,7 +37,7 @@ use crate::store::repository::{
 /// 构建 admin 子路由（数据端点 + 控制台页面）。
 ///
 /// 调用方负责在 `state.admin_auth` 存在时 `.nest("/admin", admin::router(&state))`；
-/// 未配置 admin key 时不挂载（见 docs/admin-console.md C0）。
+/// 未配置 admin key 时不挂载（见 docs/admin/admin-console.md C0）。
 pub fn router(state: &AppState) -> Router<AppState> {
     let api = Router::new()
         .route("/health", get(health))
@@ -103,7 +103,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
 /// `GET /admin/ui` — 控制台外壳页面（编译期嵌入，公开）。
 ///
 /// 页面本身无数据；前端逻辑与样式经 `/admin/ui/*` 静态资源以免构建
-/// ES module 加载（见 [`ui_asset`] 与 docs/admin-console.md）。
+/// ES module 加载（见 [`ui_asset`] 与 docs/admin/admin-console.md）。
 async fn console() -> Html<&'static str> {
     Html(include_str!("ui/console.html"))
 }
@@ -264,7 +264,7 @@ async fn tools(State(state): State<AppState>) -> Json<Value> {
 /// `GET /admin/mcp-presets` — 内置 MCP preset 目录与启用状态。
 ///
 /// `enabled` = 该 id 出现在配置快照的 `mcp_servers`（serve 时 preset 已展开
-/// 进该列表）或 `builtin_mcp` 中（见 docs/tool-debugging-and-cli.md）。
+/// 进该列表）或 `builtin_mcp` 中（见 docs/admin/tool-debugging-and-cli.md）。
 async fn mcp_presets(State(state): State<AppState>) -> Json<Value> {
     use crate::presets::PresetAuth;
     let config = state.config_snapshot().await;
@@ -302,12 +302,12 @@ struct EventsQuery {
     limit: Option<u32>,
     proxy_key_id: Option<String>,
     resource_id: Option<String>,
-    /// 按 wire name 精确过滤（配合负载捕获排障，见 docs/observability.md）。
+    /// 按 wire name 精确过滤（配合负载捕获排障，见 docs/architecture/observability.md）。
     tool_name: Option<String>,
     /// 时间范围起始（含，RFC3339）。
     from: Option<String>,
     /// 时间范围结束（不含，RFC3339）。也用作时间游标：
-    /// 下一页传上一页末行的 timestamp（见 docs/admin-console.md）。
+    /// 下一页传上一页末行的 timestamp（见 docs/admin/admin-console.md）。
     to: Option<String>,
 }
 

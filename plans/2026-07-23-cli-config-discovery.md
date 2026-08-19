@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 设计依据：[CLI 配置发现与离线目录预览](../docs/cli-config-discovery.md)。
+- 设计依据：[CLI 配置发现与离线目录预览](../docs/admin/cli-config-discovery.md)。
 - 配置优先级固定为 `--config PATH` > 非空 `ASTERLANE_CONFIG` > OS 用户配置路径；命中后不继续回退。
 - Linux 默认路径为 `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`；仅使用非空绝对 `XDG_CONFIG_HOME`。
 - macOS 默认路径为 `$HOME/Library/Application Support/asterlane/config.yaml`。
@@ -670,10 +670,10 @@ git commit -m "feat: discover config for local CLI commands"
 - Modify: `.codex/skills/asterlane/SKILL.md:30-45`
 - Modify: `.codex/skills/asterlane/SKILL.md:75-113`
 - Modify: `.codex/skills/asterlane/SKILL.md:173-181`
-- Modify: `docs/agent-skill.md`
-- Modify: `docs/cli-config-discovery.md`
-- Modify: `docs/cli-client-architecture.md:10-16`
-- Modify: `docs/tool-debugging-and-cli.md:118-136`
+- Modify: `docs/engineering/agent-skill.md`
+- Modify: `docs/admin/cli-config-discovery.md`
+- Modify: `docs/admin/cli-client-architecture.md:10-16`
+- Modify: `docs/admin/tool-debugging-and-cli.md:118-136`
 - Modify: `docs/log.md:3-22`
 - Modify: `src/cli/tools.rs:210-233`
 
@@ -784,7 +784,7 @@ cargo run -- admin stats
 | macOS | `$HOME/Library/Application Support/asterlane/config.yaml` |
 | Windows | `%APPDATA%\asterlane\config.yaml` |
 
-CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。示例文件位于 `examples/gateway.yaml` 与 `examples/gateway-mcp.yaml`；完整契约见 [CLI Config Discovery](docs/cli-config-discovery.md)，YAML schema 见 [Configuration Schema](docs/config-schema.md)。
+CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。示例文件位于 `examples/gateway.yaml` 与 `examples/gateway-mcp.yaml`；完整契约见 [CLI Config Discovery](../docs/admin/cli-config-discovery.md)，YAML schema 见 [Configuration Schema](../docs/runtime/config-schema.md)。
 ```
 
 - [ ] **Step 3: 同步项目 skill 与 Agent Skill 文档**
@@ -841,7 +841,7 @@ cargo run -- serve --database-url sqlite://asterlane.db?mode=rwc
 ASTERLANE_CONFIG=examples/gateway.yaml cargo run -- list-tools --key agent-search-basic --include '^search__'
 ```
 
-把 `docs/agent-skill.md` 的 timestamp 更新为 `2026-07-23T00:00:00+08:00`，在“凭据边界”前增加以下配置边界：
+把 `docs/engineering/agent-skill.md` 的 timestamp 更新为 `2026-07-23T00:00:00+08:00`，在“凭据边界”前增加以下配置边界：
 
 ```markdown
 # 本地配置边界
@@ -851,7 +851,7 @@ ASTERLANE_CONFIG=examples/gateway.yaml cargo run -- list-tools --key agent-searc
 - CLI 不扫描当前目录、不自动使用 `examples/`；`list-tools --key ID` 用于离线 scope 预览，在线查询使用 `tools list`。
 ```
 
-把 `docs/agent-skill.md` 的 Gateway Tools CLI 示例替换为：
+把 `docs/engineering/agent-skill.md` 的 Gateway Tools CLI 示例替换为：
 
 ```bash
 export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
@@ -873,7 +873,7 @@ cargo run -- tools list --format json | jq '.tools[].name'
 
 - [ ] **Step 4: 修正架构历史语态、usage、状态与日志**
 
-把 `docs/cli-client-architecture.md` 的 timestamp 更新为 `2026-07-23T00:00:00+08:00`，并把背景前两段替换为：
+把 `docs/admin/cli-client-architecture.md` 的 timestamp 更新为 `2026-07-23T00:00:00+08:00`，并把背景前两段替换为：
 
 ```markdown
 **实现状态：已落地（2026-07-22）。**
@@ -883,13 +883,13 @@ cargo run -- tools list --format json | jq '.tools[].name'
 本决策以当时已有的服务端能力为基础增加 `asterlane tools`，并把结果展示收敛到 CLI 边界。它取代“所有改动继续放入 `src/cli.rs`、复用 `AdminClient`、通过不存在的 `GET /v1/tools?search=` 搜索”的原始实现草案。
 ```
 
-把 `docs/tool-debugging-and-cli.md` 的 timestamp 更新为 `2026-07-23T00:00:00+08:00`，并把 usage 行改为：
+把 `docs/admin/tool-debugging-and-cli.md` 的 timestamp 更新为 `2026-07-23T00:00:00+08:00`，并把 usage 行改为：
 
 ```text
   usage [--group-by proxy_key|resource|tool|status|domain|bucket] [--from RFC3339] [--to RFC3339]
 ```
 
-把 `docs/cli-config-discovery.md` 的状态改为：
+把 `docs/admin/cli-config-discovery.md` 的状态改为：
 
 ```markdown
 # 状态
@@ -996,9 +996,9 @@ Expected: PASS；无新增依赖，供应链结果不回归。
 - [ ] **Step 6: 提交文档与审查项修正**
 
 ```bash
-git add README.md .codex/skills/asterlane/SKILL.md docs/agent-skill.md \
-  docs/cli-config-discovery.md docs/cli-client-architecture.md \
-  docs/tool-debugging-and-cli.md docs/log.md src/cli/tools.rs
+git add README.md .codex/skills/asterlane/SKILL.md docs/engineering/agent-skill.md \
+  docs/admin/cli-config-discovery.md docs/admin/cli-client-architecture.md \
+  docs/admin/tool-debugging-and-cli.md docs/log.md src/cli/tools.rs
 git commit -m "docs: document CLI config discovery"
 ```
 

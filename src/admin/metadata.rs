@@ -1,4 +1,4 @@
-//! Admin 工具介绍 override 端点（契约见 docs/mcp-governance-and-key-limits.md
+//! Admin 工具介绍 override 端点（契约见 docs/runtime/mcp-governance-and-key-limits.md
 //! §5/§6；存储见 `store/tool_metadata.rs`）。
 //!
 //! PUT/DELETE 成功后同步更新 catalog overlay，agent 可见描述

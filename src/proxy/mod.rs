@@ -1,6 +1,6 @@
 //! proxy 执行层：解析凭据、注入 header、转发上游请求、重试与 failover、记录观测。
 //!
-//! 设计依据见 `docs/architecture.md` Data Flow、Retry And Failover、Credential Vault。
+//! 设计依据见 `docs/architecture/architecture.md` Data Flow、Retry And Failover、Credential Vault。
 //! 借鉴 NyaProxy（`core/queue.py` 重试决策）并按 Asterlane 模型重新解释。
 //!
 //! # 模块结构

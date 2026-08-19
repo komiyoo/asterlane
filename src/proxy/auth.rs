@@ -1,4 +1,4 @@
-//! 上游凭据注入（见 `docs/architecture.md` Credential Vault、Data Flow）。
+//! 上游凭据注入（见 `docs/architecture/architecture.md` Credential Vault、Data Flow）。
 //!
 //! 明文只在 [`apply_auth`] 调用 [`secrecy::ExposeSecret::expose_secret`]
 //! 的瞬间可访问，用于写入 reqwest 请求 header。其余时刻为 `SecretString`，

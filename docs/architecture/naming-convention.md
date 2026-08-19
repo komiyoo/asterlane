@@ -2,14 +2,14 @@
 type: Architecture Decision
 title: MCP 工具命名约定
 description: 基于 MCP 规范与 LLM API 实际约束，确定 Asterlane 对外暴露的工具命名格式与映射规则。
-resource: docs/naming-convention.md
+resource: docs/architecture/naming-convention.md
 tags: [naming, mcp, architecture, compatibility]
 timestamp: 2026-07-07T00:00:00Z
 ---
 
 # 背景
 
-`docs/product-requirements.md` 原始需求把包装后的 MCP tool 名定为 `domain:provider:tool:method`，使用冒号 `:` 分段。经过两轮演进：
+`docs/product/product-requirements.md` 原始需求把包装后的 MCP tool 名定为 `domain:provider:tool:method`，使用冒号 `:` 分段。经过两轮演进：
 
 1. **冒号→双下划线**：MCP 2025-11-25 规范（SHOULD `[A-Za-z0-9_.-]`）与 Anthropic/OpenAI API 硬约束（`^[a-zA-Z0-9_-]{1,64}$`）均不允许冒号。决策改为双下划线 `__` 分隔。
 2. **四段→三段**：移除 `method` 段。HTTP method（`get`/`post`）是路由层细节，不属于工具身份；MCP 代理的 method 固定为 `call`，信息量为零。三段格式节省 5–8 字符长度预算，与生态主流对齐。
@@ -156,7 +156,7 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 
 ## 调用时限定字段
 
-`asterlane__call_tool` 参数新增可选 `domain`、`provider` 字符串，用于无状态收窄歧义（agent 刚按 provider 过滤完，回显一个字段零成本）。网关**不**维护 session 级过滤状态——重连丢状态、跨 domain 交错行为诡异、审计不可读。参数形态见 [API Discovery](api-discovery.md)。
+`asterlane__call_tool` 参数新增可选 `domain`、`provider` 字符串，用于无状态收窄歧义（agent 刚按 provider 过滤完，回显一个字段零成本）。网关**不**维护 session 级过滤状态——重连丢状态、跨 domain 交错行为诡异、审计不可读。参数形态见 [API Discovery](../runtime/api-discovery.md)。
 
 ## `__` 段内兼容（lookup-first）
 
@@ -177,7 +177,7 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 | 按具体工具过滤 | `^search__exa__neural_search$` |
 | 按 MCP 包装来源过滤 | `^mcp__` |
 
-结构化过滤字段（走 `_meta` 扩展通道，见 [API Discovery](api-discovery.md)）：
+结构化过滤字段（走 `_meta` 扩展通道，见 [API Discovery](../runtime/api-discovery.md)）：
 
 ```json
 {
@@ -205,4 +205,4 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 - [6] [Docker mcp-gateway forward original name PR #278](https://github.com/docker/mcp-gateway/pull/278)
 - [7] [MetaMCP namespaces](https://docs.metamcp.com/en/concepts/namespaces)
 - [8] [IBM ContextForge GATEWAY_TOOL_NAME_SEPARATOR](https://ibm.github.io/mcp-context-forge/manage/configuration/)
-- [9] [Product Requirements – MCP Tool 命名约定](product-requirements.md)
+- [9] [Product Requirements – MCP Tool 命名约定](../product/product-requirements.md)

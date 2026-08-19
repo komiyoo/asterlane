@@ -114,7 +114,7 @@ impl AsterlaneToolServer {
         format: ResponseFormat,
     ) -> Result<CallToolResponse, ErrorData> {
         // 名字先经 resolve_for_key 三级解析（canonical / provider__tool / 裸名，
-        // 见 docs/naming-convention.md），后续 remote MCP 判定与 invoke 一律用
+        // 见 docs/architecture/naming-convention.md），后续 remote MCP 判定与 invoke 一律用
         // canonical。clone catalog 构造 executor（不持锁跨 await）。
         let catalog_snapshot = self.state.catalog.read().await.clone();
         let canonical =
@@ -440,7 +440,7 @@ mod tests {
         ));
     }
 
-    // ── alias 暴露名与调用解析（docs/naming-convention.md）──
+    // ── alias 暴露名与调用解析（docs/architecture/naming-convention.md）──
 
     use crate::catalog::ToolCatalog;
     use crate::config::{GatewayConfig, HealthCheckConfig, McpServerConfig, UpstreamAuth};

@@ -1,4 +1,4 @@
-//! MCP server 配置 repository（见 docs/mcp-governance-and-key-limits.md §6）。
+//! MCP server 配置 repository（见 docs/runtime/mcp-governance-and-key-limits.md §6）。
 //!
 //! admin CRUD 的持久化路径，模式照抄 `resources` 表：`config_json` 存
 //! auth（仅 secret ref）/ security / limits / health_check；与 resources

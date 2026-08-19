@@ -1,6 +1,6 @@
 //! Asterlane 错误模型：稳定错误码、顶层聚合错误类型与边界转换。
 //!
-//! 设计依据见 `docs/error-model.md`。边界转换返回纯数据类型，
+//! 设计依据见 `docs/architecture/error-model.md`。边界转换返回纯数据类型，
 //! 不依赖 axum/reqwest/sqlx，由调用方转换为实际 CLI/HTTP/MCP 输出。
 
 use crate::catalog::CatalogError;
@@ -11,7 +11,7 @@ use thiserror::Error;
 
 /// 稳定错误码枚举，跨版本不变。
 ///
-/// 错误码字符串值一经发布不得变更（见 `docs/compatibility-policy.md`）。
+/// 错误码字符串值一经发布不得变更（见 `docs/architecture/compatibility-policy.md`）。
 /// 新增错误码不算 breaking；删除/合并需经过弃用周期。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]

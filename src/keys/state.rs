@@ -1,4 +1,4 @@
-//! Key 标识与状态枚举（见 `docs/architecture.md` Key Pool And Load Balancing）。
+//! Key 标识与状态枚举（见 `docs/architecture/architecture.md` Key Pool And Load Balancing）。
 //!
 //! 借鉴 NyaProxy（`core/control.py`）但按 Asterlane 模型重新设计：
 //! - `KeyState` 使用 `Instant` 替代 NyaProxy 的伪时间戳填充冷却。

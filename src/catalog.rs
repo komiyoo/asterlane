@@ -68,7 +68,7 @@ const META_TOOL_PREFIX: &str = "asterlane__";
 /// 工具目录。
 ///
 /// `tools` 中的 `description` 为**有效描述**：管理员介绍 override 已应用
-/// （见 docs/mcp-governance-and-key-limits.md §5）。所有读路径
+/// （见 docs/runtime/mcp-governance-and-key-limits.md §5）。所有读路径
 /// （`/v1/tools`、MCP `tools/list`、meta-tool 搜索、语义索引）因此自动
 /// 输出 `override ?? 上游原始`，无需各自处理。上游原始描述保存在
 /// `original_descriptions`，仅供 admin 端点展示；integrity baseline 不经

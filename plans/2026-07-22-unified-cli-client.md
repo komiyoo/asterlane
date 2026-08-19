@@ -4,19 +4,19 @@
 
 **Goal:** 增加面向 gateway key 的 `asterlane tools list|search|call`，为 tools/admin 提供客户端 JSON/YAML/markdown 输出，并让 MCP 调用固定保持 JSON 表示。
 
-**Architecture:** 先把已超过 500 行预算的 CLI 与 MCP server 按职责拆开，再让 admin/tools 组合共享的具体 `ApiClient`、JSON object 输入函数和输出函数。REST 格式协商保持兼容；CLI 对 invoke 显式请求 JSON 后本地渲染，MCP 不再承担终端展示。持久架构真相位于 `docs/cli-client-architecture.md`，本文件只负责执行顺序。
+**Architecture:** 先把已超过 500 行预算的 CLI 与 MCP server 按职责拆开，再让 admin/tools 组合共享的具体 `ApiClient`、JSON object 输入函数和输出函数。REST 格式协商保持兼容；CLI 对 invoke 显式请求 JSON 后本地渲染，MCP 不再承担终端展示。持久架构真相位于 `docs/admin/cli-client-architecture.md`，本文件只负责执行顺序。
 
 **Tech Stack:** Rust 1.85+、clap、reqwest、serde/serde_json、serde_norway、secrecy、rmcp 2.1、anyhow；全部为现有依赖。
 
 ## Global Constraints
 
-- 设计依据：[统一 CLI 客户端架构](../docs/cli-client-architecture.md)。
+- 设计依据：[统一 CLI 客户端架构](../docs/admin/cli-client-architecture.md)。
 - 不新增 crate；复用 `ResponseFormat`、`render::render`、reqwest 与标准库 `std::io::IsTerminal`。
 - 所有生产代码文件在 `#[cfg(test)]` 前不得超过 500 行，函数不得超过 80 行。
 - 不引入 command trait、runner trait、formatter trait、factory 或单实现接口；共享能力只用具体 struct 与函数组合。
 - admin token 默认只读 `ASTERLANE_ADMIN_TOKEN`，gateway key 默认只读 `ASTERLANE_KEY`；不增加明文 `--token`。
 - CLI 格式优先级固定为 `--format` > `ASTERLANE_FORMAT` > TTY markdown / pipe JSON。
-- CLI 错误继续写 stderr，并沿用 `docs/error-model.md` 的退出码；成功数据独占 stdout。
+- CLI 错误继续写 stderr，并沿用 `docs/architecture/error-model.md` 的退出码；成功数据独占 stdout。
 - `/v1/tools/{name}/invoke` 的 `?format=`、`Accept`、key/default 格式协商必须保留。
 - tools CLI 的 search/call 必须显式请求 `?format=json`，再在本地渲染，不能依赖服务端默认值。
 - `/mcp` 不消费 `_meta["asterlane.dev/format"]`，也不应用 key/default response format；原生非 JSON 上游文本仍透传。
@@ -868,12 +868,12 @@ git commit -m "fix: keep MCP tool results in JSON"
 **Files:**
 - Modify: `README.md`
 - Modify: `.codex/skills/asterlane/SKILL.md`
-- Modify: `docs/agent-skill.md`
-- Modify: `docs/cli-client-architecture.md`
-- Modify: `docs/config-schema.md`
-- Modify: `docs/response-rendering.md`
-- Modify: `docs/tool-debugging-and-cli.md`
-- Modify: `docs/compatibility-policy.md`
+- Modify: `docs/engineering/agent-skill.md`
+- Modify: `docs/admin/cli-client-architecture.md`
+- Modify: `docs/runtime/config-schema.md`
+- Modify: `docs/runtime/response-rendering.md`
+- Modify: `docs/admin/tool-debugging-and-cli.md`
+- Modify: `docs/architecture/compatibility-policy.md`
 - Modify: `docs/log.md`
 - Test: `scripts/check_okf_docs.py`
 
@@ -886,19 +886,19 @@ git commit -m "fix: keep MCP tool results in JSON"
 按以下精确事实更正文档，不保留相互矛盾的旧描述：
 
 ```text
-docs/response-rendering.md:
+docs/runtime/response-rendering.md:
   - 格式优先级只描述 HTTP invoke：request > key > global > json。
   - MCP tools/call 固定 JSON，忽略 asterlane.dev/format 与 key/global format。
   - 非 JSON 上游文本仍透传；REST 仍可渲染 remote MCP 的 JSON 文本内容。
 
-docs/config-schema.md:
+docs/runtime/config-schema.md:
   - defaults.response_format 与 proxy_keys[].response_format 标注为 REST invoke 默认。
   - 删除“MCP 等价能力为 _meta format”，改为 MCP 固定 JSON。
 
-docs/compatibility-policy.md:
+docs/architecture/compatibility-policy.md:
   - 记录 0.x 中移除 MCP 私有格式 override 的行为变更及 REST 兼容措施。
 
-docs/tool-debugging-and-cli.md:
+docs/admin/tool-debugging-and-cli.md:
   - admin 成功输出改为 json|yaml|markdown，TTY markdown、pipe JSON。
   - 增加 tools list/search/call 命令树并链接 cli-client-architecture.md。
 ```
@@ -917,11 +917,11 @@ cargo run -- tools call search__exa__web_search_exa --args '{"query":"rust mcp"}
 cargo run -- tools list --format json | jq '.tools[].name'
 ```
 
-在 `docs/agent-skill.md` 同步说明 gateway key 与 admin token 是独立凭据、`ASTERLANE_FORMAT`/TTY 默认，以及 tools CLI 只在客户端渲染。
+在 `docs/engineering/agent-skill.md` 同步说明 gateway key 与 admin token 是独立凭据、`ASTERLANE_FORMAT`/TTY 默认，以及 tools CLI 只在客户端渲染。
 
 - [ ] **Step 3: 更新设计状态与文档日志**
 
-在 `docs/cli-client-architecture.md` 增加“实现状态：已落地（2026-07-22）”，在 `docs/log.md` 顶部增加 as-built 条目，列出模块拆分、命令、格式边界与实际验证结果。不要写动态测试数量。
+在 `docs/admin/cli-client-architecture.md` 增加“实现状态：已落地（2026-07-22）”，在 `docs/log.md` 顶部增加 as-built 条目，列出模块拆分、命令、格式边界与实际验证结果。不要写动态测试数量。
 
 - [ ] **Step 4: 运行格式、lint、测试和 OKF 校验**
 
@@ -967,8 +967,8 @@ git commit -m "docs: document gateway tools CLI"
 
 # Citations
 
-[1] [统一 CLI 客户端架构](../docs/cli-client-architecture.md)
-[2] [Engineering Conventions](../docs/engineering-conventions.md)
-[3] [Response Rendering](../docs/response-rendering.md)
-[4] [Error Model](../docs/error-model.md)
+[1] [统一 CLI 客户端架构](../docs/admin/cli-client-architecture.md)
+[2] [Engineering Conventions](../docs/engineering/engineering-conventions.md)
+[3] [Response Rendering](../docs/runtime/response-rendering.md)
+[4] [Error Model](../docs/architecture/error-model.md)
 [5] [OKF v0.1 draft specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)

@@ -11,16 +11,16 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub admin: AdminConfig,
     /// Semantic search：OpenAI-compatible embeddings 端点；`None` 时
-    /// `asterlane__search_tools` 走关键词打分（见 docs/api-discovery.md）。
+    /// `asterlane__search_tools` 走关键词打分（见 docs/runtime/api-discovery.md）。
     #[serde(default)]
     pub semantic_search: Option<SemanticSearchConfig>,
-    /// 观测配置：请求负载捕获开关与截断预算（见 docs/tool-debugging-and-cli.md）。
+    /// 观测配置：请求负载捕获开关与截断预算（见 docs/admin/tool-debugging-and-cli.md）。
     #[serde(default)]
     pub observability: ObservabilityConfig,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     /// 平台内置 MCP preset 启用列表，加载后展开进 `mcp_servers`
-    /// （展开语义见 docs/tool-debugging-and-cli.md）。
+    /// （展开语义见 docs/admin/tool-debugging-and-cli.md）。
     #[serde(default)]
     pub builtin_mcp: Vec<String>,
     #[serde(default)]
@@ -29,7 +29,7 @@ pub struct GatewayConfig {
     pub proxy_keys: Vec<ProxyKey>,
 }
 
-/// 观测配置（见 docs/observability.md）。
+/// 观测配置（见 docs/architecture/observability.md）。
 ///
 /// 缺省启用负载捕获：请求参数与响应预览经截断 + 脱敏后写入
 /// `request_events` 与 tracing 日志；`capture_payloads: false` 全局关闭。
@@ -60,7 +60,7 @@ fn default_capture_max_bytes() -> usize {
     4096
 }
 
-/// Admin API 认证配置（见 docs/admin-console.md）。
+/// Admin API 认证配置（见 docs/admin/admin-console.md）。
 ///
 /// admin key 与 proxy key 物理分离：不同配置节、不同校验路径。
 /// `keys` 为空时 admin API 与控制台整体不挂载。
@@ -81,7 +81,7 @@ pub struct AdminKey {
 /// Semantic search 配置：OpenAI-compatible embeddings 端点。
 ///
 /// 注意数据出境：启用后 tool 名称/描述与代理的搜索 query 会发送到该端点
-/// （见 docs/api-discovery.md「Semantic Search」）。
+/// （见 docs/runtime/api-discovery.md「Semantic Search」）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SemanticSearchConfig {
     /// API base（如 `https://api.openai.com/v1`，不含 `/embeddings` 后缀）。
@@ -100,7 +100,7 @@ fn default_semantic_timeout_secs() -> u64 {
     15
 }
 
-/// 全局默认值（见 docs/response-rendering.md）。所有字段有缺省值，向后兼容。
+/// 全局默认值（见 docs/runtime/response-rendering.md）。所有字段有缺省值，向后兼容。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayDefaults {
     /// 全局默认响应格式；proxy key 与请求级 override 优先。
@@ -123,7 +123,7 @@ impl GatewayConfig {
         self.mcp_servers.iter().find(|server| server.id == id)
     }
 
-    /// 校验 proxy key 凭据字段（见 docs/key-credentials-and-persistence.md K1）。
+    /// 校验 proxy key 凭据字段（见 docs/runtime/key-credentials-and-persistence.md K1）。
     ///
     /// - `token_ref` 与 `token_digest` 互斥；
     /// - `token_digest` 必须为 64 位小写 hex（SHA-256）。
@@ -161,7 +161,7 @@ impl GatewayConfig {
     /// 把 `builtin_mcp` 中的 preset 展开为 [`McpServerConfig`] 追加进 `mcp_servers`。
     ///
     /// 配置加载后调用（`main.rs` 的 `load_config`）。展开语义
-    /// （见 docs/tool-debugging-and-cli.md「内置 MCP Presets」）：
+    /// （见 docs/admin/tool-debugging-and-cli.md「内置 MCP Presets」）：
     ///
     /// - 显式 `mcp_servers` 已有同 id 条目时跳过该 preset（显式配置优先，
     ///   可用于覆盖 security 等字段）；`builtin_mcp` 列表内重复 id 只展开一次；
@@ -241,12 +241,12 @@ pub struct ApiResource {
     pub discovery: Option<DiscoveryConfig>,
     #[serde(default)]
     pub security: SecurityConfig,
-    /// 上游限额；缺省不限（见 docs/mcp-governance-and-key-limits.md §3）。
+    /// 上游限额；缺省不限（见 docs/runtime/mcp-governance-and-key-limits.md §3）。
     #[serde(default)]
     pub limits: Option<UpstreamLimits>,
 }
 
-/// 上游 key 池配置（见 docs/config-schema.md Key Pool）。
+/// 上游 key 池配置（见 docs/runtime/config-schema.md Key Pool）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyPoolConfig {
     /// LB 策略，缺省 `round_robin`。
@@ -270,7 +270,7 @@ fn default_key_weight() -> u32 {
     1
 }
 
-/// API 自动发现配置（见 docs/api-discovery.md）。
+/// API 自动发现配置（见 docs/runtime/api-discovery.md）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiscoveryConfig {
     pub openapi: OpenApiSourceConfig,
@@ -301,7 +301,7 @@ pub enum SpecSource {
 }
 
 impl ApiResource {
-    /// 返回 provider 段；当配置缺失时回退到 `id`（见 docs/config-schema.md）。
+    /// 返回 provider 段；当配置缺失时回退到 `id`（见 docs/runtime/config-schema.md）。
     pub fn provider_or_id(&self) -> &str {
         if self.provider.is_empty() {
             &self.id
@@ -369,10 +369,10 @@ pub struct McpServerConfig {
     pub auth: UpstreamAuth,
     #[serde(default)]
     pub security: SecurityConfig,
-    /// 测活配置；缺省启用（见 docs/mcp-governance-and-key-limits.md §4）。
+    /// 测活配置；缺省启用（见 docs/runtime/mcp-governance-and-key-limits.md §4）。
     #[serde(default)]
     pub health_check: HealthCheckConfig,
-    /// 上游限额；缺省不限（见 docs/mcp-governance-and-key-limits.md §3）。
+    /// 上游限额；缺省不限（见 docs/runtime/mcp-governance-and-key-limits.md §3）。
     #[serde(default)]
     pub limits: Option<UpstreamLimits>,
 }
@@ -402,7 +402,7 @@ fn default_health_check_enabled() -> bool {
 /// 上游限额（`api_resources[]` 与 `mcp_servers[]` 可选）。
 ///
 /// 数值必须 > 0，构建限流器时校验（`config.*` 错误 fail fast）；
-/// 语义见 docs/mcp-governance-and-key-limits.md §3。
+/// 语义见 docs/runtime/mcp-governance-and-key-limits.md §3。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpstreamLimits {
     /// 每秒请求数（GCRA）。
@@ -437,7 +437,7 @@ fn default_queue_timeout_secs() -> u64 {
 /// Per-key 限额（`proxy_keys[]` 可选）。
 ///
 /// `max_calls` 为累计调用配额：有 store 时从事件计数回填跨重启累计，
-/// 无 store 时仅内存计数（见 docs/mcp-governance-and-key-limits.md §3）。
+/// 无 store 时仅内存计数（见 docs/runtime/mcp-governance-and-key-limits.md §3）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyLimits {
     /// 每秒请求数。
@@ -487,7 +487,7 @@ pub struct ProxyKey {
     pub denied_tools: Vec<String>,
     /// 结构化范围：resource id / mcp server id 白名单，命中即允许该上游全部工具
     /// （与 `allowed_tools` 正则、`allowed_tool_names` 取并集；
-    /// 见 docs/mcp-governance-and-key-limits.md §2）。
+    /// 见 docs/runtime/mcp-governance-and-key-limits.md §2）。
     #[serde(default)]
     pub allowed_servers: Vec<String>,
     /// 结构化范围：精确 wire name 白名单。
@@ -497,7 +497,7 @@ pub struct ProxyKey {
     #[serde(default)]
     pub limits: Option<KeyLimits>,
     /// gateway key token 的 secret ref（启动解析为 SHA-256 摘要）；
-    /// 与 `token_digest` 互斥（见 docs/key-credentials-and-persistence.md K1）。
+    /// 与 `token_digest` 互斥（见 docs/runtime/key-credentials-and-persistence.md K1）。
     #[serde(default)]
     pub token_ref: Option<String>,
     /// gateway key token 的 SHA-256 摘要（64 位小写 hex，签发路径写入）。

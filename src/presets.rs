@@ -3,7 +3,7 @@
 //! keyless preset（`PresetAuth::None`）一行配置 `builtin_mcp: [exa]` 即可零配置
 //! 启用；keyed preset 只作为「填 key 即用」的目录条目，须在 `mcp_servers` 显式
 //! 配置 secret ref。展开语义见 [`crate::config::GatewayConfig::expand_builtin_mcp`]，
-//! 设计契约见 docs/tool-debugging-and-cli.md「内置 MCP Presets」。
+//! 设计契约见 docs/admin/tool-debugging-and-cli.md「内置 MCP Presets」。
 
 /// preset 的默认凭据形态：表达展开为 `McpServerConfig` 时的 `UpstreamAuth` 方向。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

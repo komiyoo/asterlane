@@ -2,7 +2,7 @@
 type: Development Workflow
 title: Asterlane 开发工作流
 description: 定义代理和子代理如何启动模块化 Asterlane 开发，并将产品决策保存在 OKF 文档中。
-resource: docs/development-workflow.md
+resource: docs/engineering/development-workflow.md
 tags: [development, subagents, rust, okf, workflow]
 timestamp: 2026-07-03T00:00:00Z
 ---
@@ -29,7 +29,7 @@ The project should borrow NyaProxy's gateway primitives, but reinterpret them fo
 Use this sequence before coding:
 
 1. Read `AGENTS.md`.
-2. Read `docs/README.md`, then the closest concept document for the task.
+2. Read `docs/README.md`，打开对应分类索引，再读该任务最近的概念文档。
 3. If the work changes architecture, product behavior, module boundaries, database schema, error model, admin UX, or MCP behavior, update the relevant OKF doc first or in the same commit.
 4. Check the local NyaProxy reference only for concepts and test coverage ideas:
 
@@ -63,7 +63,7 @@ Workers may edit code, but each worker must own a disjoint module set.
 | Type/Error worker | `src/error.rs`, naming/catalog/policy error integration | Project error type, error codes, response mapping tests. |
 | Store worker | `src/store/`, migrations, repository traits | SQLite-backed request event repository skeleton. |
 | Gateway worker | `src/http/`, proxy executor skeleton | Axum app skeleton and upstream request abstraction. |
-| MCP worker | `src/mcp/`, catalog adapter | MCP tool list/call adapter model using `domain__provider__tool`（见 [Naming Convention](naming-convention.md)）。 |
+| MCP worker | `src/mcp/`, catalog adapter | MCP tool list/call adapter model using `domain__provider__tool`（见 [Naming Convention](../architecture/naming-convention.md)）。 |
 | Observability worker | `src/observability/`, redaction helpers | Request event model, redaction, usage aggregation contracts. |
 | Admin worker | `src/admin/`, static/admin API | Minimal admin API routes for resources, keys, events, health. |
 
@@ -71,13 +71,13 @@ Workers may edit code, but each worker must own a disjoint module set.
 
 The first runtime milestone should build foundations without overcommitting to a full product UI:
 
-1. Upgrade tool naming from `domain:tool:method` to `domain__provider__tool`（见 [Naming Convention](naming-convention.md)）。
+1. Upgrade tool naming from `domain:tool:method` to `domain__provider__tool`（见 [Naming Convention](../architecture/naming-convention.md)）。
 2. Add structured list filters: `domain_regex`, `provider_regex`, `tool_regex`（走 `_meta` 扩展通道）。
-3. Add project-level typed errors and stable error codes（见 [Error Model](error-model.md)）。
+3. Add project-level typed errors and stable error codes（见 [Error Model](../architecture/error-model.md)）。
 4. Introduce `store` traits and a SQLite implementation skeleton.
-5. Add request event and redaction types（见 [Observability](observability.md)）。
+5. Add request event and redaction types（见 [Observability](../architecture/observability.md)）。
 6. Add an Axum server skeleton with health/config/catalog endpoints.
-7. Keep MCP server implementation behind an adapter boundary; transport 走 `rmcp` 3.x，协议版本见 [MCP Protocol](mcp-protocol.md)。
+7. Keep MCP server implementation behind an adapter boundary; transport 走 `rmcp` 3.x，协议版本见 [MCP Protocol](../architecture/mcp-protocol.md)。
 
 # Module Boundaries
 
@@ -103,7 +103,7 @@ The runtime should remain split by responsibility:
 
 # Error System
 
-The error system should be designed before the HTTP and MCP runtime grow. 完整设计见 [Error Model](error-model.md)。
+The error system should be designed before the HTTP and MCP runtime grow. 完整设计见 [Error Model](../architecture/error-model.md)。
 
 Requirements:
 
@@ -111,7 +111,7 @@ Requirements:
 - typed module errors with `thiserror`
 - boundary conversion for CLI (exit codes), HTTP (status + JSON), and MCP (`isError:true` vs JSON-RPC `-32602`/`-32601`/`-32603`)
 - safe public messages（脱敏，不含 Authorization header 或上游原始响应体）
-- tracing fields for internal diagnostics（见 [Observability – tracing 字段映射](observability.md)）
+- tracing fields for internal diagnostics（见 [Observability – tracing 字段映射](../architecture/observability.md)）
 - redaction of tokens, auth headers, secret refs（由 `src/observability` redaction helper 统一处理）
 
 # Store Strategy
@@ -150,11 +150,11 @@ The management backend should start small:
 
 The first UI may be static or server-rendered. Avoid committing to a heavy frontend before the data model and admin workflows are stable.
 
-Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](admin-console.md)。
+Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](../admin/admin-console.md)。
 
 # Crate Policy
 
-Prefer proven crates. 完整选型矩阵与版本核实见 [Crate Selection](crate-selection.md)。
+Prefer proven crates. 完整选型矩阵与版本核实见 [Crate Selection](../architecture/crate-selection.md)。
 
 | Capability | Candidate Crates |
 | --- | --- |
@@ -174,7 +174,7 @@ Prefer proven crates. 完整选型矩阵与版本核实见 [Crate Selection](cra
 | OpenAPI | `openapiv3` |
 | Validation | `garde` |
 
-Do not add a crate only because it is popular. Add it when it removes real complexity or encodes a protocol/behavior better than local code. 新增依赖前先查 [Crate Selection](crate-selection.md) 并更新该表。
+Do not add a crate only because it is popular. Add it when it removes real complexity or encodes a protocol/behavior better than local code. 新增依赖前先查 [Crate Selection](../architecture/crate-selection.md) 并更新该表。
 
 # Validation
 
@@ -198,19 +198,21 @@ For docs changes:
 python3 scripts/check_okf_docs.py
 ```
 
+脚本行为与仓库其他任务入口见 [scripts/README.md](../../scripts/README.md)。
+
 CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny 五个 job。供应链检查用 `cargo-deny`（`deny.toml`）。Lint 配置在 `Cargo.toml` `[lints]` 与 `clippy.toml`（测试代码允许 `unwrap`/`expect`/`print`）。
 
 PR 描述用 `.github/PULL_REQUEST_TEMPLATE.md`：验证表格要求填实际结果而非打勾，自查分文档、工程纲领、安全三块，按改动相关性选填。
 
 # Citations
 
-[1] [Product Requirements](product-requirements.md)
-[2] [Architecture](architecture.md)
-[3] [Naming Convention](naming-convention.md)
-[4] [Crate Selection](crate-selection.md)
-[5] [Error Model](error-model.md)
-[6] [Observability](observability.md)
-[7] [API Discovery](api-discovery.md)
-[8] [Compatibility Policy](compatibility-policy.md)
+[1] [Product Requirements](../product/product-requirements.md)
+[2] [Architecture](../architecture/architecture.md)
+[3] [Naming Convention](../architecture/naming-convention.md)
+[4] [Crate Selection](../architecture/crate-selection.md)
+[5] [Error Model](../architecture/error-model.md)
+[6] [Observability](../architecture/observability.md)
+[7] [API Discovery](../runtime/api-discovery.md)
+[8] [Compatibility Policy](../architecture/compatibility-policy.md)
 [9] [NyaProxy local reference](file:///Users/ticoag/Documents/myws/NyaProxy)
 [10] [OKF v0.1 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)

@@ -126,7 +126,7 @@ GitHub Actions（`.github/workflows/ci.yml`）在 push main 和 PR 时运行五�
 | macOS | `$HOME/Library/Application Support/asterlane/config.yaml` |
 | Windows | `%APPDATA%\asterlane\config.yaml` |
 
-CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。示例文件位于 `examples/gateway.yaml` 与 `examples/gateway-mcp.yaml`；完整契约见 [CLI Config Discovery](docs/cli-config-discovery.md)，YAML schema 见 [Configuration Schema](docs/config-schema.md)。
+CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。示例文件位于 `examples/gateway.yaml` 与 `examples/gateway-mcp.yaml`；完整契约见 [CLI Config Discovery](docs/admin/cli-config-discovery.md)，YAML schema 见 [Configuration Schema](docs/runtime/config-schema.md)。
 
 ## 项目结构
 
@@ -157,15 +157,17 @@ src/
 
 ## 文档
 
-文档入口：[docs/README.md](docs/README.md)
+文档入口：[docs/README.md](docs/README.md)（按分类渐进加载）
 
 关键文档：
 
-- [产品需求](docs/product-requirements.md) — 产品意图与非目标
-- [架构](docs/architecture.md) — 模块边界与数据流
-- [配置 Schema](docs/config-schema.md) — YAML 配置形态
-- [开发工作流](docs/development-workflow.md) — 模块边界、验证规则
-- [工程约定](docs/engineering-conventions.md) — 分层、预算、类型/错误/日志规则
+- [产品需求](docs/product/product-requirements.md) — 产品意图与非目标
+- [架构](docs/architecture/architecture.md) — 模块边界与数据流
+- [配置 Schema](docs/runtime/config-schema.md) — YAML 配置形态
+- [开发工作流](docs/engineering/development-workflow.md) — 模块边界、验证规则
+- [工程约定](docs/engineering/engineering-conventions.md) — 分层、预算、类型/错误/日志规则
+
+仓库脚本：[scripts/README.md](scripts/README.md)
 
 ## License
 
