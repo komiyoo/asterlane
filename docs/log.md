@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-08-20（HTTP 错误响应回填 request_id）
+
+- **行为**：入站中间件生成 `req_<序号>`，或接纳合法 `X-Request-Id`（去控制字符、截断 64）。`AsterlaneError` JSON 的 `error.request_id` 非空；写入 tracing span。invoke 成功事件仍用 executor 自己的 id。413/408 同样带 id。
+- **文档**：[Error Model](architecture/error-model.md)；[Observability](architecture/observability.md)；[Configuration Schema](runtime/config-schema.md)；[Roadmap](product/roadmap.md)。
+- **验证**：`just check`。
+
 ## 2026-08-20（非幂等 HTTP 方法不再重试）
 
 - **行为**：`proxy::retry` 仅对 `HttpMethod::Get` 按 429/5xx、超时与连接失败重试；POST/PUT/PATCH/DELETE 整次只尝试 1 次，失败不记 `retry_exhausted`（`retry_count` 为 0）。MCP `tools/call` 仍不走该循环。

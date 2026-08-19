@@ -96,7 +96,8 @@ timestamp: 2026-08-20T00:00:00Z
 | **已交付：admin CLI 写操作**（2026-08-19） | 兑现差（已清） | `asterlane admin resources|proxy-keys|mcp-servers` 的 create / update / rm，body 为 `--json` 或 `--from-file`（JSON/YAML object），转发已有 admin HTTP CRUD |
 | upstream keys 无 admin API，key pool 不支持热更新 | 定位缺口 | `upstream_keys` 表与 repository 存在但运行时不写；`admin::crud` 的配置热替换不重建 `KeyPoolRegistry` |
 | IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
-| usage 只有小时桶；无上游耗时聚合；HTTP 错误无 `request_id` | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项；`http::mod` 的错误响应 `request_id` 为空 |
+| usage 只有小时桶；无上游耗时聚合 | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项 |
+| **已交付：HTTP 错误 `request_id`**（2026-08-20） | 生产就绪（已清） | 入站中间件生成或接纳 `X-Request-Id`；`AsterlaneError` JSON 的 `error.request_id` 非空；invoke 成功路径仍用 executor 自己的 id |
 | 无告警规则 / Grafana dashboard 示例 | 生产就绪（轻） | 仓库内无相关资产 |
 
 ## 横切：生产就绪
@@ -158,7 +159,7 @@ timestamp: 2026-08-20T00:00:00Z
 **目标**：把可观测性从「有数据」推到「能运营」。
 
 - 成本核算：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
-- usage 分钟/日桶、上游耗时维度、HTTP 错误响应回填 `request_id`
+- usage 分钟/日桶、上游耗时维度
 - IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（或删除死代码）
 - upstream keys admin API 与 key pool 热更新
 - circuit breaker、跨 provider failover
