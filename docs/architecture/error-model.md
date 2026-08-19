@@ -114,6 +114,8 @@ JSON body 形态：
 }
 ```
 
+`error.request_id` 由 HTTP 层填入非空字符串（入站中间件生成，或接纳客户端 `X-Request-Id`），与 tracing span 字段 `request_id` 同值；`AsterlaneError::http_response()` 仍返回 `request_id: None`，不再把空值原样输出。
+
 ## MCP 边界
 
 MCP 错误分两种承载方式，遵循社区共识：

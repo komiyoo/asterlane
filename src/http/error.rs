@@ -14,12 +14,13 @@ use serde_json::json;
 impl IntoResponse for AsterlaneError {
     fn into_response(self) -> Response {
         let view = self.http_response();
+        let request_id = super::request_id::error_request_id();
         let status = StatusCode::from_u16(view.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let body = json!({
             "error": {
                 "code": view.code.as_str(),
                 "message": view.message,
-                "request_id": view.request_id,
+                "request_id": request_id,
             }
         });
         let mut response = (status, Json(body)).into_response();

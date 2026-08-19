@@ -14,6 +14,7 @@ pub mod model;
 #[cfg(feature = "otlp")]
 pub mod otlp;
 pub mod redaction;
+pub mod request_id;
 pub mod security;
 
 pub use aggregation::{AggregateDimension, BucketGranularity, UsageBucket, bucket_start};
@@ -24,4 +25,5 @@ pub use redaction::{
     BodySummary, redact_auth_header, redact_body, redact_header_value, redact_secret_key,
     redact_secret_ref, redact_secret_string,
 };
+pub use request_id::next_request_id;
 pub use security::{SecurityEvent, SecurityEventKind, Severity};

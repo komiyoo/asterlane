@@ -2,6 +2,7 @@
 
 mod boundary;
 mod error;
+mod request_id;
 mod routes;
 mod state;
 
@@ -87,6 +88,7 @@ pub fn build_app_with_ct(
 
     boundary::with_global_guards(public.merge(api).merge(mcp_router), &http_cfg)
         .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(request_id::attach_request_id))
         .with_state(state)
 }
 
@@ -559,8 +561,61 @@ mod tests {
         let json = body_to_json(response.into_body()).await;
         assert_eq!(json["error"]["code"], "auth.missing_gateway_key");
         assert!(json["error"]["message"].as_str().is_some());
-        // request_id 第一阶段为 null
-        assert!(json["error"]["request_id"].is_null());
+        let request_id = json["error"]["request_id"].as_str().unwrap_or_default();
+        assert!(!request_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn tools_missing_key_request_ids_differ_across_requests() {
+        let app = build_app(test_state());
+        let first = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/tools")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let second = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/tools")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let id1 = body_to_json(first.into_body()).await["error"]["request_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let id2 = body_to_json(second.into_body()).await["error"]["request_id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        assert!(!id1.is_empty());
+        assert!(!id2.is_empty());
+        assert_ne!(id1, id2);
+    }
+
+    #[tokio::test]
+    async fn tools_missing_key_honors_x_request_id() {
+        let app = build_app(test_state());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/tools")
+                    .header("x-request-id", "client-corr-1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["error"]["request_id"], "client-corr-1");
     }
 
     #[tokio::test]
@@ -578,6 +633,8 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let json = body_to_json(response.into_body()).await;
         assert_eq!(json["error"]["code"], "auth.invalid_gateway_key");
+        let request_id = json["error"]["request_id"].as_str().unwrap_or_default();
+        assert!(!request_id.is_empty());
     }
 
     #[tokio::test]
@@ -1005,11 +1062,12 @@ mod tests {
             .unwrap();
         let json = body_to_json(response.into_body()).await;
 
-        // { "error": { "code": "...", "message": "...", "request_id": ... } }
+        // { "error": { "code": "...", "message": "...", "request_id": "..." } }
         assert!(json["error"].is_object());
         assert!(json["error"]["code"].is_string());
         assert!(json["error"]["message"].is_string());
-        assert!(json["error"].get("request_id").is_some());
+        let request_id = json["error"]["request_id"].as_str().unwrap_or_default();
+        assert!(!request_id.is_empty());
     }
 
     // ── admin auth（见 docs/admin/admin-console.md C0/C1）──
