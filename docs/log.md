@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-08-19（容器非 root 与 HEALTHCHECK）
+
+- **行为**：`Dockerfile` 运行用户 `asterlane`（uid/gid 10001），工作目录 `/var/lib/asterlane`；`HEALTHCHECK` 用 `curl` 探 `GET /healthz`。配置仍须挂载，镜像不打包 `examples/`。
+- **文档**：根 `README.md` Docker 节；[Roadmap](product/roadmap.md) Phase 7 已交付。
+- **验证**：`just check`。未在本机 `docker build`（无强制 Docker 工具链）。
+
 ## 2026-08-19（request_events 保留窗口）
 
 - **行为**：`observability.request_event_retention_days` 缺省 14；`0` 关闭清理。配置了 `database-url` 时 `serve` 启动后台任务，每小时（启动立即第一轮）删除早于窗口的 `request_events`。`usage_buckets` / `security_events` 不在窗口内。

@@ -102,6 +102,18 @@ cargo build --release         # release 构建
 cargo build --features otlp   # 启用 OTLP 遥测导出
 ```
 
+## Docker
+
+镜像以非 root 用户 `asterlane`（uid 10001）运行，并对 `GET /healthz` 做 `HEALTHCHECK`。配置仍须自行挂载（镜像不打包 `examples/`）。
+
+```bash
+docker build -t asterlane .
+docker run --rm -p 3000:3000 \
+  -e ASTERLANE_CONFIG=/config/gateway.yaml \
+  -v "$PWD/examples/gateway.yaml:/config/gateway.yaml:ro" \
+  asterlane
+```
+
 ## CI
 
 GitHub Actions（`.github/workflows/ci.yml`）在 push main 和 PR 时运行五个 job：
