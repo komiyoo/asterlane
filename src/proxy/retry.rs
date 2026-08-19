@@ -69,6 +69,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
     /// 重试循环：构造请求 → 发送 → 判定可重试 → 退避 → failover。
     ///
+    /// 仅 [`HttpMethod::Get`] 按状态码白名单、超时、连接失败重试；
+    /// POST/PUT/PATCH/DELETE 整次只尝试 1 次（`max_attempts` 视为 1）。
+    ///
     /// `pool` 存在时每次尝试按配置策略 acquire key 并 per-key 解析凭据；
     /// 429/5xx/超时触发该 key 冷却（429/503 优先用上游 `Retry-After`），
     /// 下次尝试轮换到其他 key；成功时记录该 key 的 EWMA 延迟。
@@ -87,18 +90,19 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         let method = http_method.to_reqwest();
         let url = build_url(base_url, upstream_path, args, param_locations);
         let is_get = http_method == HttpMethod::Get;
+        let max_attempts = retry_attempt_limit(http_method, self.max_attempts);
 
         let backoff_builder = backon::ExponentialBuilder::default()
             .with_min_delay(Duration::from_millis(100))
             .with_max_delay(Duration::from_secs(10))
             .with_jitter()
-            .with_max_times((self.max_attempts.saturating_sub(1)) as usize);
+            .with_max_times((max_attempts.saturating_sub(1)) as usize);
         let mut backoff = backoff_builder.build();
 
         let mut retry_count: u8 = 0;
         let mut upstream_key_ref = "<none>".to_string();
 
-        for attempt in 1..=self.max_attempts {
+        for attempt in 1..=max_attempts {
             let (key_guard, pool_secret) = if let Some(pool) = pool {
                 match self.acquire_pool_key(pool).await {
                     Ok((guard, secret)) => {
@@ -137,7 +141,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         p.pool().mark_cooling(guard.key_id(), None);
                     }
                     drop(key_guard);
-                    if attempt < self.max_attempts {
+                    if attempt < max_attempts {
                         if let Some(delay) = backoff.next() {
                             tokio::time::sleep(delay).await;
                         }
@@ -198,8 +202,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         ));
                     }
 
-                    // 判定可重试
-                    if attempt < self.max_attempts && is_retryable_status(status) {
+                    // 判定可重试（非 GET 的 max_attempts 已钳为 1，不会进入此分支）
+                    if attempt < max_attempts && is_retryable_status(status) {
                         // failover: 冷却当前 key（上游 Retry-After 优先，缺省 60s）
                         if let (Some(p), Some(guard)) = (pool, &key_guard) {
                             p.pool().mark_cooling(guard.key_id(), retry_after);
@@ -232,7 +236,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     }
                     drop(key_guard);
                     if e.is_timeout() {
-                        if attempt < self.max_attempts {
+                        if attempt < max_attempts {
                             if let Some(delay) = backoff.next() {
                                 tokio::time::sleep(delay).await;
                             }
@@ -249,7 +253,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         });
                     }
                     // 连接失败（DNS/TCP/TLS）或其他请求错误
-                    if attempt < self.max_attempts {
+                    if attempt < max_attempts {
                         if let Some(delay) = backoff.next() {
                             tokio::time::sleep(delay).await;
                         }
@@ -269,7 +273,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         // 循环结束仍未成功（重试耗尽）
         Err(ExecutionError {
             proxy_error: ProxyError::RetryExhausted {
-                attempts: self.max_attempts,
+                attempts: max_attempts,
             },
             retry_count,
             upstream_key_ref,
@@ -372,6 +376,22 @@ fn apply_params(
     builder
 }
 
+/// GET vs 非 GET：仅 GET 视为幂等，可按状态码/超时/连接失败重试。
+///
+/// POST/PUT/PATCH/DELETE 请求可能已到达上游，不得自动重放。
+fn is_idempotent_method(method: HttpMethod) -> bool {
+    matches!(method, HttpMethod::Get)
+}
+
+/// 非 GET 将配置的 `max_attempts` 钳为 1；GET 仍使用配置值（至少 1）。
+fn retry_attempt_limit(method: HttpMethod, configured: u32) -> u32 {
+    if is_idempotent_method(method) {
+        configured.max(1)
+    } else {
+        1
+    }
+}
+
 /// 判断状态码是否在可重试白名单中。
 fn is_retryable_status(status: u16) -> bool {
     RETRYABLE_STATUSES.contains(&status)
@@ -426,6 +446,25 @@ mod tests {
         assert!(!is_retryable_status(200));
         assert!(!is_retryable_status(400));
         assert!(!is_retryable_status(404));
+    }
+
+    #[test]
+    fn is_idempotent_method_only_get() {
+        assert!(is_idempotent_method(HttpMethod::Get));
+        assert!(!is_idempotent_method(HttpMethod::Post));
+        assert!(!is_idempotent_method(HttpMethod::Put));
+        assert!(!is_idempotent_method(HttpMethod::Patch));
+        assert!(!is_idempotent_method(HttpMethod::Delete));
+    }
+
+    #[test]
+    fn retry_attempt_limit_caps_non_get_to_one() {
+        assert_eq!(retry_attempt_limit(HttpMethod::Get, 3), 3);
+        assert_eq!(retry_attempt_limit(HttpMethod::Get, 0), 1);
+        assert_eq!(retry_attempt_limit(HttpMethod::Post, 3), 1);
+        assert_eq!(retry_attempt_limit(HttpMethod::Put, 5), 1);
+        assert_eq!(retry_attempt_limit(HttpMethod::Patch, 2), 1);
+        assert_eq!(retry_attempt_limit(HttpMethod::Delete, 4), 1);
     }
 
     #[test]

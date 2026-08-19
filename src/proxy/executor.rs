@@ -1554,10 +1554,11 @@ mod tests {
     async fn invoke_upstream_500_retryable_exhausts_after_max_attempts() {
         let mock_body = br#"{"error":"internal"}"#.to_vec();
         let addr = start_mock_upstream(500, mock_body.clone()).await;
-        let config = mock_config(format!("http://{addr}"));
+        let mut config = mock_config(format!("http://{addr}"));
+        config.api_resources[0].endpoints[0].method = HttpMethod::Get;
 
         let secrets = Arc::new(MockSecretStore::default());
-        // 设置 max_attempts=2 以加速测试
+        // GET 才按状态码重试；设置 max_attempts=2 以加速测试
         let exec = executor(config, secrets).with_max_attempts(2);
         let key = proxy_key(&exec.config, "agent-test").clone();
 

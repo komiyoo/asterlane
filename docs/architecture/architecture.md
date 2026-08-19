@@ -4,7 +4,7 @@ title: Asterlane Architecture
 description: Defines the gateway scope, core modules, MCP wrapping model, naming, data flow, and staged roadmap.
 resource: docs/architecture/architecture.md
 tags: [architecture, mcp, gateway, credentials]
-timestamp: 2026-07-04T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 ---
 
 # Context
@@ -106,9 +106,9 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 借鉴 NyaProxy（`core/queue.py:201-331`）的决策顺序，按 Asterlane 解释为：
 
 1. 释放上游 key（RAII guard Drop）。
-2. 判定可重试：方法白名单 × 状态码白名单（默认 429/500/502/503/504）× 次数上限。同一次 invoke 只准入一次，重试不重复扣 `max_calls`。
-3. 命中则冷却当前 key + 抖动退避（`backon` `ExponentialBuilder`）+ failover 轮换下一 key。
-4. 耗尽则 `proxy.retry_exhausted`；executor 侧未 `commit` 的 `CallQuotaGuard` Drop，退还本次准入扣下的累计/日配额。HTTP 4xx 等不可重试失败同样退还（协议层 MCP `is_error` 仍视为调用完成，不退还）。
+2. 判定可重试：**仅 `GET`** 参与状态码白名单（默认 429/500/502/503/504）、超时与连接失败重试，并受 `max_attempts` 约束。`POST` / `PUT` / `PATCH` / `DELETE` 整次 invoke 只尝试 1 次：即使 429/5xx、超时或连接失败也不重放（请求可能已到达上游）；此时 `max_attempts` 视为 1，首次失败返回既有的 `proxy.upstream_error` / `proxy.upstream_timeout` / `proxy.connection_failed`，不会变成 `proxy.retry_exhausted`。同一次 invoke 只准入一次，重试不重复扣 `max_calls`。远程 MCP `tools/call` 不走 `proxy::retry`。
+3. 仅当上一步允许重试时：冷却当前 key + 抖动退避（`backon` `ExponentialBuilder`）+ failover 轮换下一 key。
+4. GET 重试耗尽则 `proxy.retry_exhausted`；executor 侧未 `commit` 的 `CallQuotaGuard` Drop，退还本次准入扣下的累计/日配额。HTTP 4xx 等不可重试失败同样退还（协议层 MCP `is_error` 仍视为调用完成，不退还）。
 
 # Credential Vault
 

@@ -5,10 +5,12 @@ use asterlane::config::{
     ToolEndpoint, UpstreamAuth,
 };
 use asterlane::keys::{KeyPoolRegistry, LoadBalanceStrategy};
+use asterlane::proxy::ProxyError;
 use asterlane::proxy::ProxyExecutor;
 use asterlane::secrets::{SecretError, SecretRef, SecretStore, SecretString};
 use serde_json::json;
 use std::sync::Arc;
+use std::time::Duration;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -144,16 +146,16 @@ async fn custom_header_auth_injected() {
 }
 
 #[tokio::test]
-async fn retries_on_503_then_succeeds() {
+async fn get_retries_on_503_then_succeeds() {
     let server = MockServer::start().await;
-    Mock::given(method("POST"))
+    Mock::given(method("GET"))
         .and(path("/action"))
         .respond_with(ResponseTemplate::new(503))
         .expect(1)
         .up_to_n_times(1)
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
+    Mock::given(method("GET"))
         .and(path("/action"))
         .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"done":true}"#))
         .expect(1)
@@ -165,7 +167,7 @@ async fn retries_on_503_then_succeeds() {
         UpstreamAuth::None,
         vec![ToolEndpoint {
             tool: "do-action".to_string(),
-            method: HttpMethod::Post,
+            method: HttpMethod::Get,
             path: "/action".to_string(),
             description: String::new(),
         }],
@@ -182,6 +184,126 @@ async fn retries_on_503_then_succeeds() {
         .unwrap();
 
     assert_eq!(result.status, 200);
+}
+
+#[tokio::test]
+async fn post_503_does_not_retry() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/action"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let config = test_config(
+        &server.uri(),
+        UpstreamAuth::None,
+        vec![ToolEndpoint {
+            tool: "do-action".to_string(),
+            method: HttpMethod::Post,
+            path: "/action".to_string(),
+            description: String::new(),
+        }],
+    );
+
+    let exec = executor(&config, "unused").with_max_attempts(3);
+    let err = exec
+        .invoke(
+            "testing__mock__do-action",
+            json!({"input": "test"}),
+            proxy_key(&config),
+        )
+        .await
+        .unwrap_err();
+
+    match err {
+        ProxyError::UpstreamError(503) => {}
+        other => panic!("expected UpstreamError(503), got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn post_timeout_does_not_retry() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/slow"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(5)))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let config = test_config(
+        &server.uri(),
+        UpstreamAuth::None,
+        vec![ToolEndpoint {
+            tool: "slow-action".to_string(),
+            method: HttpMethod::Post,
+            path: "/slow".to_string(),
+            description: String::new(),
+        }],
+    );
+
+    let exec = executor(&config, "unused")
+        .with_max_attempts(3)
+        .with_request_timeout(Duration::from_millis(80));
+    let err = exec
+        .invoke(
+            "testing__mock__slow-action",
+            json!({"input": "test"}),
+            proxy_key(&config),
+        )
+        .await
+        .unwrap_err();
+
+    match err {
+        ProxyError::UpstreamTimeout { .. } => {}
+        other => panic!("expected UpstreamTimeout, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn post_connection_failed_does_not_retry() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let accepts = Arc::new(AtomicUsize::new(0));
+    let accept_count = Arc::clone(&accepts);
+    tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            accept_count.fetch_add(1, Ordering::SeqCst);
+            drop(sock);
+        }
+    });
+
+    let config = test_config(
+        &format!("http://{addr}"),
+        UpstreamAuth::None,
+        vec![ToolEndpoint {
+            tool: "unreachable".to_string(),
+            method: HttpMethod::Post,
+            path: "/gone".to_string(),
+            description: String::new(),
+        }],
+    );
+
+    let exec = executor(&config, "unused").with_max_attempts(3);
+    let err = exec
+        .invoke("testing__mock__unreachable", json!({}), proxy_key(&config))
+        .await
+        .unwrap_err();
+
+    match err {
+        ProxyError::ConnectionFailed => {}
+        other => panic!("expected ConnectionFailed, got {other:?}"),
+    }
+    assert_eq!(
+        accepts.load(Ordering::SeqCst),
+        1,
+        "POST connection failure must call upstream once"
+    );
 }
 
 #[tokio::test]
@@ -383,7 +505,7 @@ async fn key_pool_round_robin_rotates_per_key_credentials() {
 async fn key_pool_429_retry_after_cools_key_and_fails_over() {
     let server = MockServer::start().await;
     // key-a 恒 429，带 Retry-After: 30
-    Mock::given(method("POST"))
+    Mock::given(method("GET"))
         .and(path("/search"))
         .and(header("authorization", "Bearer key-a"))
         .respond_with(
@@ -395,7 +517,7 @@ async fn key_pool_429_retry_after_cools_key_and_fails_over() {
         .mount(&server)
         .await;
     // key-b 成功
-    Mock::given(method("POST"))
+    Mock::given(method("GET"))
         .and(path("/search"))
         .and(header("authorization", "Bearer key-b"))
         .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"ok":true}"#))
@@ -403,10 +525,11 @@ async fn key_pool_429_retry_after_cools_key_and_fails_over() {
         .mount(&server)
         .await;
 
-    let config = pooled_config(&server.uri(), LoadBalanceStrategy::RoundRobin);
+    let mut config = pooled_config(&server.uri(), LoadBalanceStrategy::RoundRobin);
+    config.api_resources[0].endpoints[0].method = HttpMethod::Get;
     let (exec, registry) = pooled_executor(&config);
 
-    // 首次尝试选 key-a → 429 → 按 Retry-After 冷却 → failover 到 key-b → 成功
+    // GET 才允许重试：首次选 key-a → 429 → 按 Retry-After 冷却 → failover 到 key-b → 成功
     let result = exec
         .invoke("testing__mock__search", json!({}), proxy_key(&config))
         .await
