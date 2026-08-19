@@ -92,7 +92,7 @@ timestamp: 2026-08-19T00:00:00Z
 | --- | --- | --- |
 | **仅 SQLite，无 Postgres** | 生产就绪（重） | `Cargo.toml` 的 sqlx features 只有 `sqlite`；`src/main.rs` 硬编码 `SqlitePool::connect` |
 | **状态全进程内，多副本失效** | 生产就绪（重） | `limits::registry` 的用量表、`keys::pool` 的 `PoolState`、`shaping::ResultCache` 均为进程内 `Mutex` |
-| HTTP 边界无请求体上限 / 超时 / 安全响应头 | 生产就绪 | `http::mod` 的 router 只挂 `TraceLayer` |
+| **已交付：HTTP 边界**（2026-08-19） | 生产就绪（已清） | `GatewayConfig.http`：`DefaultBodyLimit` + `http.body_too_large`（413）；REST/admin `TimeoutLayer` + `http.timeout`（408），不套 `/mcp` 与探活；响应头 `nosniff` / `DENY` / `no-referrer` |
 | 容器以 root 运行，无 HEALTHCHECK | 生产就绪 | `Dockerfile` 无 `USER`、无 `HEALTHCHECK` |
 | 无发布工程：无 CHANGELOG、无镜像/二进制发布、版本仍 `0.1.0` | 生产就绪 | `.github/workflows/ci.yml` 只有 fmt/clippy/test/docs/deny |
 | 无覆盖率、基准与负载测试 | 增强 | 无 llvm-cov / criterion 配置 |
@@ -117,11 +117,10 @@ timestamp: 2026-08-19T00:00:00Z
 
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
-- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / admin CLI 过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配
+- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / admin CLI 过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）
 - 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
 - admin CLI 补齐 resources / proxy-keys / mcp-servers 的写操作（README 已不再声称覆盖全部）
 - `request_events` 保留策略：可配置窗口 + 后台清理任务
-- HTTP 边界：请求体大小上限、请求超时、基础安全响应头
 - 容器：非 root 用户 + HEALTHCHECK
 - 文档去腐：修正上节「技术债与文档腐烂」全部条目，删除占位死代码
 

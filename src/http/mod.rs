@@ -1,5 +1,6 @@
 //! HTTP 网关骨架：Axum app、路由、错误转换、MCP Server 端点。
 
+mod boundary;
 mod error;
 mod routes;
 mod state;
@@ -65,22 +66,26 @@ pub fn build_app_with_ct(
         axum::middleware::from_fn_with_state(state.clone(), crate::gateway_auth::require_mcp_auth),
     );
 
-    let mut router = Router::new()
-        .route("/healthz", get(routes::healthz))
-        .route("/versionz", get(routes::versionz))
-        .route("/metrics", get(metrics_handler))
+    let http_cfg = boundary::config_from_state(&state);
+
+    let mut api = Router::new()
         .route("/config", get(routes::get_config))
         .route("/v1/tools", get(routes::list_tools))
-        .route("/v1/tools/{name}/invoke", post(routes::invoke_tool))
-        .merge(mcp_router);
-    // admin API 仅在配置了 admin key 时挂载（见 docs/admin/admin-console.md C0）
+        .route("/v1/tools/{name}/invoke", post(routes::invoke_tool));
     if state.admin_auth.is_some() {
-        router = router.nest("/admin", crate::admin::router(&state)).route(
+        api = api.nest("/admin", crate::admin::router(&state)).route(
             "/",
             get(|| async { axum::response::Redirect::permanent("/admin/ui") }),
         );
     }
-    router
+    api = boundary::with_request_timeout(api, http_cfg.request_timeout_secs);
+
+    let public = Router::new()
+        .route("/healthz", get(routes::healthz))
+        .route("/versionz", get(routes::versionz))
+        .route("/metrics", get(metrics_handler));
+
+    boundary::with_global_guards(public.merge(api).merge(mcp_router), &http_cfg)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -143,6 +148,7 @@ mod tests {
             semantic_search: None,
             observability: Default::default(),
             secrets: Default::default(),
+            http: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: vec![
                 ApiResource {
@@ -253,6 +259,7 @@ mod tests {
             semantic_search: None,
             observability: Default::default(),
             secrets: Default::default(),
+            http: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
@@ -302,6 +309,7 @@ mod tests {
             semantic_search: None,
             observability: Default::default(),
             secrets: Default::default(),
+            http: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {

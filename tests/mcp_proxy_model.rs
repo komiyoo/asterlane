@@ -62,6 +62,7 @@ fn catalog_extends_with_remote_mcp_tools() {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
@@ -324,6 +325,7 @@ async fn http_invoke_dispatches_remote_mcp_tool() {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
@@ -398,6 +400,7 @@ async fn http_invoke_applies_limits_to_remote_mcp_tool() {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
@@ -487,6 +490,7 @@ async fn proxy_executor_limits_remote_mcp_tools() {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
@@ -572,6 +576,7 @@ async fn proxy_executor_records_remote_mcp_request_events() {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {

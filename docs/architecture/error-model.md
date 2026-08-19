@@ -55,6 +55,9 @@ timestamp: 2026-07-03T00:00:00Z
 | `admin.*` | `admin.unauthorized` | admin token 缺失或不匹配 | "missing or invalid admin token" |
 | `admin.*` | `admin.invalid_query` | admin 查询参数不合法 | "invalid group_by: {value}" |
 | `admin.*` | `admin.not_found` | admin 管理的实体未找到；`McpError::UnknownServer`（未知 MCP server id）也映射到此码 | "unknown MCP server: {server_id}" |
+| `admin.*` | `admin.conflict` | admin 写操作冲突（如 ID 重复） | "resource already exists: {id}" |
+| `http.*` | `http.timeout` | 入站 REST/admin 请求超过 `http.request_timeout_secs` | "request timed out" |
+| `http.*` | `http.body_too_large` | 入站请求体超过 `http.max_body_bytes` | "request body too large" |
 
 # 边界转换
 
@@ -95,6 +98,9 @@ timestamp: 2026-07-03T00:00:00Z
 | `admin.unauthorized` | 401 |
 | `admin.invalid_query` | 400 |
 | `admin.not_found` | 404 |
+| `admin.conflict` | 409 |
+| `http.timeout` | 408 |
+| `http.body_too_large` | 413 |
 
 JSON body 形态：
 

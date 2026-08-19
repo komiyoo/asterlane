@@ -40,7 +40,7 @@ The original product requirements are preserved in [Product Requirements](../pro
 | `naming` | wrapped MCP tool name 解析、规范化、wire name 转换。 | 已实现（三段式） |
 | `policy` | gateway key scope 与请求级收窄。 | 已实现 |
 | `catalog` | 工具目录构建、过滤、分页、metadata。 | 已实现（含 MCP + OpenAPI） |
-| `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现（23 错误码） |
+| `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现 |
 | `secrets` | secret ref 解析与脱敏。 | env/file 默认启用；Vault/Infisical 经 `secrets.vault` / `secrets.infisical` 装配 |
 | `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线） |
 | `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |

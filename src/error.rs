@@ -95,6 +95,12 @@ pub enum ErrorCode {
     AdminNotFound,
     /// admin 写操作冲突（如 ID 重复）。
     AdminConflict,
+
+    // ── http ──
+    /// 入站 REST/admin 请求超过 `http.request_timeout_secs`。
+    HttpTimeout,
+    /// 入站请求体超过 `http.max_body_bytes`。
+    HttpBodyTooLarge,
 }
 
 impl ErrorCode {
@@ -132,6 +138,8 @@ impl ErrorCode {
             Self::AdminInvalidQuery => "admin.invalid_query",
             Self::AdminNotFound => "admin.not_found",
             Self::AdminConflict => "admin.conflict",
+            Self::HttpTimeout => "http.timeout",
+            Self::HttpBodyTooLarge => "http.body_too_large",
         }
     }
 
@@ -166,6 +174,7 @@ impl ErrorCode {
             | Self::AdminInvalidQuery
             | Self::AdminNotFound
             | Self::AdminConflict => "admin",
+            Self::HttpTimeout | Self::HttpBodyTooLarge => "http",
         }
     }
 }
@@ -390,6 +399,8 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::AdminInvalidQuery => 400,
         ErrorCode::AdminNotFound => 404,
         ErrorCode::AdminConflict => 409,
+        ErrorCode::HttpTimeout => 408,
+        ErrorCode::HttpBodyTooLarge => 413,
     }
 }
 
@@ -481,6 +492,8 @@ mod tests {
         assert_eq!(ErrorCode::AdminInvalidQuery.as_str(), "admin.invalid_query");
         assert_eq!(ErrorCode::AdminNotFound.as_str(), "admin.not_found");
         assert_eq!(ErrorCode::AdminConflict.as_str(), "admin.conflict");
+        assert_eq!(ErrorCode::HttpTimeout.as_str(), "http.timeout");
+        assert_eq!(ErrorCode::HttpBodyTooLarge.as_str(), "http.body_too_large");
     }
 
     #[test]
@@ -523,6 +536,8 @@ mod tests {
         assert_eq!(ErrorCode::AdminInvalidQuery.category(), "admin");
         assert_eq!(ErrorCode::AdminNotFound.category(), "admin");
         assert_eq!(ErrorCode::AdminConflict.category(), "admin");
+        assert_eq!(ErrorCode::HttpTimeout.category(), "http");
+        assert_eq!(ErrorCode::HttpBodyTooLarge.category(), "http");
     }
 
     #[test]
@@ -755,6 +770,22 @@ mod tests {
         let err = AsterlaneError::internal(ErrorCode::McpUpstreamMcpFailure, "upstream mcp error");
         let view = err.http_response();
         assert_eq!(view.status, 502);
+    }
+
+    #[test]
+    fn http_timeout_returns_408() {
+        let err = AsterlaneError::internal(ErrorCode::HttpTimeout, "request timed out");
+        let view = err.http_response();
+        assert_eq!(view.status, 408);
+        assert_eq!(view.code, ErrorCode::HttpTimeout);
+    }
+
+    #[test]
+    fn http_body_too_large_returns_413() {
+        let err = AsterlaneError::internal(ErrorCode::HttpBodyTooLarge, "request body too large");
+        let view = err.http_response();
+        assert_eq!(view.status, 413);
+        assert_eq!(view.code, ErrorCode::HttpBodyTooLarge);
     }
 
     #[test]

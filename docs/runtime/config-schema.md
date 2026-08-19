@@ -19,6 +19,7 @@ defaults: {}
 admin: {}
 semantic_search: {}   # 可选
 secrets: {}           # 可选；Vault / Infisical
+http: {}              # 可选；请求体上限与 REST/admin 超时
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -81,6 +82,20 @@ secrets:
 ```
 
 `secret://vault/<path>` 读 Vault KV v2：`GET {address}/v1/{mount}/data/{path}`。`secret://infisical/<name>` 读 Infisical：`GET {address}/api/v3/secrets/raw/{name}`。引导 token 不得再走 vault/infisical，避免循环依赖。无缓存 / TTL / 轮换仍是后续项。
+
+## HTTP
+
+可选。控制入站 HTTP 护栏；缺省请求体 1 MiB、REST/admin 超时 30 秒。启动时 `max_body_bytes` 为 0 则 fail fast。该节在 router 构建时读取，运行期 admin CRUD 改配置不会热更新这些 layer。
+
+```yaml
+http:
+  max_body_bytes: 1048576     # 可选，缺省 1 MiB；必须 > 0
+  request_timeout_secs: 30    # 可选，缺省 30；0 表示不对 REST/admin 套超时
+```
+
+- 请求体上限作用于全部路径（含 `/mcp`），超限返回 `http.body_too_large`（413）。
+- 请求超时只套 REST（`/config`、`/v1/*`）与 `/admin/*`，**不**套 `/mcp`、`/healthz`、`/versionz`、`/metrics`，以免掐断 Streamable HTTP 会话。超时返回 `http.timeout`（408）。这与 proxy 执行层的上游超时（`proxy.upstream_timeout`，504）是两道独立护栏。
+- 所有响应（含错误）附加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`。进程内不终止 TLS，因此不设 HSTS。
 
 # API Resources
 

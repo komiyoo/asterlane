@@ -21,7 +21,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | --- | --- | --- | --- |
 | 异步运行时 | `tokio` | 1.53 | 事实标准，axum/sqlx/reqwest 均基于它。截至 2026-08-17 锁定 `1.53.1`。 |
 | HTTP server | `axum` | 0.8 | tokio 生态主流，与 tower 中间件栈兼容；rmcp Streamable HTTP server 直接集成 axum。 |
-| 中间件 | `tower` / `tower-http` | 0.5 / 0.7 | 超时、压缩、trace、CORS 等标准中间件。0.7 基于 tower 0.5/http 1.0。传递依赖里仍可能出现 `tower-http` 0.6。 |
+| 中间件 | `tower` / `tower-http` | 0.5 / 0.7 | 超时、压缩、trace、CORS 等标准中间件。0.7 基于 tower 0.5/http 1.0。本仓启用 `tower` 的 `timeout`（REST/admin `TimeoutLayer`）与 `tower-http` 的 `set-header`（安全响应头）。传递依赖里仍可能出现 `tower-http` 0.6。 |
 | HTTP client | `reqwest` | 0.13 | 上游 HTTP 调用主力；TLS 已切 rustls（`default-features = false, features = ["json", "rustls"]`），去除 OpenSSL 系统依赖，利于跨平台与容器部署。注意 axum 0.8.9 的 dev-deps 仍引 reqwest 0.12，两版本可共存但会重复编译。 |
 
 ## MCP 协议

@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-08-19（入站 HTTP 边界护栏）
+
+- **行为**：顶层 `http.max_body_bytes`（缺省 1 MiB）与 `http.request_timeout_secs`（缺省 30）。超限分别返回 `http.body_too_large`（413）与 `http.timeout`（408）。超时只套 REST/admin，**不**套 `/mcp` 与探活。所有响应附加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`。`max_body_bytes: 0` 启动 fail fast；`request_timeout_secs: 0` 关闭 REST/admin 超时。
+- **测试**：`tests/http_boundary.rs` 覆盖安全头、413、408、探活不受超时约束；配置解析与 `error` HTTP 映射。
+- **文档**：[Configuration Schema](runtime/config-schema.md) HTTP 节；[Error Model](architecture/error-model.md)；[Compatibility Policy](architecture/compatibility-policy.md)；[Crate Selection](architecture/crate-selection.md)；[Roadmap](product/roadmap.md) Phase 7 已交付。
+- **验证**：`just check`。
+
 ## 2026-08-19（装配 Vault / Infisical secret backend）
 
 - **行为**：顶层 `secrets.vault` / `secrets.infisical`；`serve` 在 MCP `connect_all` 之前调用 `secret_store_from_config`，与 invoke / admin / refresh 共用同一 store。`token_ref` 只允许 `secret://env/...` 或 `secret://file/...`。缺省探测 Vault `/v1/sys/health` 与 Infisical `/api/status`，连不上 fail fast；`probe: false` 可关。

@@ -20,6 +20,9 @@ pub struct GatewayConfig {
     /// Vault / Infisical 装配（可选）。缺省只启用 env 与 file backend。
     #[serde(default)]
     pub secrets: SecretsConfig,
+    /// 入站 HTTP 护栏（请求体上限、REST/admin 超时）。缺省 1 MiB / 30s。
+    #[serde(default)]
+    pub http: HttpServerConfig,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     /// 平台内置 MCP preset 启用列表，加载后展开进 `mcp_servers`
@@ -65,6 +68,37 @@ fn default_capture_max_bytes() -> usize {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_max_body_bytes() -> usize {
+    1_048_576
+}
+
+fn default_request_timeout_secs() -> u64 {
+    30
+}
+
+/// 入站 HTTP 护栏（见 docs/runtime/config-schema.md HTTP）。
+///
+/// `max_body_bytes` 必须大于 0。`request_timeout_secs` 为 0 表示不对 REST/admin
+/// 套超时（`/mcp` 与探活从不套超时，避免掐断 Streamable HTTP 会话）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HttpServerConfig {
+    /// 请求体上限字节数，缺省 1 MiB。
+    #[serde(default = "default_max_body_bytes")]
+    pub max_body_bytes: usize,
+    /// REST / admin 请求超时秒数，缺省 30；0 表示关闭。
+    #[serde(default = "default_request_timeout_secs")]
+    pub request_timeout_secs: u64,
+}
+
+impl Default for HttpServerConfig {
+    fn default() -> Self {
+        Self {
+            max_body_bytes: default_max_body_bytes(),
+            request_timeout_secs: default_request_timeout_secs(),
+        }
+    }
 }
 
 fn default_vault_mount() -> String {
@@ -193,6 +227,17 @@ impl GatewayConfig {
     /// - `token_digest` 必须为 64 位小写 hex（SHA-256）。
     ///
     /// 配置加载后调用（`main.rs` 的 `load_config`），失败 fail fast。
+    /// 校验入站 HTTP 护栏：`max_body_bytes` 必须大于 0。
+    pub fn validate_http(&self) -> Result<(), AsterlaneError> {
+        if self.http.max_body_bytes == 0 {
+            return Err(AsterlaneError::internal(
+                ErrorCode::ConfigInvalidYaml,
+                "http.max_body_bytes must be greater than 0",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate_key_credentials(&self) -> Result<(), AsterlaneError> {
         for key in &self.proxy_keys {
             if key.token_ref.is_some() && key.token_digest.is_some() {
@@ -895,5 +940,46 @@ secrets:
         assert_eq!(inf.workspace_id, "ws-1");
         assert_eq!(inf.environment, "dev");
         assert!(!inf.probe);
+    }
+
+    #[test]
+    fn http_section_defaults_when_absent() {
+        let config = parse("api_resources: []");
+        assert_eq!(config.http.max_body_bytes, 1_048_576);
+        assert_eq!(config.http.request_timeout_secs, 30);
+        assert!(config.validate_http().is_ok());
+    }
+
+    #[test]
+    fn http_section_parses_custom_values() {
+        let config = parse(
+            r#"
+http:
+  max_body_bytes: 2048
+  request_timeout_secs: 5
+"#,
+        );
+        assert_eq!(config.http.max_body_bytes, 2048);
+        assert_eq!(config.http.request_timeout_secs, 5);
+    }
+
+    #[test]
+    fn http_zero_body_limit_is_rejected() {
+        let config = parse("http:\n  max_body_bytes: 0");
+        let err = config.validate_http().expect_err("zero body must fail");
+        match err {
+            AsterlaneError::Internal { code, message, .. } => {
+                assert_eq!(code, ErrorCode::ConfigInvalidYaml);
+                assert!(message.contains("max_body_bytes"));
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+    }
+
+    #[test]
+    fn http_zero_timeout_disables_without_failing_validation() {
+        let config = parse("http:\n  request_timeout_secs: 0");
+        assert_eq!(config.http.request_timeout_secs, 0);
+        assert!(config.validate_http().is_ok());
     }
 }

@@ -38,8 +38,8 @@ secrecy = { version = "0.10" }
 zeroize = "1.9"
 tokio = { version = "1.53", features = ["full"] }
 axum = "0.8"
-tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.7", features = ["trace"] }
+tower = { version = "0.5", features = ["util", "timeout"] }
+tower-http = { version = "0.7", features = ["trace", "set-header"] }
 sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 governor = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }

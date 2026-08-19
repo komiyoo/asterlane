@@ -77,6 +77,7 @@ fn test_config() -> GatewayConfig {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: vec![ApiResource {
             id: "tavily".to_string(),

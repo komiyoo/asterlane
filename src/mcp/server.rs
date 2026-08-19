@@ -541,6 +541,7 @@ mod tests {
             semantic_search: None,
             observability: Default::default(),
             secrets: Default::default(),
+            http: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![

@@ -139,6 +139,9 @@ fn parse_config_file(path: &std::path::Path) -> Result<GatewayConfig> {
     config
         .validate_key_credentials()
         .with_context(|| format!("invalid proxy key credentials in config {}", path.display()))?;
+    config
+        .validate_http()
+        .with_context(|| format!("invalid http section in config {}", path.display()))?;
     Ok(config)
 }
 

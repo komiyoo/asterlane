@@ -16,6 +16,12 @@ admin:
 #   api_key_ref: secret://env/OPENAI_API_KEY   # 本地 Ollama 等无鉴权端点可省略
 #   timeout_secs: 15
 
+# 入站 HTTP 护栏（可选）：请求体上限与 REST/admin 超时。
+# /mcp 与 /healthz 不套超时。详见 docs/runtime/config-schema.md HTTP。
+# http:
+#   max_body_bytes: 1048576
+#   request_timeout_secs: 30
+
 # 平台内置 MCP preset（可选）：一行启用免鉴权 hosted MCP server。
 # 可用 preset：exa（search）、deepwiki（docs）、context7（docs），
 # 展开语义与 preset 表见 docs/runtime/config-schema.md「Builtin MCP Presets」。

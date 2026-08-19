@@ -78,6 +78,7 @@ fn config_with_quarantine_policy() -> asterlane::config::GatewayConfig {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
@@ -262,6 +263,7 @@ async fn drift_with_warn_policy_does_not_quarantine() {
         semantic_search: None,
         observability: Default::default(),
         secrets: Default::default(),
+        http: Default::default(),
         builtin_mcp: Vec::new(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
