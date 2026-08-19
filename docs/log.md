@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-08-19（按定位支柱评估缺口，新增演进规划）
+
+- **新增** [Roadmap](roadmap.md)：以产品定位的五根支柱（凭据集中持有、per-key 范围、渐进式发现、统一上游接入、使用日志与可见性）加一条横切生产就绪线为口径，评估截至 2026-08-19 的实现缺口，划分 Phase 7–10，并列出五项待产品决策项与复核后维持的非目标。
+- **缺口分三类**：**兑现差**（文档已声称、代码未接线）——请求变换模块零调用方、Vault/Infisical 未装配、MCP `tools/list` 不认 `discovery_mode: lazy`、配额失败不退还、admin CLI 缺写操作、`RateLimits` 的 IP/UpstreamKey 维度未接线；**定位缺口**——上游 MCP 无 OAuth 2.1 运行时（判定为优先级最高单项）、只代理 tools 不代理 resources/prompts、不监听上游 `tools/list_changed`、无成本核算；**生产就绪**——`request_events` 无保留策略、仅 SQLite、状态全进程内致多副本失效、HTTP 边界无体积/超时护栏、容器以 root 运行、无发布工程。
+- **supersede**：[Architecture](architecture.md) 的 Phase 1–6 roadmap 收敛为一句现状 + 指向 roadmap.md。原文长期停在「Phase 1（当前）」，与 Phase 1–6 已交付的事实矛盾。
+- **去腐**：architecture 模块表 Status 列按 [Documentation Conventions](documentation-conventions.md) 标注「截至 2026-08-19」（该表此前正是约定里点名的腐烂反例）；`transform` 由「已实现」改为「未接入执行管线」、`secrets` 标注 Vault/Infisical 未装配、`admin` 的「7 端点」改为不易腐的描述（实际 25 条路由注册）。
+- **type 登记**：`Roadmap` 追加进 documentation-conventions 的 type 现用值。
+- **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py` 全通过（本次为纯文档改动，跑全量以确认基线未受影响）。
+
 ## 2026-08-17（依赖链升到 crates.io 最新）
 
 - **直接依赖**：`sha2` 0.10 → 0.11、`rand` 0.9 → 0.10；下限抬到 `tokio` 1.53、`clap` 4.6、`regex` 1.13、`openapiv3` 2.2。其余 crate 已是当前最新主线（`rmcp` 3.1.2、`sqlx` 0.9.0、`axum` 0.8.9、`reqwest` 0.13.4）。

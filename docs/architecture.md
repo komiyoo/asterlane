@@ -32,7 +32,7 @@ The original product requirements are preserved in [Product Requirements](produc
 
 # Module Map
 
-运行时按职责拆分，模块边界不得塌缩：
+运行时按职责拆分，模块边界不得塌缩。Status 列为易变状态，截至 2026-08-19；缺口全貌见 [Roadmap](roadmap.md)。
 
 | Module | Responsibility | Status |
 | --- | --- | --- |
@@ -41,16 +41,16 @@ The original product requirements are preserved in [Product Requirements](produc
 | `policy` | gateway key scope 与请求级收窄。 | 已实现 |
 | `catalog` | 工具目录构建、过滤、分页、metadata。 | 已实现（含 MCP + OpenAPI） |
 | `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现（23 错误码） |
-| `secrets` | secret ref 解析与脱敏。 | 已实现（env/file/Vault/Infisical） |
+| `secrets` | secret ref 解析与脱敏。 | env/file 已接线；Vault/Infisical 后端已实现但 serve 未装配，见 [Roadmap](roadmap.md) |
 | `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线） |
 | `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |
 | `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
-| `transform` | header/query/path/body 变换。 | 已实现（声明式规则） |
+| `transform` | header/query/path/body 变换。 | 模块已实现（声明式 header/body 规则），未接入执行管线，无配置节，见 [Roadmap](roadmap.md) |
 | `proxy` | 上游 HTTP 执行。 | 已实现（retry + failover） |
 | `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 3.1 + `2026-07-28` 双栈） |
 | `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 已实现（metrics + store + Prometheus） |
 | `store` | 数据库抽象、迁移、仓库。 | 已实现（SQLite） |
-| `admin` | admin API 与管理 UI。 | 已实现（7 端点 + Bearer 认证 + Web 控制台） |
+| `admin` | admin API 与管理 UI。 | 已实现（资源/key/MCP server CRUD + Bearer 认证 + Web 控制台） |
 
 模块编排关系：proxy 执行层编排 keys/limits/routing/transform/secrets，不反向依赖；observability 横切所有层；catalog 是 config→MCP/HTTP 的投影层。借鉴 NyaProxy 的 TrafficManager 三合一（key 池+限流+LB）反模式，Asterlane 保持 keys/limits/routing 边界独立。
 
@@ -124,47 +124,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 # Roadmap
 
-## Phase 1: Core Model（当前）
-
-- Config model、wrapped tool names（三段 `domain__provider__tool`）。
-- Per-key scope evaluation、regex-filtered paginated tool listing。
-- 项目错误类型与稳定错误码。
-- 研发工作流初始化（CI、lint、deny、just、OKF 检查）。
-
-## Phase 2: HTTP Gateway
-
-- Axum server skeleton + health/config/catalog endpoints。
-- Secret ref 解析与上游凭据注入。
-- Upstream key pool + 负载均衡策略。
-- 限流与队列。
-- 重试与 failover。
-- 请求变换。
-- 请求日志（proxy key、resource、tool、status、latency）。
-
-## Phase 3: MCP Server
-
-- MCP endpoint（rmcp Streamable HTTP server + axum）暴露 gateway tools。
-- `tools/list` cursor 分页 + `_meta` 扩展过滤。
-- `tools/call` 翻译 wire name → 上游 HTTP 调用。
-- 顶层 `mcp_servers` remote MCP proxy：启动时连接、`tools/list`、合并 catalog；invoke 时剥前缀调用原始 upstream tool（见 [API Discovery](api-discovery.md)）。
-- `notifications/tools/list_changed`。
-
-## Phase 4: API 自动发现
-
-- OpenAPI 3.x spec 解析 → endpoint 目录 → MCP tool（见 [API Discovery](api-discovery.md)）。
-- operationId 命名回退、$ref 解析、spec 裁剪。
-- 与手写 endpoints 合并。
-
-## Phase 5: Credential Backends
-
-- env / file backend（开发期）。
-- Vault/Infisical adapter（生产）。
-
-## Phase 6: Analytics
-
-- SQLite `request_events` / `usage_buckets`。
-- 聚合查询（按 key/provider/domain/tool/status/time bucket）。
-- Prometheus `/metrics` + 可选 OTLP 导出。
+Phase 1–6（核心模型、HTTP 网关、MCP server、API 自动发现、凭据后端、analytics）的主体能力已交付。后续阶段划分、按定位支柱的缺口评估与待产品决策项见 [Roadmap](roadmap.md)。
 
 # Citations
 
