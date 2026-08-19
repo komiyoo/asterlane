@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-08-19（新增 PR 模板）
+
+- **新增** `.github/PULL_REQUEST_TEMPLATE.md`：改动摘要 + 验证表格 + 分块自查 + 备注。验证表格列出与 CI 对齐的四条命令并要求填**实际结果**而非打勾，未通过项须写出精确命令与原因；自查分文档（OKF 三问 + supersede 就地更正）、工程纲领（分层单向、错误码、禁 unwrap、500 行预算、新依赖过 crate-selection）、安全（密钥零提交、错误可安全展示）三块，按改动相关性选填。
+- **依据**：模板门槛取自 `AGENTS.md` 的验证节与工程纲领、[Documentation Conventions](documentation-conventions.md) 的自进化三问、[Engineering Conventions](engineering-conventions.md) 的硬规则；标题约定沿用仓库既有的 Conventional Commits 前缀。
+- **文档**：[Development Workflow](development-workflow.md) 验证节补一行指向模板。
+- **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py` 全通过。
+
 ## 2026-08-19（按定位支柱评估缺口，新增演进规划）
 
 - **新增** [Roadmap](roadmap.md)：以产品定位的五根支柱（凭据集中持有、per-key 范围、渐进式发现、统一上游接入、使用日志与可见性）加一条横切生产就绪线为口径，评估截至 2026-08-19 的实现缺口，划分 Phase 7–10，并列出五项待产品决策项与复核后维持的非目标。
