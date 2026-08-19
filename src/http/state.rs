@@ -109,6 +109,12 @@ impl AppState {
         }
     }
 
+    /// 注入 secret store（main.rs 按配置装配 Vault / Infisical 后注入）。
+    pub fn with_secrets(mut self, secrets: Arc<DefaultSecretStore>) -> Self {
+        self.secrets = secrets;
+        self
+    }
+
     /// 注入 admin 认证状态（main.rs 启动时解析 admin key 后注入）。
     pub fn with_admin_auth(mut self, admin_auth: Arc<AdminAuth>) -> Self {
         self.admin_auth = Some(admin_auth);

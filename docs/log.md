@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-08-19（装配 Vault / Infisical secret backend）
+
+- **行为**：顶层 `secrets.vault` / `secrets.infisical`；`serve` 在 MCP `connect_all` 之前调用 `secret_store_from_config`，与 invoke / admin / refresh 共用同一 store。`token_ref` 只允许 `secret://env/...` 或 `secret://file/...`。缺省探测 Vault `/v1/sys/health` 与 Infisical `/api/status`，连不上 fail fast；`probe: false` 可关。
+- **安全**：YAML 不收明文 token；`VaultConfig` / `InfisicalConfig` 手写 Debug 脱敏。
+- **测试**：配置解析；引导 ref 拒绝嵌套 vault；file token + `probe: false` 装配；wiremock 健康探测后 `secret://vault/...` 可读。
+- **文档**：[Configuration Schema](runtime/config-schema.md) Secrets 节；[Architecture](architecture/architecture.md) 模块表与 Credential Vault；[Compatibility Policy](architecture/compatibility-policy.md)；根 `README.md`；[Roadmap](product/roadmap.md)。
+- **验证**：`just check`。
+
 ## 2026-08-19（配额失败退还累计/日配额）
 
 - **行为**：`admit` 通过后 `record_call`；invoke 最终失败（上游错误、超时、连接失败、准入后 secret 解析失败、MCP 传输失败）由 `CallQuotaGuard` Drop 调用 `refund_call`，退还 `max_calls` 与同日 `max_calls_per_day`。成功路径 `commit` 不退还。GCRA rps/rpm 不可退还；并发槽仍由 `QueuePermit` Drop 归还。远程 MCP `is_error` 视为协议完成，不退还。

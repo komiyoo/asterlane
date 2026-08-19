@@ -4,7 +4,7 @@ use crate::error::{AsterlaneError, ErrorCode};
 use crate::integrity::IntegrityPolicy;
 use crate::render::ResponseFormat;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GatewayConfig {
     #[serde(default)]
     pub defaults: GatewayDefaults,
@@ -17,6 +17,9 @@ pub struct GatewayConfig {
     /// 观测配置：请求负载捕获开关与截断预算（见 docs/admin/tool-debugging-and-cli.md）。
     #[serde(default)]
     pub observability: ObservabilityConfig,
+    /// Vault / Infisical 装配（可选）。缺省只启用 env 与 file backend。
+    #[serde(default)]
+    pub secrets: SecretsConfig,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     /// 平台内置 MCP preset 启用列表，加载后展开进 `mcp_servers`
@@ -58,6 +61,67 @@ fn default_capture_payloads() -> bool {
 
 fn default_capture_max_bytes() -> usize {
     4096
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_vault_mount() -> String {
+    "secret".to_string()
+}
+
+fn default_infisical_environment() -> String {
+    "prod".to_string()
+}
+
+/// 远程 secret backend 装配（见 docs/runtime/config-schema.md Secrets）。
+///
+/// 缺省 `None`：只启用 env 与 file。`token_ref` 必须是 `secret://env/...`
+/// 或 `secret://file/...`，禁止明文 token、禁止用 vault/infisical 解析自身凭据。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecretsConfig {
+    #[serde(default)]
+    pub vault: Option<VaultSecretsConfig>,
+    #[serde(default)]
+    pub infisical: Option<InfisicalSecretsConfig>,
+}
+
+/// HashiCorp Vault KV v2 装配配置。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VaultSecretsConfig {
+    /// Vault 地址；缺省读 `VAULT_ADDR`，再缺省 `http://127.0.0.1:8200`。
+    #[serde(default)]
+    pub address: Option<String>,
+    /// 引导 token 的 secret ref（仅 env / file）。
+    pub token_ref: String,
+    /// KV v2 mount，缺省 `secret`。
+    #[serde(default = "default_vault_mount")]
+    pub mount: String,
+    /// KV data map 内的键；缺省 `"value"`。
+    #[serde(default)]
+    pub key: Option<String>,
+    /// 启动时探测 `/v1/sys/health`；缺省 true。
+    #[serde(default = "default_true")]
+    pub probe: bool,
+}
+
+/// Infisical 装配配置。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InfisicalSecretsConfig {
+    /// API 地址；缺省读 `INFISICAL_API_URL`，再缺省 `https://app.infisical.com`。
+    #[serde(default)]
+    pub address: Option<String>,
+    /// 引导 token 的 secret ref（仅 env / file）。
+    pub token_ref: String,
+    /// Workspace / project ID。
+    pub workspace_id: String,
+    /// Environment slug，缺省 `prod`。
+    #[serde(default = "default_infisical_environment")]
+    pub environment: String,
+    /// 启动时探测 `/api/status`；缺省 true。
+    #[serde(default = "default_true")]
+    pub probe: bool,
 }
 
 /// Admin API 认证配置（见 docs/admin/admin-console.md）。
@@ -790,5 +854,46 @@ proxy_keys:
         }
         // 未静默生成坏 server
         assert!(config.mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn secrets_section_defaults_to_none() {
+        let config = parse("api_resources: []");
+        assert!(config.secrets.vault.is_none());
+        assert!(config.secrets.infisical.is_none());
+    }
+
+    #[test]
+    fn secrets_vault_parses_token_ref_and_defaults() {
+        let config = parse(
+            r#"
+secrets:
+  vault:
+    token_ref: secret://env/VAULT_TOKEN
+"#,
+        );
+        let vault = config.secrets.vault.expect("vault");
+        assert_eq!(vault.token_ref, "secret://env/VAULT_TOKEN");
+        assert_eq!(vault.mount, "secret");
+        assert!(vault.probe);
+        assert!(vault.address.is_none());
+    }
+
+    #[test]
+    fn secrets_infisical_parses_workspace() {
+        let config = parse(
+            r#"
+secrets:
+  infisical:
+    token_ref: secret://file/run/infisical-token
+    workspace_id: ws-1
+    environment: dev
+    probe: false
+"#,
+        );
+        let inf = config.secrets.infisical.expect("infisical");
+        assert_eq!(inf.workspace_id, "ws-1");
+        assert_eq!(inf.environment, "dev");
+        assert!(!inf.probe);
     }
 }

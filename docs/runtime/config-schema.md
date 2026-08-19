@@ -18,6 +18,7 @@ schema_version: 1
 defaults: {}
 admin: {}
 semantic_search: {}   # 可选
+secrets: {}           # 可选；Vault / Infisical
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -58,6 +59,28 @@ semantic_search:
 ```
 
 配置后 `asterlane__search_tools` 按查询与工具文本的余弦相似度排序；缺省走关键词打分。端点故障运行期自动回退关键词，不影响发现可用性。`api_key_ref` 启动时解析一次并 fail fast。**注意数据出境**：工具名称/描述与搜索 query 会发送到该端点（详见 [API Discovery – Semantic Search](api-discovery.md)）。
+
+## Secrets
+
+可选。缺省只启用 `secret://env/...` 与 `secret://file/...`。配置 Vault / Infisical 后，`serve` 在连接上游 MCP 之前装配对应 backend，并（缺省）做一次可达性探测；连不上则启动失败。
+
+```yaml
+secrets:
+  vault:
+    address: http://127.0.0.1:8200          # 可选；缺省 VAULT_ADDR，再缺省本机 8200
+    token_ref: secret://env/VAULT_TOKEN     # 必填；只允许 env / file，禁止明文、禁止 secret://vault/...
+    mount: secret                           # KV v2 mount，缺省 secret
+    key: value                              # 可选；KV data map 内的键，缺省 value
+    probe: true                             # 可选；启动探测 GET /v1/sys/health，缺省 true
+  infisical:
+    address: https://app.infisical.com      # 可选；缺省 INFISICAL_API_URL
+    token_ref: secret://file/run/infisical-token
+    workspace_id: ws_example                # 必填
+    environment: prod                       # 缺省 prod
+    probe: true                             # 启动探测 GET /api/status
+```
+
+`secret://vault/<path>` 读 Vault KV v2：`GET {address}/v1/{mount}/data/{path}`。`secret://infisical/<name>` 读 Infisical：`GET {address}/api/v3/secrets/raw/{name}`。引导 token 不得再走 vault/infisical，避免循环依赖。无缓存 / TTL / 轮换仍是后续项。
 
 # API Resources
 

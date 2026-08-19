@@ -9,7 +9,7 @@ use crate::secrets::secret_ref::SecretRef;
 use serde::Deserialize;
 
 /// Infisical connection configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct InfisicalConfig {
     /// Infisical API address (e.g. `https://app.infisical.com`).
     /// Falls back to `INFISICAL_API_URL` env var.
@@ -21,6 +21,17 @@ pub struct InfisicalConfig {
     pub workspace_id: String,
     /// Environment slug (e.g. `dev`, `prod`). Default: `prod`.
     pub environment: String,
+}
+
+impl std::fmt::Debug for InfisicalConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InfisicalConfig")
+            .field("address", &self.address)
+            .field("token", &"<redacted>")
+            .field("workspace_id", &self.workspace_id)
+            .field("environment", &self.environment)
+            .finish()
+    }
 }
 
 impl Default for InfisicalConfig {
@@ -108,5 +119,8 @@ mod tests {
             environment: "dev".to_string(),
         };
         assert_eq!(config.environment, "dev");
+        let debug = format!("{config:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("test-token"));
     }
 }

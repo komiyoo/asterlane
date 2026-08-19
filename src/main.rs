@@ -222,20 +222,32 @@ async fn serve(args: ServeArgs) -> Result<()> {
     };
     expand_builtin(&mut config, &config_path)?;
 
+    // secret store 在 MCP connect 之前装配，使 secret://vault 与 secret://infisical
+    // 在启动连上游与运行期 invoke 走同一套 backend。
+    let secrets = Arc::new(
+        asterlane::secrets::secret_store_from_config(&config)
+            .await
+            .context("failed to assemble secret backends")?,
+    );
+    info!(
+        vault = config.secrets.vault.is_some(),
+        infisical = config.secrets.infisical.is_some(),
+        "secret backends assembled"
+    );
+
     let mut catalog = ToolCatalog::from_config(&config)?;
     // registry 始终初始化：即便零 MCP 配置也建空 registry，使运行时经 admin API
     // 添加/启用首个 MCP server 无需重启即生效（connect_all(&[]) 即空 registry；
     // 修复"零 MCP 配置启动 → 在线加首个 server 报 503"的已知边界）。
-    let registry = asterlane::mcp::McpServerRegistry::connect_all(
-        &config.mcp_servers,
-        Arc::new(asterlane::secrets::DefaultSecretStore::with_backends()),
-    )
-    .await
-    .context("failed to connect remote MCP servers")?;
+    let registry =
+        asterlane::mcp::McpServerRegistry::connect_all(&config.mcp_servers, secrets.clone())
+            .await
+            .context("failed to connect remote MCP servers")?;
     catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
     let mcp_registry = Some(Arc::new(registry));
-    let mut state =
-        asterlane::http::AppState::new(config, catalog).with_metrics_handle(prometheus_handle);
+    let mut state = asterlane::http::AppState::new(config, catalog)
+        .with_metrics_handle(prometheus_handle)
+        .with_secrets(secrets);
     if let Some(registry) = &mcp_registry {
         state = state.with_mcp_registry(registry.clone());
     }

@@ -41,7 +41,7 @@ The original product requirements are preserved in [Product Requirements](../pro
 | `policy` | gateway key scope 与请求级收窄。 | 已实现 |
 | `catalog` | 工具目录构建、过滤、分页、metadata。 | 已实现（含 MCP + OpenAPI） |
 | `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现（23 错误码） |
-| `secrets` | secret ref 解析与脱敏。 | env/file 已接线；Vault/Infisical 后端已实现但 serve 未装配，见 [Roadmap](../product/roadmap.md) |
+| `secrets` | secret ref 解析与脱敏。 | env/file 默认启用；Vault/Infisical 经 `secrets.vault` / `secrets.infisical` 装配 |
 | `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线） |
 | `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |
 | `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
@@ -113,7 +113,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 # Credential Vault
 
 - 配置只存 secret ref（`secret://provider/name`），不存明文。
-- 第一阶段支持 env 与本地文件引用；后续扩展 Vault/Infisical/云 KMS。
+- env 与本地文件始终可用；Vault KV v2 与 Infisical 通过顶层 `secrets` 节装配（`token_ref` 必须是 env/file 引导凭据）。云 KMS 仍为后续方向。
 - 明文只在写入上游 Authorization header 的瞬间 `expose_secret`，其余时刻为 `SecretString`。
 - 限流器、日志、指标中 key 以 `KeyId`（哈希/序号）索引，不以明文做键——纠正 NyaProxy 的反模式（`{api}_key_{sk-xxx}`）。
 

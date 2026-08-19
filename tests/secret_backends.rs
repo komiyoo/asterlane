@@ -196,3 +196,43 @@ async fn default_store_infisical_unconfigured_returns_error() {
     let err = store.resolve(&secret_ref).await.unwrap_err();
     assert!(err.to_string().contains("infisical backend not configured"));
 }
+
+#[tokio::test]
+async fn from_config_probes_vault_health_then_resolves() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/sys/health"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "initialized": true })))
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/app/key"))
+        .and(header("X-Vault-Token", "s.probe-token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "data": { "value": "from-assembled-vault" }, "metadata": {} }
+        })))
+        .mount(&mock)
+        .await;
+
+    std::fs::create_dir_all("target").expect("target dir");
+    std::fs::write("target/asterlane-test-vault-probe-token", "s.probe-token")
+        .expect("write token");
+
+    let yaml = format!(
+        r#"
+secrets:
+  vault:
+    address: {}
+    token_ref: secret://file/target/asterlane-test-vault-probe-token
+    probe: true
+"#,
+        mock.uri()
+    );
+    let config: asterlane::GatewayConfig = serde_norway::from_str(&yaml).expect("yaml");
+    let store = asterlane::secrets::secret_store_from_config(&config)
+        .await
+        .expect("assemble");
+    let secret_ref = SecretRef::from_str("secret://vault/app/key").unwrap();
+    let result = store.resolve(&secret_ref).await.unwrap();
+    assert_eq!(result.expose_secret(), "from-assembled-vault");
+}

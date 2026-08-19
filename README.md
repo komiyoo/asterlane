@@ -8,7 +8,7 @@
 
 ## 能力概览
 
-- **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（当前落地 env；Vault / Infisical 后端已实现、启动装配未接线），永不下发给代理
+- **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（env / file；可选 Vault KV v2 与 Infisical），永不下发给代理
 - **内置 MCP preset** — 平台预集成免费 MCP server（exa / deepwiki / context7），一行启用
 - **工具命名与范围** — 稳定三段 wire name `domain__provider__tool`；per-key allow/deny 正则 scope 与结构化勾选
 - **Key 凭据化** — proxy key 真实 token（`alk_*`）签发/轮换/吊销/过期，SHA-256 摘要存储

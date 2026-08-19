@@ -8,15 +8,17 @@
 //! - [`SecretRef`]：解析 `secret://<backend>/<path>` URI
 //! - [`SecretString`]：明文包装类型，`Display` 输出 `<redacted>`
 //! - [`SecretStore`] trait：异步解析 secret ref
-//! - [`DefaultSecretStore`]：按 backend 分发到 [`EnvBackend`] / [`FileBackend`]
+//! - [`DefaultSecretStore`]：按 backend 分发到 env / file，以及可选的 Vault / Infisical
 //! - [`SecretError`]：模块错误，映射到 `auth.missing_upstream_secret`
 
+pub mod assemble;
 pub mod backend;
 pub mod error;
 pub mod infisical;
 pub mod secret_ref;
 pub mod vault;
 
+pub use assemble::secret_store_from_config;
 pub use backend::{DefaultSecretStore, EnvBackend, EnvLookup, FileBackend, StdEnvLookup};
 pub use error::SecretError;
 pub use infisical::{InfisicalBackend, InfisicalConfig};

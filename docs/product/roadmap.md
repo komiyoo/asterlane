@@ -36,7 +36,7 @@ timestamp: 2026-08-19T00:00:00Z
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
 | **上游 MCP 无 OAuth 2.1 运行时**：只支持静态凭据注入 | 定位缺口（最重） | `config::UpstreamAuth` 仅 `None`/`Header`/`Bearer`；`mcp::registry` 的 `transport_config` 据此注入静态头。无 401 `WWW-Authenticate` 挑战处理、无动态客户端注册、无 token 刷新、无 RFC 8707 resource 参数 |
-| **Vault / Infisical 未装配**：后端实现与集成测试都在，但生产起不来 | 兑现差 | `DefaultSecretStore::with_vault` / `with_infisical` 存在且有 `tests/secret_backends.rs` 覆盖，但 `src/main.rs` 的 serve 装配只调 `with_backends()`，且 `GatewayConfig` 无对应配置节；运行时解析 `secret://vault/...` 直接报 backend not configured |
+| **已交付：Vault / Infisical 装配**（2026-08-19） | 兑现差（已清） | `GatewayConfig.secrets` + `secret_store_from_config`：serve 在 MCP connect 前装配；`token_ref` 仅 env/file；缺省探测 `/v1/sys/health` 与 `/api/status` |
 | secret 无缓存 / TTL / 轮换 / 重试 | 生产就绪 | `secrets::vault` 与 `secrets::infisical` 均为单次 HTTP GET |
 | 云 KMS 后端 | 定位缺口（轻） | [Architecture](../architecture/architecture.md) 的 Credential Vault 节列为方向，无代码 |
 
@@ -117,9 +117,8 @@ timestamp: 2026-08-19T00:00:00Z
 
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
-- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / Vault·Infisical / admin CLI 过声称；上游失败退还 `max_calls` / `max_calls_per_day`
+- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换 / admin CLI 过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配
 - 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
-- Vault / Infisical 装配：配置 schema + `main.rs` 按配置调 `with_vault` / `with_infisical`，补启动期可达性校验
 - admin CLI 补齐 resources / proxy-keys / mcp-servers 的写操作（README 已不再声称覆盖全部）
 - `request_events` 保留策略：可配置窗口 + 后台清理任务
 - HTTP 边界：请求体大小上限、请求超时、基础安全响应头

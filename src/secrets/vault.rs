@@ -9,7 +9,7 @@ use crate::secrets::secret_ref::SecretRef;
 use serde::Deserialize;
 
 /// Vault connection configuration.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct VaultConfig {
     /// Vault server address (e.g. `http://127.0.0.1:8200`).
     /// Falls back to `VAULT_ADDR` env var.
@@ -20,6 +20,17 @@ pub struct VaultConfig {
     pub mount: String,
     /// Optional key within the KV data map. If `None`, uses `"value"`.
     pub key: Option<String>,
+}
+
+impl std::fmt::Debug for VaultConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VaultConfig")
+            .field("address", &self.address)
+            .field("token", &"<redacted>")
+            .field("mount", &self.mount)
+            .field("key", &self.key)
+            .finish()
+    }
 }
 
 impl Default for VaultConfig {
@@ -116,5 +127,8 @@ mod tests {
             key: None,
         };
         assert_eq!(config.mount, "secret");
+        let debug = format!("{config:?}");
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("test-token"));
     }
 }

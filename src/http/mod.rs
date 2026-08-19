@@ -142,6 +142,7 @@ mod tests {
             admin: Default::default(),
             semantic_search: None,
             observability: Default::default(),
+            secrets: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: vec![
                 ApiResource {
@@ -251,6 +252,7 @@ mod tests {
             admin: Default::default(),
             semantic_search: None,
             observability: Default::default(),
+            secrets: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
@@ -299,6 +301,7 @@ mod tests {
             admin: Default::default(),
             semantic_search: None,
             observability: Default::default(),
+            secrets: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {

@@ -32,6 +32,7 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | `builtin_mcp` 列表 | 新增（2026-07-05） | `#[serde(default)]`，不配置行为不变；加载后展开进 `mcp_servers`，显式同 id 条目优先（见 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md)） |
 | `observability` 节（负载捕获） | 新增（2026-07-05） | `#[serde(default)]`；缺省 `capture_payloads: true` 为**观测口径变更**——`request_events` 增三列（additive migration，旧库自动迁移）并默认记录参数与响应预览（截断 + 脱敏），合规场景 `capture_payloads: false` 关闭 |
 | proxy key 凭据字段（`token_ref`/`token_digest`/`expires_at`）与 `limits.max_calls_per_day` | 新增（2026-07-06） | `#[serde(default)]`，不配置的 key 维持 legacy id-only 行为；`token_ref` 与 `token_digest` 互斥、摘要格式启动校验 fail fast；任一 key 配 token 后 `/mcp` 切换 Bearer required 模式（见 [Key 凭据与持久化](../runtime/key-credentials-and-persistence.md)） |
+| `secrets` 节（Vault / Infisical 装配） | 新增（2026-08-19） | `#[serde(default)]`，不配置时只启用 env 与 file；`token_ref` 仅允许 `secret://env/...` 或 `secret://file/...` |
 
 ## 配置版本字段
 
