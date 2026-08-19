@@ -151,6 +151,7 @@ mod tests {
             observability: Default::default(),
             secrets: Default::default(),
             http: Default::default(),
+            mcp: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: vec![
                 ApiResource {
@@ -262,6 +263,7 @@ mod tests {
             observability: Default::default(),
             secrets: Default::default(),
             http: Default::default(),
+            mcp: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
@@ -312,6 +314,7 @@ mod tests {
             observability: Default::default(),
             secrets: Default::default(),
             http: Default::default(),
+            mcp: Default::default(),
             builtin_mcp: Vec::new(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {

@@ -94,7 +94,7 @@ api_resources:
 - 上游 `tools/list` 结果缓存在 `moka`（TTL 可配，默认 5 分钟）。当前阶段以 `McpServerRegistry` 内部 `RwLock<Vec<McpServerEntry>>` 持有最新快照，后台周期性 `refresh()`（默认 60s）重拉上游 `tools/list`；moka TTL 缓存为后续优化。
 - 监听上游 `notifications/tools/list_changed`，收到即失效缓存并重拉。当前阶段未接入上游 notify 监听，以周期性 refresh 兜底；未来补充上游 notify 监听以实现即时失效。
 - 网关自身向下游声明 `listChanged = true`。legacy session 仍注册 `Peer` 并 `notify_tool_list_changed`；`2026-07-28` 客户端经 `subscriptions/listen` 收变更。详见 [MCP Protocol](../architecture/mcp-protocol.md)。
-- 上游不可达时降级使用缓存（标记 stale），不阻塞下游 `tools/list`。当前实现：refresh 时上游 `list_tools` 或工具包装失败的 entry 保留上一次成功的 `tools`/`descriptors` 快照，并在 `RefreshResult.failed_server_ids` 标记失败上游，避免临时网络失败污染 integrity baseline。
+- 上游不可达时 refresh 仍保留 stale 快照（`RefreshResult.failed_server_ids` 标记失败上游，避免临时网络失败污染 integrity baseline）。缺省 **FailOpen**：不阻塞下游 `tools/list` / `GET /v1/tools`。配置 `mcp.failure_mode: fail_closed` 时，健康快照中任一 `Unreachable` 则 list 返回 `mcp.upstream_unavailable`，不把 stale 目录当权威结果；`tools/call` 与 `/healthz` 不株连。详见 [Config Schema – MCP 运行时](config-schema.md)。
 
 ### 上游鉴权
 
@@ -166,7 +166,7 @@ meta-tool `asterlane__call_tool` 间接调用已发现工具，参数：
 | `operationId` 缺失 | 回退 `{method}_{path_slug}`，冲突时追加序号 |
 | schema `$ref` 循环 | 限制递归深度，循环引用标记为 `$comment` |
 | spec 过大 | `include_operations`/`include_tags` 裁剪；默认不暴露 DELETE |
-| 上游 MCP `tools/list` 失败 | 降级缓存 + stale 标记；持续失败触发 key 健康降级 |
+| 上游 MCP `tools/list` 失败 | FailOpen：降级缓存 + stale 标记；FailClosed：list 返回 `mcp.upstream_unavailable` |
 | 上游 MCP 工具重名 | provider 段作为命名空间消歧 |
 | OpenAPI spec 版本 | 3.0/3.1 支持；2.0 (Swagger) 需转换，第一阶段不支持 |
 

@@ -50,6 +50,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `limit.*` | `limit.daily_calls_exhausted` | per-key 当日调用配额 `max_calls_per_day` 耗尽（UTC 零点重置） | "daily call quota exhausted for this key" |
 | `mcp.*` | `mcp.invalid_tool_call` | 参数不合法 | "invalid tool call arguments" |
 | `mcp.*` | `mcp.upstream_mcp_failure` | 上游 MCP server 失败 | "upstream MCP server error" |
+| `mcp.*` | `mcp.upstream_unavailable` | FailClosed：至少一个 MCP 上游 `Unreachable`，拒绝把 stale 目录当权威结果 | "one or more MCP upstreams are unreachable" |
 | `transform.*` | `transform.dangerous_header` | 变换规则尝试设置危险 header | "transform rule targets protected header" |
 | `transform.*` | `transform.invalid_pointer` | JSON Pointer 路径不合法 | "invalid transform pointer: {detail}" |
 | `admin.*` | `admin.unauthorized` | admin token 缺失或不匹配 | "missing or invalid admin token" |
@@ -91,6 +92,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `store.*` | 503 |
 | `proxy.upstream_timeout` / `proxy.connection_failed` | 504 |
 | `mcp.upstream_mcp_failure` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
+| `mcp.upstream_unavailable` | 503 |
 | `limit.quota_exceeded` / `limit.calls_exhausted` | 429（`calls_exhausted` 无 Retry-After） |
 | `limit.daily_calls_exhausted` | 429（Retry-After = 距下个 UTC 零点秒数） |
 | `limit.queue_full` / `limit.queue_timeout` | 503 |

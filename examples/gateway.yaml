@@ -22,6 +22,12 @@ admin:
 #   max_body_bytes: 1048576
 #   request_timeout_secs: 30
 
+# MCP 运行时（可选）：缺省 FailOpen、60s 刷新、tools/list ttl 60000ms。
+# mcp:
+#   failure_mode: fail_open          # fail_open | fail_closed
+#   refresh_interval_secs: 60        # 0 = 不启动后台 refresh
+#   tools_list_ttl_ms: 60000         # 0 = 不设 ttlMs
+
 # 观测（可选）：负载捕获缺省开启；request_events 缺省保留 14 天。
 # observability:
 #   capture_payloads: true
