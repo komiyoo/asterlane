@@ -1,6 +1,6 @@
 //! MCP 模块错误类型与边界映射。
 //!
-//! 设计依据见 `docs/architecture/error-model.md`。`McpError` 描述 MCP adapter 边界的
+//! 设计依据见 `docs/architecture/error-model.md`。`McpError` 描述 MCP 模块
 //! 错误，通过 `From<McpError> for AsterlaneError` 接入顶层错误，映射到
 //! `AsterlaneError::Internal { code, message }`（见 `src/error.rs`）。
 //!
@@ -8,15 +8,14 @@
 //! - `UnknownTool` → `catalog.unknown_tool` → JSON-RPC `-32601`（Method not found）
 //! - `InvalidToolCall` → `mcp.invalid_tool_call` → JSON-RPC `-32602`（Invalid params）
 //! - `Secret` → `auth.missing_upstream_secret`
-//! - `UpstreamNotImplemented` / `UpstreamFailure` → `mcp.upstream_mcp_failure`
-//!   → tool result `isError: true`
+//! - `UpstreamFailure` → `mcp.upstream_mcp_failure` → tool result `isError: true`
 //! - `UnknownServer` → `admin.not_found`（治理路径 404，不进 JSON-RPC 边界）
 
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::secrets::SecretError;
 use thiserror::Error;
 
-/// MCP adapter 边界错误。
+/// MCP 模块错误。
 ///
 /// 构造时不携带明文密钥、Authorization header 或上游原始响应体；
 /// `Display` 输出为可安全展示的脱敏消息。
@@ -33,13 +32,6 @@ pub enum McpError {
     /// 映射到 `mcp.invalid_tool_call` → JSON-RPC `-32602`。
     #[error("invalid tool call: {detail}")]
     InvalidToolCall { detail: String },
-
-    /// 上游调用尚未实现（proxy executor 待后续 phase 接入）。
-    ///
-    /// 第一阶段占位：`call_tool` 解析 wire name 后无法实际转发。
-    /// 映射到 `mcp.upstream_mcp_failure` → tool result `isError: true`。
-    #[error("upstream call not implemented for tool: {wire_name}")]
-    UpstreamNotImplemented { wire_name: String },
 
     /// 上游 MCP server 调用失败（超时、连接错误、4xx/5xx 等）。
     ///
@@ -74,12 +66,6 @@ impl McpError {
         }
     }
 
-    pub fn upstream_not_implemented(wire_name: impl Into<String>) -> Self {
-        Self::UpstreamNotImplemented {
-            wire_name: wire_name.into(),
-        }
-    }
-
     pub fn upstream_failure(detail: impl Into<String>) -> Self {
         Self::UpstreamFailure {
             detail: detail.into(),
@@ -109,10 +95,6 @@ impl From<McpError> for AsterlaneError {
             McpError::InvalidToolCall { detail } => (
                 ErrorCode::McpInvalidToolCall,
                 format!("invalid tool call: {detail}"),
-            ),
-            McpError::UpstreamNotImplemented { wire_name } => (
-                ErrorCode::McpUpstreamMcpFailure,
-                format!("upstream call not implemented for tool: {wire_name}"),
             ),
             McpError::UpstreamFailure { detail } => (
                 ErrorCode::McpUpstreamMcpFailure,
@@ -145,14 +127,6 @@ mod tests {
         let err = AsterlaneError::from(McpError::invalid_tool_call("missing arguments"));
         assert_eq!(err.error_code(), ErrorCode::McpInvalidToolCall);
         assert_eq!(err.exit_code(), 4); // mcp → 4
-    }
-
-    #[test]
-    fn upstream_not_implemented_maps_to_mcp_upstream_failure() {
-        let err = AsterlaneError::from(McpError::upstream_not_implemented(
-            "search__tavily__web_search",
-        ));
-        assert_eq!(err.error_code(), ErrorCode::McpUpstreamMcpFailure);
     }
 
     #[test]
@@ -200,19 +174,6 @@ mod tests {
                 assert!(msg.contains("invalid tool call"));
             }
             other => panic!("expected JsonRpc -32602, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn boundary_upstream_not_implemented_becomes_tool_result_is_error() {
-        let err = AsterlaneError::from(McpError::upstream_not_implemented(
-            "search__tavily__web_search",
-        ));
-        match err.mcp_error() {
-            McpErrorForm::ToolResultIsError(msg) => {
-                assert!(msg.contains("not implemented"));
-            }
-            other => panic!("expected ToolResultIsError, got {other:?}"),
         }
     }
 

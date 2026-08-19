@@ -241,7 +241,9 @@ gateway-facing key 是 agent 或应用身份。每个 key 有自己的 tool scop
 
 # 当前实现状态
 
-当前 MVP 已实现：
+本节原为 2026-07-03 的 MVP 快照，**不再描述现行能力**。截至 2026-08-19，Phase 1–6 主体与 Phase 7 生产护栏已交付。现行缺口与排期见 [Roadmap](roadmap.md)；命令与能力概览见仓库根 `README.md`。
+
+历史 MVP 清单（对照用，不代表现在）：
 
 - Rust crate 与 CLI 项目骨架。
 - YAML 配置模型。
@@ -257,7 +259,7 @@ gateway-facing key 是 agent 或应用身份。每个 key 有自己的 tool scop
 本文件保留原始需求作为历史记录。以下条目已被后续架构决策文档 supersede：
 
 - **MCP tool 命名格式**：原始需求采用冒号四段 `domain:provider:tool:method`。经两轮演进：(1) 冒号改为双下划线（MCP/LLM API 字符集限制）；(2) 移除 `method` 段（HTTP method 为路由细节，MCP 代理固定 `call`，信息量为零）。当前格式为三段 `domain__provider__tool`。详见 [Naming Convention](../architecture/naming-convention.md)。
-- **crate 选型**：`serde_yaml` 已 archived，改选 `serde_norway`；MCP SDK 确定为 `rmcp` 2.1。详见 [Crate Selection](../architecture/crate-selection.md)。
+- **crate 选型**：`serde_yaml` 已 archived，改选 `serde_norway`；MCP SDK 为官方 `rmcp` 3.x。详见 [Crate Selection](../architecture/crate-selection.md)。
 - **错误系统、可观测性、API 发现、兼容性**：分别见 [Error Model](../architecture/error-model.md)、[Observability](../architecture/observability.md)、[API Discovery](../runtime/api-discovery.md)、[Compatibility Policy](../architecture/compatibility-policy.md)。
 
 # 竞品借鉴：Toolport（2026-07-04）

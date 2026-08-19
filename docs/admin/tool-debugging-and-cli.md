@@ -9,7 +9,7 @@ timestamp: 2026-07-23T00:00:00+08:00
 
 # 背景
 
-四个相关能力一并设计，任务拆解见根目录 `task.md`：
+四个相关能力一并设计。现行排期见 [Roadmap](../product/roadmap.md)：
 
 1. 平台内置免费 MCP server（如 Exa hosted MCP），一行配置即可启用。
 2. 每个工具可配置默认调用参数，供控制台/CLI 发起调试调用；默认参数可由 AI 经 admin API 或 CLI 写入，也可从实际调用中保存。

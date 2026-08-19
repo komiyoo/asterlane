@@ -99,15 +99,9 @@ timestamp: 2026-08-19T00:00:00Z
 
 ## 横切：技术债与文档腐烂
 
-| 项 | 证据 |
-| --- | --- |
-| 占位死代码：`mcp::adapter::PlaceholderAdapter`、`mcp::model::UpstreamToolMapping`、`GatewayToolSource` 仅测试引用；真实映射在 `mcp::registry` 的 `wrap_tools` 写入 `WrappedTool.upstream_path` | 生产路径已 bypass，注释仍称「第一阶段占位」 |
-| `mcp` 模块注释称「不引入 rmcp」，实际已依赖 rmcp 3.x | `src/mcp/mod.rs`、`src/mcp/adapter.rs` |
-| `discovery::handle_meta_tool_call` 对 `call_tool` / `fetch_result` 仍返回占位错误 | 生产路径在 `mcp::server` 与 `http::routes` 提前分流，占位分支误导直接调用方 |
-| 根目录 `task.md` 被 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md) 与 [Log](../log.md) 引用，文件不存在 | 失效引用 |
-| [Product Requirements](product-requirements.md) 的「当前实现状态」仍描述 MVP 骨架 | 与实际能力差距极大 |
-| 根 `README.md` 能力概览 | 2026-08-19 已下调请求变换的过声称；admin CLI 写覆盖已于同日补齐 |
-| [Admin Console](../admin/admin-console.md) 称 Key Pools 页依赖未接线能力；[MCP Governance & Key Limits](../runtime/mcp-governance-and-key-limits.md) 背景节称 limits 未接线 | 均已交付，背景段落未回填 |
+截至 2026-08-19 已清：删除 `PlaceholderAdapter` / `GatewayToolSource` / `UpstreamToolMapping`；`mcp` 模块注释对齐 rmcp 3.x；`handle_meta_tool_call` 对 invoke 管线名字返回 `mcp.invalid_tool_call`；PRD「当前实现状态」改为历史快照并指向本文件；[Admin Console](../admin/admin-console.md) 与 [MCP Governance & Key Limits](../runtime/mcp-governance-and-key-limits.md) 回填已交付现状；[Tool Debugging & CLI](../admin/tool-debugging-and-cli.md) 不再引用 gitignore 的 `task.md`。根 `README.md` 请求变换过声称已于同日下调。
+
+剩余兑现差只剩请求变换接线或删除（见 Phase 7）。
 
 # 分阶段规划
 
@@ -117,9 +111,8 @@ timestamp: 2026-08-19T00:00:00Z
 
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
-- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）；admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作；`request_events` 可配置保留窗口 + 后台清理；容器非 root + HEALTHCHECK
+- **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）；admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作；`request_events` 可配置保留窗口 + 后台清理；容器非 root + HEALTHCHECK；文档去腐（删除 MCP 占位死代码、回填 PRD/控制台/治理文档、去掉对 gitignore `task.md` 的现行引用）
 - 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
-- 文档去腐：修正上节「技术债与文档腐烂」全部条目，删除占位死代码
 
 **准出**：`rg` 全库无「文档承诺但生产路径零引用」的能力；容器以非 root 启动且 healthcheck 通过；连续写入压测下 `request_events` 表体积收敛。
 

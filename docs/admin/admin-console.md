@@ -4,7 +4,7 @@ title: Admin Console
 description: Web 管理控制台的形态决策、页面地图、admin API 缺口清单与分阶段路线。
 resource: docs/admin/admin-console.md
 tags: [admin, console, ui, observability, design]
-timestamp: 2026-07-06T00:00:00Z
+timestamp: 2026-08-19T00:00:00Z
 ---
 
 # 定位
@@ -71,7 +71,7 @@ admin:
 | 审计 | AdminAudit 审计流水（时间/admin_key_id/action/target），预置 kind=admin_audit，沿用事件页分页；非法 kind 400 `admin.invalid_query` | `/admin/security-events?kind=` | 已上线（C6，2026-07-06） |
 | Config（导出） | 「导出 YAML」按钮：当前合并快照（`text/yaml`，只含 secret ref 与 token 摘要，无明文密钥） | `GET /admin/config/export` | 已上线（C6，2026-07-06） |
 
-除 Key Pools（依赖尚未接线的运行时能力）外，覆盖 [Architecture – Admin Console](../architecture/architecture.md) 第一阶段最小集。
+已覆盖 [Architecture – Admin Console](../architecture/architecture.md) 第一阶段最小集，含 Key Pools。
 
 # 分阶段路线
 

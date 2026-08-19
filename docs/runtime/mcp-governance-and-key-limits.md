@@ -4,12 +4,14 @@ title: MCP 治理与 Key 限额
 description: MCP 供应商可观测/可管理（详情页、测活、工具介绍、上游限额）与 key 分发的结构化范围选择、rps/rpm/调用次数限额的需求梳理与设计契约。
 resource: docs/runtime/mcp-governance-and-key-limits.md
 tags: [mcp, admin, console, limits, keys, health, governance]
-timestamp: 2026-07-22T00:00:00+08:00
+timestamp: 2026-08-19T00:00:00+08:00
 ---
 
 # 背景
 
-控制台（C0–C4，见 [Admin Console](../admin/admin-console.md)）已覆盖只读观测、CRUD 与工具调试，但 MCP 供应商维度的治理能力缺失。运维痛点：
+本文是 2026-07 的设计契约。下列条目是设计时的运维痛点；C5 / 限额切片交付后，以「需求清单」表的现状列为准。
+
+控制台（C0–C4，见 [Admin Console](../admin/admin-console.md)）当时已覆盖只读观测、CRUD 与工具调试，但 MCP 供应商维度的治理仍缺：
 
 - 看不到配置了哪些 MCP 供应商：`/admin/resources` 只列 `api_resources`，`mcp_servers` 没有任何列表/详情端点（仅 `/admin/mcp-presets` 展示内置 preset 目录）。
 - 无法设定某个 MCP 是否需要 key（auth 形态不可见、不可改——mcp_servers 无 CRUD）。
@@ -20,19 +22,19 @@ timestamp: 2026-07-22T00:00:00+08:00
 
 # 需求清单与现状差距
 
-| # | 需求 | 现状 | 差距 |
+| # | 需求 | 现状（截至 2026-08-19） | 差距 |
 | --- | --- | --- | --- |
-| R1 | 观察全部已配置 MCP 供应商，含 auth 形态（是否需要 key）与来源（builtin/显式） | 无 `/admin/mcp-servers` | 新列表+详情端点、控制台页面 |
-| R2 | 每个 MCP 可设定是否测活；健康状态可见；单服务器故障不拖垮网关 | 启动硬失败；无健康状态 | registry 降级启动、健康快照、按需探测、`health_check` 配置 |
-| R3 | MCP 详情页列出全部工具，每个工具可调试 | 调试调用已交付（C4，`POST /admin/tools/{name}/invoke`） | 详情页按 server 聚合工具视图（复用 C4 调试） |
-| R4 | 每个工具支持编写介绍（覆盖上游 description） | 无 | `tool_metadata` 存储 + admin API + catalog 合并 |
-| R5 | 配置上游频率限制（api_resources 与 mcp_servers） | 骨架未接线 | `limits` 配置节 + 按实体独立 quota + 执行管线 enforcement |
-| R6 | 分发 key 时按 MCP/工具勾选范围；per-key rps/rpm/调用次数限额 | 仅正则 scope；无 per-key 限额 | ProxyKey 结构化范围字段 + `limits` 字段 + policy/enforcement |
+| R1 | 观察全部已配置 MCP 供应商，含 auth 形态（是否需要 key）与来源（builtin/显式） | `GET/POST /admin/mcp-servers` 与控制台 MCP Servers 页已交付 | 无 |
+| R2 | 每个 MCP 可设定是否测活；健康状态可见；单服务器故障不拖垮网关 | 降级启动、健康快照、`probe`、`health_check` 已交付 | 无 |
+| R3 | MCP 详情页列出全部工具，每个工具可调试 | 详情页按 server 聚合工具并复用 C4 调试 | 无 |
+| R4 | 每个工具支持编写介绍（覆盖上游 description） | `tool_metadata` + admin API + catalog overlay 已交付 | 无 |
+| R5 | 配置上游频率限制（api_resources 与 mcp_servers） | `limits` 配置节 + `LimitRegistry` + 执行管线 enforcement 已交付 | 无 |
+| R6 | 分发 key 时按 MCP/工具勾选范围；per-key rps/rpm/调用次数限额 | `allowed_servers` / `allowed_tool_names` / `KeyLimits`（含 `max_calls` 与 `max_calls_per_day`）已交付 | 无 |
 
 # 非目标
 
 - 不做 `api_resources`（HTTP API 上游）的测活：HTTP 上游无统一探活协议，等出现真实需求再定义 per-resource probe。
-- 不做 per-key 按日/按月窗口配额：`max_calls` 为累计配额；窗口化配额留待需求。
+- 不做 per-key 按月窗口配额；按日配额 `max_calls_per_day` 已交付，`max_calls` 仍为累计配额。
 - 不做分布式限流与多实例健康共识：限流计数与健康状态为单实例内存态（`max_calls` 借 store 事件计数跨重启恢复）。
 - 不做多管理员 RBAC、SSE 实时推送（沿用 admin-console 远期清单）。
 - 不改变「上游凭据只以 secret ref 出现」的红线：CRUD 输入与响应永不含明文密钥。

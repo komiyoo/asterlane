@@ -7,7 +7,7 @@
 
 use crate::catalog::ToolCatalog;
 use crate::config::{GatewayConfig, ProxyKey};
-use crate::error::AsterlaneError;
+use crate::error::{AsterlaneError, ErrorCode};
 use crate::mcp::model::{ToolCallResult, ToolDescriptor};
 use crate::semantic::SemanticIndex;
 use serde_json::{Value, json};
@@ -138,9 +138,12 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
     ]
 }
 
-/// 处理 meta-tool 调用。
+/// 处理 `asterlane__status` / `asterlane__search_tools`。
 ///
-/// 调用方须先用 `is_meta_tool` 判定后再进入此函数。
+/// 调用方须先用 `is_meta_tool` 判定。`asterlane__call_tool` 与
+/// `asterlane__fetch_result` 依赖执行管线（`ProxyExecutor`、result cache），
+/// 由 `http::routes` 与 `mcp::server` 在进入本函数之前分流。直接传入这两个
+/// 名字返回 `mcp.invalid_tool_call`，而不是占位「尚未接线」。
 pub fn handle_meta_tool_call(
     name: &str,
     args: Value,
@@ -151,9 +154,11 @@ pub fn handle_meta_tool_call(
     match name {
         STATUS => handle_status(catalog, config, proxy_key),
         SEARCH_TOOLS => handle_search(args, catalog, proxy_key),
-        CALL_TOOL => Ok(ToolCallResult::text_error("proxy dispatch not yet wired")),
-        FETCH_RESULT => Ok(ToolCallResult::text_error(
-            "result shaping not yet implemented",
+        CALL_TOOL | FETCH_RESULT => Err(AsterlaneError::internal(
+            ErrorCode::McpInvalidToolCall,
+            format!(
+                "{name} is dispatched by the HTTP/MCP invoke pipeline; this helper only serves asterlane__status and asterlane__search_tools"
+            ),
         )),
         _ => Ok(ToolCallResult::text_error(format!(
             "unknown meta-tool: {name}"
@@ -450,6 +455,23 @@ mod tests {
         let items: Vec<Value> = serde_json::from_str(&text).unwrap();
         // Empty query matches everything visible (only tavily for this key)
         assert_eq!(items.len(), 1);
+    }
+
+    #[test]
+    fn handle_meta_tool_call_rejects_invoke_pipeline_names() {
+        let config = test_config();
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let key = config.proxy_key("agent-1").unwrap();
+
+        let call_err =
+            handle_meta_tool_call(CALL_TOOL, json!({}), &catalog, &config, key).unwrap_err();
+        assert_eq!(call_err.error_code(), ErrorCode::McpInvalidToolCall);
+        assert!(!call_err.to_string().contains("not yet wired"));
+
+        let fetch_err =
+            handle_meta_tool_call(FETCH_RESULT, json!({}), &catalog, &config, key).unwrap_err();
+        assert_eq!(fetch_err.error_code(), ErrorCode::McpInvalidToolCall);
+        assert!(!fetch_err.to_string().contains("not yet implemented"));
     }
 
     #[test]

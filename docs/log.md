@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-08-19（文档去腐与删除 MCP 占位死代码）
+
+- **行为**：删除仅测试引用的 `PlaceholderAdapter`、`GatewayToolSource`、`UpstreamToolMapping` 与 `McpError::UpstreamNotImplemented`。上游原始名仍由 `wrap_tools` 写入 `WrappedTool.upstream_path`。`handle_meta_tool_call` 对 `asterlane__call_tool` / `asterlane__fetch_result` 返回 `mcp.invalid_tool_call`（生产路径仍由 HTTP/MCP invoke 管线分流）。
+- **文档**：[Product Requirements](product/product-requirements.md)「当前实现状态」改为历史快照；[Admin Console](admin/admin-console.md) 与 [MCP Governance](runtime/mcp-governance-and-key-limits.md) 回填已交付；[Naming Convention](architecture/naming-convention.md) 剥前缀指向 `wrap_tools`；[Tool Debugging & CLI](admin/tool-debugging-and-cli.md) 不再引用 gitignore 的 `task.md`；[Roadmap](product/roadmap.md) Phase 7 文档去腐已交付。
+- **验证**：`just check`。
+
 ## 2026-08-19（容器非 root 与 HEALTHCHECK）
 
 - **行为**：`Dockerfile` 运行用户 `asterlane`（uid/gid 10001），工作目录 `/var/lib/asterlane`；`HEALTHCHECK` 用 `curl` 探 `GET /healthz`。配置仍须挂载，镜像不打包 `examples/`。

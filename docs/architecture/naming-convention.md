@@ -102,7 +102,7 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 
 ## 上游转发剥前缀
 
-网关在 `tools/call` 转发到上游 MCP server 前，必须剥掉命名空间前缀，恢复上游原始工具名。Docker mcp-gateway 曾因原样转发带前缀名导致上游 "tool not found"（PR #278 修复）。catalog 层维护 `(公开 wire name ↔ 上游 server + 原始名)` 的双向映射。
+网关在 `tools/call` 转发到上游 MCP server 前，必须剥掉命名空间前缀，恢复上游原始工具名。Docker mcp-gateway 曾因原样转发带前缀名导致上游 "tool not found"（PR #278 修复）。真实映射在 `mcp::registry` 的 `wrap_tools`：上游原始名写入 `WrappedTool.upstream_path`，invoke 时按该字段调用，不从 wire name 拆段猜测。
 
 ## discovery alias
 
