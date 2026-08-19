@@ -97,10 +97,11 @@ http:
 - 请求体上限作用于全部路径（含 `/mcp`），超限返回 `http.body_too_large`（413）。
 - 请求超时只套 REST（`/config`、`/v1/*`）与 `/admin/*`，**不**套 `/mcp`、`/healthz`、`/versionz`、`/metrics`，以免掐断 Streamable HTTP 会话。超时返回 `http.timeout`（408）。这与 proxy 执行层的上游超时（`proxy.upstream_timeout`，504）是两道独立护栏。
 - 所有响应（含错误）附加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`。进程内不终止 TLS，因此不设 HSTS。
+- 每个入站请求在进入 handler 前生成 `request_id`（`req_` + 进程内递增）；若带 `X-Request-Id` / `X-Request-ID`（最长 64 字符，去掉控制字符）则采用该值。HTTP 错误 JSON 的 `error.request_id` 与 tracing span 字段同名同值。
 
 ## Observability
 
-可选。负载捕获见 [Observability](../architecture/observability.md) 与 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md)。`request_event_retention_days` 控制 SQLite `request_events` 保留窗口；缺省 14 天，`0` 关闭后台清理。有 `database-url` 时 `serve` 每小时删除过期行，启动立即跑第一轮。`usage_buckets` 与 `security_events` 不受此窗口约束。
+可选。负载捕获见 [Observability](../architecture/observability.md) 与 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md)。`request_event_retention_days` 控制 SQLite `request_events` 保留窗口；缺省 14 天，`0` 关闭后台清理。有 `database-url` 时 `serve` 每小时删除过期行，启动立即跑第一轮。`usage_buckets` 与 `security_events` 不受此窗口约束。HTTP 错误响应的 `error.request_id` 与 span 字段 `request_id` 对齐，见该文档。
 
 ```yaml
 observability:

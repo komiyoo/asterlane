@@ -20,7 +20,8 @@ use crate::mcp::{
     MCP_INPUT_REQUIRED_CONTENT_TYPE, McpServerRegistry, ToolCallExtras, UpstreamCallOutcome,
 };
 use crate::observability::{
-    BucketGranularity, RequestEvent, RequestStatus, UsageBucket, bucket_start, record_request_event,
+    BucketGranularity, RequestEvent, RequestStatus, UsageBucket, bucket_start, next_request_id,
+    record_request_event,
 };
 use crate::policy;
 use crate::render::ResponseFormat;
@@ -28,7 +29,6 @@ use crate::secrets::SecretStore;
 use crate::shaping::ResultCache;
 use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::auth::resolve_auth_secret;
@@ -40,16 +40,6 @@ const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 
 /// 默认请求超时（秒）。
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
-
-/// 进程内递增的 request_id 计数器（占位；后续由调用方或中间件生成 UUID）。
-static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn next_request_id() -> String {
-    format!(
-        "req_{:020}",
-        REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed)
-    )
-}
 
 /// 上游调用结果。
 ///

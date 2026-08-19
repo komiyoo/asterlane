@@ -138,7 +138,7 @@ OTLP 导出作为可选 feature，第一阶段不强制启用（OTel Rust 仍 0.
 
 # OTel 语义约定
 
-MCP 语义约定已有社区草案（`gen_ai.tool.name`、`mcp.method.name`、`mcp.session.id`），OTLP 启用后应遵循。`request_id` 作为 trace 关联键，贯穿 tracing span 与 store 记录。
+MCP 语义约定已有社区草案（`gen_ai.tool.name`、`mcp.method.name`、`mcp.session.id`），OTLP 启用后应遵循。`request_id` 作为 trace 关联键，贯穿 tracing span、HTTP 错误 JSON 的 `error.request_id` 与 store 记录。入站 HTTP 在进入 handler 之前把同一字段写入 span（可接纳 `X-Request-Id`）。
 
 # NyaProxy 借鉴与改进
 

@@ -126,6 +126,8 @@ async fn oversized_invoke_body_returns_413() {
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     let json = body_json(response.into_body()).await;
     assert_eq!(json["error"]["code"], "http.body_too_large");
+    let request_id = json["error"]["request_id"].as_str().unwrap_or_default();
+    assert!(!request_id.is_empty());
 }
 
 #[tokio::test]
@@ -152,6 +154,8 @@ async fn invoke_exceeding_request_timeout_returns_408() {
     assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
     let json = body_json(response.into_body()).await;
     assert_eq!(json["error"]["code"], "http.timeout");
+    let request_id = json["error"]["request_id"].as_str().unwrap_or_default();
+    assert!(!request_id.is_empty());
 }
 
 #[tokio::test]
