@@ -129,6 +129,37 @@ impl KeyPoolRegistry {
     pub fn iter(&self) -> impl Iterator<Item = (&str, &ResourceKeyPool)> {
         self.pools.iter().map(|(k, v)| (k.as_str(), v))
     }
+
+    /// 按 `(resource_id, secret_ref)` 从旧池携带冷却剩余与 EWMA。
+    ///
+    /// 新 `KeyId` 可能因 keys 顺序变化而不同；已删除的 ref 丢弃，
+    /// 新增 ref 从 Available / 无 EWMA 开始。不携带 `Leased` 计数。
+    pub fn carry_runtime_from(&self, old: &Self) {
+        for (resource_id, new_pool) in &self.pools {
+            let Some(old_pool) = old.pools.get(resource_id) else {
+                continue;
+            };
+            let old_by_ref: HashMap<&str, crate::keys::pool::KeyStatusSnapshot> = old_pool
+                .snapshot()
+                .into_iter()
+                .filter_map(|snap| {
+                    old_pool
+                        .secret_ref_for(snap.key_id)
+                        .map(|secret_ref| (secret_ref, snap))
+                })
+                .collect();
+            for (i, new_ref) in new_pool.refs.iter().enumerate() {
+                let Some(old_snap) = old_by_ref.get(new_ref.as_str()) else {
+                    continue;
+                };
+                new_pool.pool().restore_runtime(
+                    KeyId::new(i as u64 + 1),
+                    old_snap.cooling_remaining,
+                    old_snap.ewma_latency_ms,
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -252,5 +283,47 @@ mod tests {
         assert!(snapshot[1].state.is_cooling());
         assert!(snapshot[1].cooling_remaining.is_some());
         drop(guard);
+    }
+
+    #[test]
+    fn carry_runtime_from_matches_secret_ref_not_key_id() {
+        let old_config = resource_with_pool(Some(pool_config(vec![
+            key("secret://tavily/key-a", 1),
+            key("secret://tavily/key-b", 1),
+        ])));
+        let old = KeyPoolRegistry::from_config(&old_config).unwrap().unwrap();
+        old.get("tavily")
+            .unwrap()
+            .pool()
+            .mark_cooling(KeyId::new(1), Some(std::time::Duration::from_secs(60)));
+        old.get("tavily")
+            .unwrap()
+            .pool()
+            .record_latency(KeyId::new(1), std::time::Duration::from_millis(120));
+
+        // 顺序对调：同一 secret_ref 的 KeyId 从 1 变为 2
+        let new_config = resource_with_pool(Some(pool_config(vec![
+            key("secret://tavily/key-b", 1),
+            key("secret://tavily/key-a", 1),
+        ])));
+        let new = KeyPoolRegistry::from_config(&new_config).unwrap().unwrap();
+        new.carry_runtime_from(&old);
+
+        let pool = new.get("tavily").unwrap();
+        let snaps = pool.snapshot();
+        let a = snaps
+            .iter()
+            .find(|s| pool.secret_ref_for(s.key_id) == Some("secret://tavily/key-a"))
+            .unwrap();
+        let b = snaps
+            .iter()
+            .find(|s| pool.secret_ref_for(s.key_id) == Some("secret://tavily/key-b"))
+            .unwrap();
+        assert_eq!(a.key_id, KeyId::new(2));
+        assert!(a.state.is_cooling());
+        assert!(a.cooling_remaining.is_some());
+        assert_eq!(a.ewma_latency_ms, Some(120));
+        assert!(!b.state.is_cooling());
+        assert_eq!(b.ewma_latency_ms, None);
     }
 }

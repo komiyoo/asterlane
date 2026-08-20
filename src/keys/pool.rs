@@ -220,6 +220,28 @@ impl KeyPool {
         }
     }
 
+    /// 按 `KeyId` 恢复冷却剩余与 EWMA（热更新 carry；不恢复 `Leased`）。
+    ///
+    /// 租约属于旧池上进行中的请求。`cooling_remaining` 为空或零则保持
+    /// `Available`；EWMA 原样写入（含 `None`）。池中不存在的 `key_id` 忽略。
+    pub fn restore_runtime(
+        &self,
+        key_id: KeyId,
+        cooling_remaining: Option<Duration>,
+        ewma_latency_ms: Option<u32>,
+    ) {
+        let mut state = self.inner.state.lock().unwrap_or_else(recover);
+        let Some(entry) = state.entries.get_mut(&key_id) else {
+            return;
+        };
+        if let Some(remaining) = cooling_remaining
+            && !remaining.is_zero()
+        {
+            entry.state = KeyState::CoolingUntil(Instant::now() + remaining);
+        }
+        entry.ewma_latency_ms = ewma_latency_ms;
+    }
+
     /// 返回全部 key 的状态快照（按 `KeyId` 排序，供 admin 只读展示）。
     ///
     /// 到期冷却先惰性恢复；快照不含明文，`cooling_remaining` 为剩余冷却时长。
@@ -514,5 +536,17 @@ mod tests {
         let s = guard.key_id().to_string();
         assert_eq!(s, "key#0001");
         assert!(!s.contains("sk-"));
+    }
+
+    #[test]
+    fn restore_runtime_sets_cooling_and_ewma_not_leased() {
+        let pool = pool_with(1);
+        let _guard = pool.acquire(LoadBalanceStrategy::RoundRobin).unwrap();
+        pool.restore_runtime(KeyId::new(1), Some(Duration::from_secs(30)), Some(42));
+        let snap = &pool.snapshot()[0];
+        assert!(snap.state.is_cooling());
+        assert!(snap.cooling_remaining.is_some());
+        assert_eq!(snap.ewma_latency_ms, Some(42));
+        assert_eq!(snap.state.active_count(), 0);
     }
 }

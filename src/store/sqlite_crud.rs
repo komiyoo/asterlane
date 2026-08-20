@@ -295,4 +295,28 @@ impl UpstreamKeyRepository for SqliteRequestEventRepository {
             .map_err(StoreError::from)?;
         Ok(result.rows_affected() > 0)
     }
+
+    async fn delete_upstream_keys_for_resource(
+        &self,
+        resource_id: &str,
+    ) -> Result<u64, StoreError> {
+        let result = sqlx::query("DELETE FROM upstream_keys WHERE resource_id = ?")
+            .bind(resource_id)
+            .execute(self.pool())
+            .await
+            .map_err(StoreError::from)?;
+        Ok(result.rows_affected())
+    }
+
+    async fn replace_upstream_keys_for_resource(
+        &self,
+        resource_id: &str,
+        keys: &[UpstreamKeyRecord],
+    ) -> Result<(), StoreError> {
+        self.delete_upstream_keys_for_resource(resource_id).await?;
+        for key in keys {
+            self.insert_upstream_key(key).await?;
+        }
+        Ok(())
+    }
 }

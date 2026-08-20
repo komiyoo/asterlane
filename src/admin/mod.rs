@@ -12,6 +12,7 @@ mod crud;
 mod defaults;
 mod mcp;
 mod metadata;
+mod resource_keys;
 mod tokens;
 
 pub use auth::{AdminAuth, AdminKeyId};
@@ -164,6 +165,8 @@ async fn resources(State(state): State<AppState>) -> Json<Value> {
                 "provider": r.provider_or_id(),
                 "base_url": r.base_url,
                 "endpoint_count": r.endpoints.len(),
+                "auth_type": resource_keys::auth_type_label(&r.auth),
+                "key_pool_size": resource_keys::key_pool_size(r),
             })
         })
         .collect();
@@ -447,7 +450,7 @@ fn parse_event_kind(raw: &str) -> Result<SecurityEventKind, AsterlaneError> {
 ///
 /// key 以脱敏 `KeyId` 展示，ref 经 `redact_secret_ref` 隐藏路径段，不出现明文。
 async fn key_pools(State(state): State<AppState>) -> Json<Value> {
-    let Some(registry) = &state.key_pools else {
+    let Some(registry) = state.key_pools_snapshot().await else {
         return Json(json!([]));
     };
     let mut pools: Vec<Value> = registry
