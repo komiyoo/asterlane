@@ -12,6 +12,7 @@ use crate::mcp::health::{ServerHealth, elapsed_ms, establish_entry, mark_ok, pus
 use crate::mcp::model::{
     ToolCallExtras, ToolCallResult, ToolContent, ToolDescriptor, UpstreamCallOutcome,
 };
+use crate::mcp::upstream_notify::{UpstreamListChanged, UpstreamNotifyHandler, spawn_listen_task};
 use crate::naming::ToolName;
 use crate::secrets::{SecretRef, SecretStore};
 use rmcp::model::{
@@ -52,9 +53,23 @@ pub trait RemoteMcpPeer: std::fmt::Debug + Send + Sync {
     }
 }
 
-#[derive(Debug)]
 pub struct RmcpRemoteMcpPeer {
-    client: rmcp::service::RunningService<RoleClient, ()>,
+    client: rmcp::service::RunningService<RoleClient, UpstreamNotifyHandler>,
+    listen: Option<tokio::task::AbortHandle>,
+}
+
+impl std::fmt::Debug for RmcpRemoteMcpPeer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RmcpRemoteMcpPeer").finish_non_exhaustive()
+    }
+}
+
+impl Drop for RmcpRemoteMcpPeer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.listen.take() {
+            handle.abort();
+        }
+    }
 }
 
 impl RmcpRemoteMcpPeer {
@@ -63,7 +78,7 @@ impl RmcpRemoteMcpPeer {
         secrets: &S,
     ) -> Result<Self, McpError> {
         let transport_config = transport_config(config, secrets).await?;
-        Self::connect_transport(transport_config).await
+        Self::connect_transport(transport_config, &config.id, UpstreamListChanged::noop()).await
     }
 
     /// 从已解析好的 transport 配置完成握手（auth 已在上一步注入 header）。
@@ -71,47 +86,73 @@ impl RmcpRemoteMcpPeer {
     /// 先走 `2026-07-28` Auto（`server/discover`，失败且为 `-32601` 时 rmcp
     /// 内部回退 initialize）。部分上游（例如 Spring WebMvc 无 discover handler）
     /// 对未知方法返回 HTTP 500 而非 JSON-RPC `-32601`，此时再显式 initialize 一次。
+    /// 握手成功后若 `notify` 有效，再 best-effort `subscriptions/listen`。
     pub(super) async fn connect_transport(
         config: StreamableHttpClientTransportConfig,
+        server_id: &str,
+        notify: UpstreamListChanged,
     ) -> Result<Self, McpError> {
-        match serve_upstream(config.clone(), true).await {
-            Ok(client) => Ok(Self { client }),
+        let handler = UpstreamNotifyHandler::new(server_id, notify.clone());
+        match serve_upstream(config.clone(), true, handler.clone()).await {
+            Ok(client) => Ok(Self::with_listen(client, server_id, notify)),
             Err(auto_error) => {
                 warn!(
                     error = %auto_error,
                     "upstream MCP discover handshake failed; retrying initialize"
                 );
-                let client = serve_upstream(config, false).await.map_err(|legacy_error| {
+                let client = serve_upstream(config, false, handler).await.map_err(|legacy_error| {
                     McpError::upstream_failure(format!(
                         "failed to connect remote MCP server: {legacy_error} (discover failed: {auto_error})"
                     ))
                 })?;
-                Ok(Self { client })
+                Ok(Self::with_listen(client, server_id, notify))
             }
         }
+    }
+
+    fn with_listen(
+        client: rmcp::service::RunningService<RoleClient, UpstreamNotifyHandler>,
+        server_id: &str,
+        notify: UpstreamListChanged,
+    ) -> Self {
+        let listen = if notify.is_active() {
+            Some(spawn_listen_task(
+                client.peer().clone(),
+                server_id.to_string(),
+                notify,
+            ))
+        } else {
+            None
+        };
+        Self { client, listen }
     }
 }
 
 async fn serve_upstream(
     config: StreamableHttpClientTransportConfig,
     modern: bool,
-) -> Result<rmcp::service::RunningService<RoleClient, ()>, String> {
+    handler: UpstreamNotifyHandler,
+) -> Result<rmcp::service::RunningService<RoleClient, UpstreamNotifyHandler>, String> {
     let transport = StreamableHttpClientTransport::from_config(config);
     if modern {
-        ().serve_with_lifecycle(
-            transport,
-            ClientLifecycleMode::Auto {
-                preferred_versions: vec![
-                    ProtocolVersion::V_2026_07_28,
-                    ProtocolVersion::V_2025_11_25,
-                ],
-                legacy_version: Some(ProtocolVersion::V_2025_11_25),
-            },
-        )
-        .await
-        .map_err(|error| error.to_string())
+        handler
+            .serve_with_lifecycle(
+                transport,
+                ClientLifecycleMode::Auto {
+                    preferred_versions: vec![
+                        ProtocolVersion::V_2026_07_28,
+                        ProtocolVersion::V_2025_11_25,
+                    ],
+                    legacy_version: Some(ProtocolVersion::V_2025_11_25),
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())
     } else {
-        ().serve(transport).await.map_err(|error| error.to_string())
+        handler
+            .serve(transport)
+            .await
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -128,17 +169,27 @@ pub(super) trait PeerConnector: std::fmt::Debug + Send + Sync {
 }
 
 /// 生产实现：rmcp Streamable HTTP 握手。
-#[derive(Debug)]
-pub(super) struct RmcpConnector;
+#[derive(Debug, Default)]
+pub(super) struct RmcpConnector {
+    notify: UpstreamListChanged,
+}
+
+impl RmcpConnector {
+    pub(super) fn new(notify: UpstreamListChanged) -> Self {
+        Self { notify }
+    }
+}
 
 impl PeerConnector for RmcpConnector {
     fn connect<'a>(
         &'a self,
-        _config: &'a McpServerConfig,
+        config: &'a McpServerConfig,
         transport: StreamableHttpClientTransportConfig,
     ) -> McpFuture<'a, Result<Arc<dyn RemoteMcpPeer>, McpError>> {
+        let server_id = config.id.clone();
+        let notify = self.notify.clone();
         Box::pin(async move {
-            let peer = RmcpRemoteMcpPeer::connect_transport(transport).await?;
+            let peer = RmcpRemoteMcpPeer::connect_transport(transport, &server_id, notify).await?;
             Ok(Arc::new(peer) as Arc<dyn RemoteMcpPeer>)
         })
     }
@@ -267,7 +318,16 @@ impl McpServerRegistry {
         configs: &[McpServerConfig],
         secrets: Arc<S>,
     ) -> Result<Self, McpError> {
-        Ok(Self::connect_all_with(configs, &*secrets, Arc::new(RmcpConnector)).await)
+        Self::connect_all_notifying(configs, secrets, UpstreamListChanged::noop()).await
+    }
+
+    /// 同 [`Self::connect_all`]，并把上游 `tools/list_changed` 投到 `notify`。
+    pub async fn connect_all_notifying<S: SecretStore>(
+        configs: &[McpServerConfig],
+        secrets: Arc<S>,
+        notify: UpstreamListChanged,
+    ) -> Result<Self, McpError> {
+        Ok(Self::connect_all_with(configs, &*secrets, Arc::new(RmcpConnector::new(notify))).await)
     }
 
     /// 用注入的 connector 连接全部 server（单测入口）。
@@ -333,7 +393,7 @@ impl McpServerRegistry {
 
         Ok(Self {
             entries: Arc::new(RwLock::new(entries)),
-            connector: Arc::new(RmcpConnector),
+            connector: Arc::new(RmcpConnector::default()),
         })
     }
 

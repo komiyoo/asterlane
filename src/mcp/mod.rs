@@ -12,6 +12,7 @@
 //!   probe/add/update/remove（契约见 docs/runtime/mcp-governance-and-key-limits.md §4）。
 //! - [`registry`]：远程 MCP client；`wrap_tools` 把上游原始 tool name 写入
 //!   `WrappedTool.upstream_path`，转发时剥网关前缀。
+//! - [`upstream_notify`]：上游 `tools/list_changed`（listen + session 回调）。
 //! - [`server`]：下游 `/mcp` Streamable HTTP handler。
 //!
 //! ## 设计要点
@@ -35,6 +36,7 @@ pub mod notify;
 pub mod registry;
 mod result;
 pub mod server;
+pub mod upstream_notify;
 
 use crate::config::McpFailureMode;
 
@@ -74,6 +76,7 @@ pub use model::{
 pub use notify::{ToolListChangedPeers, ToolListChangedTarget, notify_peers_tool_list_changed};
 pub use registry::{McpServerRegistry, RefreshResult, RemoteMcpPeer, RmcpRemoteMcpPeer};
 pub use server::AsterlaneToolServer;
+pub use upstream_notify::UpstreamListChanged;
 
 #[cfg(test)]
 mod fail_closed_tests {

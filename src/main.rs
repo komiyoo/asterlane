@@ -14,8 +14,8 @@ use tracing::{info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-/// `refresh_interval_secs == 0` 时不启动后台 refresh task。
-fn should_spawn_mcp_refresh(refresh_interval_secs: u64) -> bool {
+/// `refresh_interval_secs == 0` 时周期 tick 关闭；notify 驱动的 refresh 仍可跑。
+fn should_tick_mcp_refresh(refresh_interval_secs: u64) -> bool {
     refresh_interval_secs > 0
 }
 
@@ -243,10 +243,14 @@ async fn serve(args: ServeArgs) -> Result<()> {
     // registry 始终初始化：即便零 MCP 配置也建空 registry，使运行时经 admin API
     // 添加/启用首个 MCP server 无需重启即生效（connect_all(&[]) 即空 registry；
     // 修复"零 MCP 配置启动 → 在线加首个 server 报 503"的已知边界）。
-    let registry =
-        asterlane::mcp::McpServerRegistry::connect_all(&config.mcp_servers, secrets.clone())
-            .await
-            .context("failed to connect remote MCP servers")?;
+    let (upstream_notify, upstream_notify_rx) = asterlane::mcp::UpstreamListChanged::channel();
+    let registry = asterlane::mcp::McpServerRegistry::connect_all_notifying(
+        &config.mcp_servers,
+        secrets.clone(),
+        upstream_notify,
+    )
+    .await
+    .context("failed to connect remote MCP servers")?;
     catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
     let mcp_registry = Some(Arc::new(registry));
     let mut state = asterlane::http::AppState::new(config, catalog)
@@ -416,19 +420,18 @@ async fn serve(args: ServeArgs) -> Result<()> {
                 "integrity baseline pinned from initial mcp tools"
             );
         }
-        if should_spawn_mcp_refresh(config.mcp.refresh_interval_secs) {
-            spawn_mcp_refresh_task(
-                registry.clone(),
-                state.catalog.clone(),
-                state.tool_list_changed_peers.clone(),
-                state.config.clone(),
-                state.integrity_baseline.clone(),
-                state.quarantined_tools.clone(),
-                state.event_repo.clone(),
-                state.secrets.clone(),
-                ct.child_token(),
-            );
-        }
+        spawn_mcp_refresh_task(
+            registry.clone(),
+            state.catalog.clone(),
+            state.tool_list_changed_peers.clone(),
+            state.config.clone(),
+            state.integrity_baseline.clone(),
+            state.quarantined_tools.clone(),
+            state.event_repo.clone(),
+            state.secrets.clone(),
+            upstream_notify_rx,
+            ct.child_token(),
+        );
     }
 
     let listener = tokio::net::TcpListener::bind(&args.bind)
@@ -451,7 +454,11 @@ async fn serve(args: ServeArgs) -> Result<()> {
 
 /// 启动后台 MCP registry 刷新 task。
 ///
-/// 每 `config.mcp.refresh_interval_secs` 秒（启动时读取；`0` 不 spawn）：
+/// 触发源：
+/// - 周期：每 `config.mcp.refresh_interval_secs` 秒（启动时读取；`0` 不 tick）
+/// - 即时：上游 `tools/list_changed`（session 回调或 `subscriptions/listen`）
+///
+/// 每次触发：
 /// 1. `registry.refresh_with_secrets()` 重新拉取上游 `tools/list`
 ///    （unreachable 的 server 用 secrets 自动重连，恢复后并入其工具）。
 /// 2. `catalog.replace_mcp_tools()` 更新工具快照。
@@ -470,51 +477,54 @@ fn spawn_mcp_refresh_task(
     quarantined: asterlane::http::QuarantinedTools,
     event_repo: Option<Arc<asterlane::store::SqliteRequestEventRepository>>,
     secrets: Arc<asterlane::secrets::DefaultSecretStore>,
+    mut upstream_notify_rx: tokio::sync::mpsc::Receiver<String>,
     ct: tokio_util::sync::CancellationToken,
 ) {
     tokio::spawn(async move {
         let interval_secs = config.read().await.mcp.refresh_interval_secs;
-        if !should_spawn_mcp_refresh(interval_secs) {
-            return;
-        }
-        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+        let tick = should_tick_mcp_refresh(interval_secs);
+        let mut interval = tokio::time::interval(Duration::from_secs(interval_secs.max(1)));
         // 跳过第一次立即触发（启动时刚 connect_all 过）
         interval.tick().await;
         loop {
             tokio::select! {
-                _ = interval.tick() => {
-                    let result = registry.refresh_with_secrets(secrets.as_ref()).await;
-                    info!(
-                        old_count = result.old_tool_count,
-                        new_count = result.new_tool_count,
-                        failed_servers = ?result.failed_server_ids,
-                        "mcp registry refreshed"
-                    );
-                    if !result.failed_server_ids.is_empty() {
-                        warn!(
-                            servers = ?result.failed_server_ids,
-                            "some mcp servers failed during refresh"
-                        );
-                    }
-
-                    // 同步 catalog 快照
-                    let new_tools = registry.all_wrapped_tools();
-                    let mcp_ids = registry.mcp_resource_ids();
-                    catalog.write().await.replace_mcp_tools(new_tools, &mcp_ids);
-
-                    // integrity drift 检测：写 security event + 更新隔离集合 + rebase baseline
-                    let config_snap = config.read().await.clone();
-                    asterlane::integrity::check_drift(
+                _ = interval.tick(), if tick => {
+                    apply_mcp_registry_refresh(
+                        "interval",
+                        None,
                         &registry,
-                        &config_snap,
+                        &catalog,
+                        &peers,
+                        &config,
                         &baseline,
                         &quarantined,
                         &event_repo,
+                        &secrets,
                     )
                     .await;
-
-                    // 向活跃 client session 推送 tools/list_changed
-                    asterlane::mcp::notify_peers_tool_list_changed(&peers).await;
+                }
+                maybe_server = upstream_notify_rx.recv() => {
+                    let Some(server_id) = maybe_server else {
+                        info!("mcp upstream notify channel closed");
+                        break;
+                    };
+                    let mut servers = vec![server_id];
+                    while let Ok(extra) = upstream_notify_rx.try_recv() {
+                        servers.push(extra);
+                    }
+                    apply_mcp_registry_refresh(
+                        "upstream_list_changed",
+                        Some(&servers),
+                        &registry,
+                        &catalog,
+                        &peers,
+                        &config,
+                        &baseline,
+                        &quarantined,
+                        &event_repo,
+                        &secrets,
+                    )
+                    .await;
                 }
                 _ = ct.cancelled() => {
                     info!("mcp refresh task shutting down");
@@ -523,6 +533,46 @@ fn spawn_mcp_refresh_task(
             }
         }
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn apply_mcp_registry_refresh(
+    reason: &'static str,
+    servers: Option<&[String]>,
+    registry: &asterlane::mcp::McpServerRegistry,
+    catalog: &tokio::sync::RwLock<ToolCatalog>,
+    peers: &asterlane::http::ToolListChangedPeers,
+    config: &tokio::sync::RwLock<Arc<asterlane::GatewayConfig>>,
+    baseline: &Arc<tokio::sync::RwLock<asterlane::integrity::IntegrityBaseline>>,
+    quarantined: &asterlane::http::QuarantinedTools,
+    event_repo: &Option<Arc<asterlane::store::SqliteRequestEventRepository>>,
+    secrets: &asterlane::secrets::DefaultSecretStore,
+) {
+    let result = registry.refresh_with_secrets(secrets).await;
+    info!(
+        reason,
+        servers = ?servers,
+        old_count = result.old_tool_count,
+        new_count = result.new_tool_count,
+        failed_servers = ?result.failed_server_ids,
+        "mcp registry refreshed"
+    );
+    if !result.failed_server_ids.is_empty() {
+        warn!(
+            servers = ?result.failed_server_ids,
+            "some mcp servers failed during refresh"
+        );
+    }
+
+    let new_tools = registry.all_wrapped_tools();
+    let mcp_ids = registry.mcp_resource_ids();
+    catalog.write().await.replace_mcp_tools(new_tools, &mcp_ids);
+
+    let config_snap = config.read().await.clone();
+    asterlane::integrity::check_drift(registry, &config_snap, baseline, quarantined, event_repo)
+        .await;
+
+    asterlane::mcp::notify_peers_tool_list_changed(peers).await;
 }
 
 #[cfg(test)]
@@ -535,9 +585,9 @@ mod tests {
     }
 
     #[test]
-    fn refresh_interval_zero_does_not_spawn() {
-        assert!(!should_spawn_mcp_refresh(0));
-        assert!(should_spawn_mcp_refresh(60));
+    fn refresh_interval_zero_does_not_tick() {
+        assert!(!should_tick_mcp_refresh(0));
+        assert!(should_tick_mcp_refresh(60));
     }
 
     #[test]

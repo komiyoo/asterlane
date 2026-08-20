@@ -111,7 +111,7 @@ http:
 ```yaml
 mcp:
   failure_mode: fail_open          # fail_open | fail_closed；缺省 fail_open
-  refresh_interval_secs: 60        # 后台 tools/list 轮询；缺省 60；0 = 不启动 refresh task
+  refresh_interval_secs: 60        # 后台 tools/list 轮询；缺省 60；0 = 不 tick（仍收上游 list_changed）
   tools_list_ttl_ms: 60000         # MCP tools/list 的 ttlMs；缺省 60000；0 = 不设 ttl_ms
 ```
 
@@ -121,7 +121,8 @@ mcp:
 - `tools/call` 与 REST invoke **不株连**：只对所属上游失败；其它 server `Unreachable` 不拒绝调用。
 - `GET /healthz` 不因 FailClosed 失败（Docker HEALTHCHECK 探它）。
 - 后台 refresh 在 FailClosed 下仍会 `replace_mcp_tools`（call 路径需要映射）；FailClosed 只挡 **list**。
-- `refresh_interval_secs: 0` 不 spawn 后台 refresh task；`tools_list_ttl_ms: 0` 时下游 `tools/list` 不设 `ttlMs`。
+- `refresh_interval_secs: 0` 不跑周期 tick，但仍接收上游 `tools/list_changed` 并刷新；`tools_list_ttl_ms: 0` 时下游 `tools/list` 不设 `ttlMs`。
+- 上游若广告 `listChanged`，网关在握手后 best-effort `subscriptions/listen`；不支持则只靠周期 refresh。对照配置见 `examples/gateway-mcp.yaml`（Exa）与 `examples/gateway-rollinggo.yaml`（RollingGo Hotel）。
 
 ## Observability
 

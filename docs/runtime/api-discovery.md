@@ -91,8 +91,9 @@ api_resources:
 
 ### 缓存与失效
 
-- 上游 `tools/list` 结果缓存在 `moka`（TTL 可配，默认 5 分钟）。当前阶段以 `McpServerRegistry` 内部 `RwLock<Vec<McpServerEntry>>` 持有最新快照，后台周期性 `refresh()`（默认 60s）重拉上游 `tools/list`；moka TTL 缓存为后续优化。
-- 监听上游 `notifications/tools/list_changed`，收到即失效缓存并重拉。当前阶段未接入上游 notify 监听，以周期性 refresh 兜底；未来补充上游 notify 监听以实现即时失效。
+- 上游 `tools/list` 结果以 `McpServerRegistry` 内部 `RwLock<Vec<McpServerEntry>>` 持有最新快照。后台周期性 `refresh()`（`mcp.refresh_interval_secs`，缺省 60s，`0` 不 tick）重拉上游 `tools/list`。moka TTL 缓存仍为后续优化。
+- 监听上游 `notifications/tools/list_changed`：现代上游走 `subscriptions/listen`（`toolsListChanged=true`）；legacy session 走 client handler 回调。收到即触发与周期 refresh 相同的拉目录 / catalog / drift / 下游 notify。上游不支持 listen 时安静降级，周期 refresh 兜底。
+- 对照：keyless 用 `examples/gateway-mcp.yaml` 的 Exa；keyed 用 `examples/gateway-rollinggo.yaml` 的 RollingGo Hotel（`secret://env/ROLLINGGO_API_KEY`）。多数托管 MCP 工具集很少变，可能从不推送，轮询仍是权威兜底。
 - 网关自身向下游声明 `listChanged = true`。legacy session 仍注册 `Peer` 并 `notify_tool_list_changed`；`2026-07-28` 客户端经 `subscriptions/listen` 收变更。详见 [MCP Protocol](../architecture/mcp-protocol.md)。
 - 上游不可达时 refresh 仍保留 stale 快照（`RefreshResult.failed_server_ids` 标记失败上游，避免临时网络失败污染 integrity baseline）。缺省 **FailOpen**：不阻塞下游 `tools/list` / `GET /v1/tools`。配置 `mcp.failure_mode: fail_closed` 时，健康快照中任一 `Unreachable` 则 list 返回 `mcp.upstream_unavailable`，不把 stale 目录当权威结果；`tools/call` 与 `/healthz` 不株连。详见 [Config Schema – MCP 运行时](config-schema.md)。
 

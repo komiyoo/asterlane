@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-08-20（订阅上游 tools/list_changed）
+
+- **行为**：握手后 best-effort `subscriptions/listen`（`toolsListChanged=true`）；legacy session 走 `ClientHandler::on_tool_list_changed`。通知与周期 refresh 共用拉目录 / catalog / drift / 下游推送。上游不支持 listen 时安静降级。`mcp.refresh_interval_secs: 0` 不 tick，仍收 notify。对照配置：`examples/gateway-mcp.yaml`（Exa，keyless）、`examples/gateway-rollinggo.yaml`（RollingGo Hotel，需 `ROLLINGGO_API_KEY`）。多数托管 MCP 工具集很少变，本机集成测试用进程内 Streamable HTTP 模拟推送。
+- **文档**：[API Discovery](runtime/api-discovery.md)；[Configuration Schema](runtime/config-schema.md)；[MCP Protocol](architecture/mcp-protocol.md)；[Roadmap](product/roadmap.md)。
+- **验证**：`just check`。
+
 ## 2026-08-20（secret 缓存与 key pool 热更新）
 
 - **行为（secret）**：`secrets.cache_ttl_secs` 缺省 60（`0` 关闭）、`secrets.remote_retries` 缺省 2（`0` 不重试）。仅 `secret://vault/...` 与 `secret://infisical/...` 按 URI 做进程内 TTL 缓存，失败不入缓存；env/file 不缓存。远程瞬时失败（超时、连接失败、5xx）少次重试；401/403/404/400 与 KV 缺 key 不重试。轮换 = TTL 过期后下次 resolve 重新拉取。

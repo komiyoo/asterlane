@@ -66,10 +66,10 @@ timestamp: 2026-08-20T00:00:00Z
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| 不监听上游 `tools/list_changed`，仅 60s 轮询 | 定位缺口 | `src/main.rs` 的后台 refresh task 用常量 `MCP_REFRESH_INTERVAL_SECS`；`mcp::registry` 的 `RemoteMcpPeer` 无通知订阅。[API Discovery](../runtime/api-discovery.md) 承诺即时失效 |
-| **已交付：刷新间隔与 `tools/list` TTL 可配置**（2026-08-20） | 生产就绪（已清） | 顶层 `mcp.refresh_interval_secs`（缺省 60，`0` 不启动 refresh）与 `mcp.tools_list_ttl_ms`（缺省 60000，`0` 不设 `ttlMs`） |
+| **已交付：订阅上游 `tools/list_changed`**（2026-08-20） | 定位缺口（已清） | `mcp::upstream_notify` 的 `UpstreamNotifyHandler` + `spawn_listen_task`；握手后 best-effort `Peer::listen`（`SubscriptionFilter::tools_list_changed`）。不支持则降级，周期 `mcp.refresh_interval_secs` 兜底。`refresh_interval_secs: 0` 不 tick，仍收 notify。对照 `examples/gateway-mcp.yaml`（Exa）与 `examples/gateway-rollinggo.yaml`（RollingGo Hotel） |
+| **已交付：刷新间隔与 `tools/list` TTL 可配置**（2026-08-20） | 生产就绪（已清） | 顶层 `mcp.refresh_interval_secs`（缺省 60，`0` 不 tick）与 `mcp.tools_list_ttl_ms`（缺省 60000，`0` 不设 `ttlMs`） |
 
-**判断**：代理主路径上的 lazy 兑现差已清。剩余是上游 `tools/list_changed` 订阅，归 Phase 8，不阻塞当前 agent 接入。
+**判断**：代理主路径上的 lazy 与上游目录失效已对齐。本支柱不再阻塞当前 agent 接入。
 
 ## 支柱四：统一上游接入
 
@@ -137,7 +137,7 @@ timestamp: 2026-08-20T00:00:00Z
 - 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数。token 落 secret 后端，永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器
 - 动态客户端注册（若目标上游要求；CIMD / DCR 仅作为网关持有 client 的注册手段）
 - **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
-- 订阅上游 `tools/list_changed`，替代固定轮询
+- **已交付（2026-08-20）**：订阅上游 `tools/list_changed`（`subscriptions/listen` + session 回调）；周期 refresh 保留为兜底，不再是唯一失效路径
 - resources / prompts 代理：先做产品决策（见下节），确定做则扩 `RemoteMcpPeer` 与下游 capabilities
 - 上游形态扩展：multipart / form-urlencoded 请求，流式响应
 

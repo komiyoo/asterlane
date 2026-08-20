@@ -47,6 +47,8 @@ Streamable HTTP POST 必须带 `MCP-Protocol-Version`、`Mcp-Method`，命名请
 
 `list_tools` / `call_tool` 只给 legacy session 注册 peer。现代客户端必须显式 listen。
 
+网关作为上游 client 对称处理：握手后对广告 `listChanged` 的 server best-effort `subscriptions/listen`；legacy 上游走 `ClientHandler::on_tool_list_changed`。listen 流里的通知不再进 handler（rmcp 约定）。不支持 listen 时安静降级，周期 `tools/list` 仍兜底。实现见 `mcp::upstream_notify`。
+
 ## MRTR
 
 上游若返回 `resultType: "input_required"`：

@@ -1,5 +1,7 @@
 schema_version: 1
 
+# keyless hosted MCP。网关握手后会 listen tools/list_changed；
+# Exa 工具集很少变，变更通知可能永不出现，周期 refresh 仍兜底。
 mcp_servers:
   - id: exa-mcp
     domain: search
