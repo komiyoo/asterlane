@@ -49,7 +49,7 @@ timestamp: 2026-08-20T00:00:00Z
 | --- | --- | --- |
 | **上游 MCP 无 OAuth 2.1 运行时**：只支持静态凭据注入 | 定位缺口（最重） | `config::UpstreamAuth` 仅 `None`/`Header`/`Bearer`；`mcp::registry` 的 `transport_config` 据此注入静态头。无 401 `WWW-Authenticate` 挑战处理、无动态客户端注册、无 token 刷新、无 RFC 8707 resource 参数 |
 | **已交付：Vault / Infisical 装配**（2026-08-19） | 兑现差（已清） | `GatewayConfig.secrets` + `secret_store_from_config`：serve 在 MCP connect 前装配；`token_ref` 仅 env/file；缺省探测 `/v1/sys/health` 与 `/api/status` |
-| secret 无缓存 / TTL / 轮换 / 重试 | 生产就绪 | `secrets::vault` 与 `secrets::infisical` 均为单次 HTTP GET |
+| **已交付：secret 缓存 / TTL / 重试**（2026-08-20） | 生产就绪（已清） | `secrets.cache_ttl_secs` 缺省 60（`0` 关闭），只缓存 vault/infisical；`remote_retries` 缺省 2，仅超时/连接失败/5xx。失败不入缓存。env/file 不缓存。轮换 = TTL 过期后重新拉取 |
 | 云 KMS 后端 | 定位缺口（轻） | [Architecture](../architecture/architecture.md) 的 Credential Vault 节列为方向，无代码 |
 
 **判断**：OAuth 缺口是本支柱唯一的结构性问题。第三方远程 MCP server 的规范授权路径就是 OAuth 2.1；面对这类上游，「网关集中持有凭据」当前只能靠人工预置长期 token 绕过，一旦上游只发短期 token 就完全失效。这是整份规划里优先级最高的单项。Pomerium 验证了「网关做 OAuth 客户端、token 永不出网关」这条路径；Phase 8 只做**网关持有 client**。把终端用户对 GitHub / Linear 的同意流接进来是第二种凭据模式，须先产品决策，不能在未决策的情况下把下游改成人类登录。
@@ -94,7 +94,7 @@ timestamp: 2026-08-20T00:00:00Z
 | **已交付：配额失败退还**（2026-08-19） | 兑现差（已清） | `limits::registry` 的 `refund_call` + `CallQuotaGuard`：准入后 invoke 失败退还 `max_calls` / `max_calls_per_day`。GCRA rps/rpm 不可退还；并发槽仍由 `QueuePermit` Drop 归还。启动 seed = `request_count − error_count` |
 | **成本 / 额度统计未实现** | 定位缺口 | `request_units` 在 `proxy::post` 恒为 1。[Product Requirements](product-requirements.md) 明确列入观测要求 |
 | **已交付：admin CLI 写操作**（2026-08-19） | 兑现差（已清） | `asterlane admin resources|proxy-keys|mcp-servers` 的 create / update / rm，body 为 `--json` 或 `--from-file`（JSON/YAML object），转发已有 admin HTTP CRUD |
-| upstream keys 无 admin API，key pool 不支持热更新 | 定位缺口 | `upstream_keys` 表与 repository 存在但运行时不写；`admin::crud` 的配置热替换不重建 `KeyPoolRegistry` |
+| **已交付：key pool 热更新与 upstream_keys 同步**（2026-08-20） | 定位缺口（已清） | resource CRUD 接受 `auth`/`key_pool`；`swap_config_and_catalog` 重建 `KeyPoolRegistry` 并按 secret_ref 携带冷却/EWMA；`upstream_keys` 按 resource 替换写入。无独立 `/admin/upstream-keys` REST |
 | IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
 | usage 只有小时桶；无上游耗时聚合 | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项 |
 | **已交付：HTTP 错误 `request_id`**（2026-08-20） | 生产就绪（已清） | 入站中间件生成或接纳 `X-Request-Id`；`AsterlaneError` JSON 的 `error.request_id` 非空；invoke 成功路径仍用 executor 自己的 id |
@@ -161,7 +161,7 @@ timestamp: 2026-08-20T00:00:00Z
 - 成本核算：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
 - usage 分钟/日桶、上游耗时维度
 - IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（或删除死代码）
-- upstream keys admin API 与 key pool 热更新
+- **已交付（2026-08-20）**：key pool 热更新；upstream keys 经 resource CRUD 同步进 `upstream_keys`（不新开 `/admin/upstream-keys` REST）
 - circuit breaker、跨 provider failover
 - 告警规则与 Grafana dashboard 示例
 - 覆盖率、基准与负载测试基线

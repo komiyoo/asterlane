@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-08-20（secret 缓存与 key pool 热更新）
+
+- **行为（secret）**：`secrets.cache_ttl_secs` 缺省 60（`0` 关闭）、`secrets.remote_retries` 缺省 2（`0` 不重试）。仅 `secret://vault/...` 与 `secret://infisical/...` 按 URI 做进程内 TTL 缓存，失败不入缓存；env/file 不缓存。远程瞬时失败（超时、连接失败、5xx）少次重试；401/403/404/400 与 KV 缺 key 不重试。轮换 = TTL 过期后下次 resolve 重新拉取。
+- **行为（key pool）**：resource CRUD 接受 `auth` / `key_pool`（update 省略则保留）。`swap_config_and_catalog` 重建 `KeyPoolRegistry`，按 `(resource_id, secret_ref)` 携带冷却剩余与 EWMA，不携带 `Leased`。`AppState.key_pools` 改为与 `limit_registry` 同模式的读写锁快照。有 store 时按 resource 替换写入 `upstream_keys`（启动不回读建池）。不新开 `/admin/upstream-keys` REST。响应只给 `auth_type` / `key_pool_size` 与脱敏 ref。
+- **文档**：[Configuration Schema](runtime/config-schema.md)；[Architecture](architecture/architecture.md)；[Compatibility Policy](architecture/compatibility-policy.md)；[Admin Console](admin/admin-console.md)；[Roadmap](product/roadmap.md)。
+- **验证**：`just check`。
+
 ## 2026-08-20（MCP FailClosed 与刷新/TTL 可配置）
 
 - **行为**：顶层 `mcp.failure_mode` 缺省 `fail_open`。`fail_closed` 时任一 MCP server `Unreachable` 使 MCP 与 REST `tools/list` 返回 `mcp.upstream_unavailable`（503）；`tools/call` 与 `/healthz` 不株连。`mcp.refresh_interval_secs` 缺省 60（`0` 不启动 refresh）；`mcp.tools_list_ttl_ms` 缺省 60000（`0` 不设 `ttlMs`）。

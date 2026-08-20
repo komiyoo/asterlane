@@ -41,8 +41,8 @@ The original product requirements are preserved in [Product Requirements](../pro
 | `policy` | gateway key scope 与请求级收窄。 | 已实现 |
 | `catalog` | 工具目录构建、过滤、分页、metadata。 | 已实现（含 MCP + OpenAPI） |
 | `error` | 项目错误码与边界映射，见 [Error Model](error-model.md)。 | 已实现 |
-| `secrets` | secret ref 解析与脱敏。 | env/file 默认启用；Vault/Infisical 经 `secrets.vault` / `secrets.infisical` 装配 |
-| `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线） |
+| `secrets` | secret ref 解析与脱敏。 | env/file 默认启用；Vault/Infisical 经 `secrets.vault` / `secrets.infisical` 装配，远程路径有 TTL 缓存与瞬时重试 |
+| `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线；admin CRUD 热更新） |
 | `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |
 | `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
 | `transform` | header/query/path/body 变换。 | 模块已实现（声明式 header/body 规则），未接入执行管线，无配置节，见 [Roadmap](../product/roadmap.md) |
@@ -82,7 +82,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 - **RAII guard**：`acquire()` 返回 guard，`Drop` 时自动 `release`，避免 NyaProxy 手工 `release_*` 四连调漏调。
 - **负载均衡策略**（enum + trait）：`round_robin`、`random`、`least_requests`、`fastest_response`（EWMA 替代滑动平均数组）、`weighted`（`rand::distr::WeightedIndex`，O(log n)）。
 - **冷却**：429/5xx 触发 key 冷却 `CoolingUntil(now + retry_after)`，failover 轮换到下一 key；429/503 优先采用上游 `Retry-After` 秒数。
-- **per-key 凭据**：`KeyPoolRegistry`（`src/keys/registry.rs`）持 resource_id → 池 + `KeyId`→secret ref 映射；重试循环每次尝试按配置策略 acquire、解析选中 key 的 ref 后注入（配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md)）。
+- **per-key 凭据**：`KeyPoolRegistry`（`src/keys/registry.rs`）持 resource_id → 池 + `KeyId`→secret ref 映射；重试循环每次尝试按配置策略 acquire、解析选中 key 的 ref 后注入（配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md)）。`AppState.key_pools` 与 `limit_registry` 同为读写锁快照；resource CRUD 热替换时按 `(resource_id, secret_ref)` 携带冷却与 EWMA，不携带 `Leased`。
 - **配额退还**：整数配额（per-key `max_calls` / `max_calls_per_day`）在准入时扣减一次，同一次 invoke 内的重试不再扣减；invoke 最终失败（含准入后的 secret 解析失败）由 `CallQuotaGuard` Drop 退还。GCRA rps/rpm 不可退还（governor 无 un-consume）。并发槽由 `QueuePermit` RAII 归还。不存在独立的 endpoint / upstream-key 整数配额可退。
 
 # Rate Limit And Queue

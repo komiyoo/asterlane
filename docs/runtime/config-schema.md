@@ -199,7 +199,8 @@ key_pool:
 
 - 启动期校验（fail fast）：`keys` 非空、`auth.type` 非 `none`、每个 `ref` 为合法 `secret://` URI（只验格式，值按请求 lazy 解析）。
 - 运行时行为：429/5xx/超时触发该 key 冷却（429/503 优先采用上游 `Retry-After` 秒数，缺省 60s），下次尝试 failover 到其他 key；成功时记录该 key 的 EWMA 延迟供 `fastest_response`。
-- 状态可见性：`/admin/key-pools` 快照（key 以脱敏 `key#000N` 展示，ref 隐藏路径段）。
+- 热更新：`POST/PUT /admin/resources` 接受 `auth` 与 `key_pool`（update 省略则保留）。`swap_config_and_catalog` 重建 `KeyPoolRegistry`，按 `(resource_id, secret_ref)` 携带冷却剩余与 EWMA，不携带进行中的 `Leased`。有 store 时按 resource 替换写入 `upstream_keys`（启动不回读建池）。
+- 状态可见性：`GET /admin/key-pools` 读热更新后快照（key 以脱敏 `key#000N` 展示，ref 隐藏路径段）。资源列表只给 `auth_type` / `key_pool_size`，不回显完整 secret ref。
 - remote MCP server（`mcp_servers[]`）暂不支持 key pool：其鉴权为连接级，per-call 轮换不适用。
 
 ## Upstream Limits
