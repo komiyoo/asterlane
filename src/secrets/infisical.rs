@@ -5,6 +5,7 @@
 
 use crate::secrets::SecretString;
 use crate::secrets::error::SecretError;
+use crate::secrets::remote::{map_http_status, map_reqwest_send_error};
 use crate::secrets::secret_ref::SecretRef;
 use serde::Deserialize;
 
@@ -70,25 +71,23 @@ impl InfisicalBackend {
             self.config.environment
         );
 
+        let ref_uri = secret_ref.to_string();
         let response = self
             .client
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.config.token))
             .send()
             .await
-            .map_err(|e| SecretError::backend(&secret_ref.to_string(), e.to_string()))?;
+            .map_err(|e| map_reqwest_send_error(&ref_uri, &e))?;
 
         if !response.status().is_success() {
-            return Err(SecretError::backend(
-                &secret_ref.to_string(),
-                format!("infisical returned {}", response.status()),
-            ));
+            return Err(map_http_status(&ref_uri, "infisical", response.status()));
         }
 
         let body: InfisicalResponse = response
             .json()
             .await
-            .map_err(|e| SecretError::backend(&secret_ref.to_string(), e.to_string()))?;
+            .map_err(|_| SecretError::backend(&ref_uri, "invalid infisical response"))?;
 
         Ok(SecretString::new(body.secret.secret_value))
     }

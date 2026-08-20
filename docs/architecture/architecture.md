@@ -113,7 +113,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 # Credential Vault
 
 - 配置只存 secret ref（`secret://provider/name`），不存明文。
-- env 与本地文件始终可用；Vault KV v2 与 Infisical 通过顶层 `secrets` 节装配（`token_ref` 必须是 env/file 引导凭据）。云 KMS 仍为后续方向。
+- env 与本地文件始终可用；Vault KV v2 与 Infisical 通过顶层 `secrets` 节装配（`token_ref` 必须是 env/file 引导凭据）。远程 backend 对成功解析做进程内 TTL 缓存，并对超时 / 连接失败 / HTTP 5xx 做少次瞬时重试。云 KMS 仍为后续方向。
 - 明文只在写入上游 Authorization header 的瞬间 `expose_secret`，其余时刻为 `SecretString`。
 - 限流器、日志、指标中 key 以 `KeyId`（哈希/序号）索引，不以明文做键——纠正 NyaProxy 的反模式（`{api}_key_{sk-xxx}`）。
 

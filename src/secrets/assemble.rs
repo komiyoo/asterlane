@@ -27,7 +27,9 @@ pub async fn secret_store_from_secrets_config(
     secrets: &SecretsConfig,
 ) -> Result<DefaultSecretStore, AsterlaneError> {
     let bootstrap = DefaultSecretStore::with_backends();
-    let mut store = DefaultSecretStore::with_backends();
+    let mut store = DefaultSecretStore::with_backends()
+        .with_cache_ttl(Duration::from_secs(secrets.cache_ttl_secs))
+        .with_remote_retries(secrets.remote_retries);
 
     if let Some(vault) = &secrets.vault {
         let token = resolve_bootstrap_token(&bootstrap, &vault.token_ref).await?;

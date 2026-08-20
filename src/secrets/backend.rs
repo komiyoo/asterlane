@@ -6,8 +6,12 @@
 //! - 其他 backend（如 `tavily`）→ 默认 env backend，
 //!   env var 名 = `{BACKEND}_{PATH}` 大写并用 `_` 连接
 
+use std::time::Duration;
+
+use crate::secrets::cache::{DEFAULT_CACHE_TTL, SecretCache};
 use crate::secrets::error::SecretError;
 use crate::secrets::infisical::InfisicalBackend;
+use crate::secrets::remote::{DEFAULT_REMOTE_RETRIES, retry_remote};
 use crate::secrets::secret_ref::SecretRef;
 use crate::secrets::vault::VaultBackend;
 use crate::secrets::{SecretStore, SecretString};
@@ -106,12 +110,29 @@ impl FileBackend {
 /// - `backend == "vault"` → [`VaultBackend`]（需 `with_vault` 配置）
 /// - `backend == "infisical"` → [`InfisicalBackend`]（需 `with_infisical` 配置）
 /// - 其他 backend → [`EnvBackend`]（env var 名 = `{BACKEND}_{PATH}` 大写）
-#[derive(Debug, Default)]
+///
+/// 仅 vault / infisical 走进程内 TTL 缓存与瞬时重试；env / file 每次直读。
+#[derive(Debug)]
 pub struct DefaultSecretStore {
     env: EnvBackend<StdEnvLookup>,
     file: FileBackend,
     vault: Option<VaultBackend>,
     infisical: Option<InfisicalBackend>,
+    cache: SecretCache,
+    remote_retries: u32,
+}
+
+impl Default for DefaultSecretStore {
+    fn default() -> Self {
+        Self {
+            env: EnvBackend::default(),
+            file: FileBackend,
+            vault: None,
+            infisical: None,
+            cache: SecretCache::new(DEFAULT_CACHE_TTL),
+            remote_retries: DEFAULT_REMOTE_RETRIES,
+        }
+    }
 }
 
 impl DefaultSecretStore {
@@ -136,12 +157,31 @@ impl DefaultSecretStore {
         self.infisical = Some(InfisicalBackend::new(config));
         self
     }
-}
 
-impl SecretStore for DefaultSecretStore {
-    async fn resolve(&self, secret_ref: &SecretRef) -> Result<SecretString, SecretError> {
+    /// 设置远程 secret 缓存 TTL；`Duration::ZERO` 关闭缓存。
+    pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
+        self.cache = SecretCache::new(ttl);
+        self
+    }
+
+    /// 设置远程瞬时失败额外重试次数；`0` 不重试。
+    pub fn with_remote_retries(mut self, retries: u32) -> Self {
+        self.remote_retries = retries;
+        self
+    }
+
+    async fn resolve_remote(&self, secret_ref: &SecretRef) -> Result<SecretString, SecretError> {
+        let cache_key = secret_ref.to_string();
+        if let Some(hit) = self.cache.get(&cache_key) {
+            return Ok(hit);
+        }
+        let value = retry_remote(self.remote_retries, || self.fetch_remote(secret_ref)).await?;
+        self.cache.insert(cache_key, value.clone());
+        Ok(value)
+    }
+
+    async fn fetch_remote(&self, secret_ref: &SecretRef) -> Result<SecretString, SecretError> {
         match secret_ref.backend.as_str() {
-            "file" => self.file.resolve(secret_ref).await,
             "vault" => match &self.vault {
                 Some(v) => v.resolve(secret_ref).await,
                 None => Err(SecretError::backend(
@@ -156,6 +196,19 @@ impl SecretStore for DefaultSecretStore {
                     "infisical backend not configured",
                 )),
             },
+            other => Err(SecretError::backend(
+                &secret_ref.to_string(),
+                format!("{other} is not a remote secret backend"),
+            )),
+        }
+    }
+}
+
+impl SecretStore for DefaultSecretStore {
+    async fn resolve(&self, secret_ref: &SecretRef) -> Result<SecretString, SecretError> {
+        match secret_ref.backend.as_str() {
+            "file" => self.file.resolve(secret_ref).await,
+            "vault" | "infisical" => self.resolve_remote(secret_ref).await,
             _ => self.env.resolve(secret_ref),
         }
     }
@@ -304,6 +357,22 @@ mod tests {
 
         let secret = result.unwrap();
         assert_eq!(secret.expose_secret(), "sk-test-store-file");
+    }
+
+    #[tokio::test]
+    async fn default_store_file_backend_is_not_cached() {
+        let file_path = temp_file_path("asterlane_test_store_file_nocache.txt");
+        std::fs::write(&file_path, "first-value").unwrap();
+
+        let store = DefaultSecretStore::with_backends();
+        let ref_ = SecretRef::new("file", &file_path);
+        let first = store.resolve(&ref_).await.unwrap();
+        assert_eq!(first.expose_secret(), "first-value");
+
+        std::fs::write(&file_path, "second-value").unwrap();
+        let second = store.resolve(&ref_).await.unwrap();
+        std::fs::remove_file(&file_path).ok();
+        assert_eq!(second.expose_secret(), "second-value");
     }
 
     #[tokio::test]

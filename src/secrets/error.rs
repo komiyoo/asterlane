@@ -22,6 +22,10 @@ pub enum SecretError {
     #[error("upstream secret backend error: {0}: {1}")]
     Backend(String, String),
 
+    /// 远程瞬时失败（超时、连接失败、HTTP 5xx），可按配置重试。
+    #[error("upstream secret temporarily unavailable: {0}: {1}")]
+    Transient(String, String),
+
     /// secret ref 格式无效。
     #[error("invalid secret ref: {0}")]
     InvalidRef(String),
@@ -38,9 +42,19 @@ impl SecretError {
         Self::Backend(redact_secret_ref(ref_uri), detail.into())
     }
 
+    /// 构造瞬时远程失败，ref URI 自动脱敏，`detail` 由调用方保证不含明文与完整路径。
+    pub fn transient(ref_uri: &str, detail: impl Into<String>) -> Self {
+        Self::Transient(redact_secret_ref(ref_uri), detail.into())
+    }
+
     /// 构造 `InvalidRef` 错误。
     pub fn invalid_ref(detail: impl Into<String>) -> Self {
         Self::InvalidRef(detail.into())
+    }
+
+    /// 超时、连接失败、HTTP 5xx 等瞬时错误可重试；4xx / 缺 key / 未配置不可重试。
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Transient(_, _))
     }
 }
 
@@ -83,6 +97,16 @@ mod tests {
         assert_eq!(err.error_code(), ErrorCode::AuthMissingUpstreamSecret);
     }
 
+    #[test]
+    fn transient_maps_to_auth_missing_upstream_secret() {
+        let err = AsterlaneError::from(SecretError::transient(
+            "secret://vault/myapp/api-key",
+            "vault returned 500",
+        ));
+        assert_eq!(err.error_code(), ErrorCode::AuthMissingUpstreamSecret);
+        assert!(err.to_string().contains("temporarily unavailable"));
+    }
+
     // ── HTTP 边界转换 ──
 
     #[test]
@@ -111,5 +135,27 @@ mod tests {
         assert!(!display.contains("Authorization"));
         assert!(!display.contains("sk-"));
         assert!(!display.contains("secret://tavily/default"));
+    }
+
+    #[test]
+    fn transient_is_retryable_and_redacts_path() {
+        let err = SecretError::transient("secret://vault/myapp/api-key", "vault returned 500");
+        assert!(err.is_retryable());
+        let display = err.to_string();
+        let debug = format!("{err:?}");
+        assert!(display.contains("secret://vault/"));
+        assert!(!display.contains("myapp"));
+        assert!(!display.contains("api-key"));
+        assert!(!debug.contains("myapp"));
+        assert!(!debug.contains("api-key"));
+    }
+
+    #[test]
+    fn backend_and_not_found_are_not_retryable() {
+        assert!(
+            !SecretError::backend("secret://vault/hidden", "vault returned 404").is_retryable()
+        );
+        assert!(!SecretError::not_found("secret://vault/hidden").is_retryable());
+        assert!(!SecretError::invalid_ref("missing scheme").is_retryable());
     }
 }

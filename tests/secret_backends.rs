@@ -1,11 +1,31 @@
 use asterlane::secrets::{
-    InfisicalBackend, InfisicalConfig, SecretRef, SecretStore, VaultBackend, VaultConfig,
+    DefaultSecretStore, InfisicalBackend, InfisicalConfig, SecretRef, SecretStore, VaultBackend,
+    VaultConfig,
 };
 use secrecy::ExposeSecret;
 use serde_json::json;
 use std::str::FromStr;
+use std::time::Duration;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+fn vault_kv_ok(value: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(json!({
+        "data": { "data": { "value": value }, "metadata": {} }
+    }))
+}
+
+fn vault_store(uri: String, ttl: Duration, retries: u32) -> DefaultSecretStore {
+    DefaultSecretStore::with_backends()
+        .with_vault(VaultConfig {
+            address: uri,
+            token: "t".to_string(),
+            mount: "secret".to_string(),
+            key: None,
+        })
+        .with_cache_ttl(ttl)
+        .with_remote_retries(retries)
+}
 
 // ── Vault KV v2 ──
 
@@ -235,4 +255,166 @@ secrets:
     let secret_ref = SecretRef::from_str("secret://vault/app/key").unwrap();
     let result = store.resolve(&secret_ref).await.unwrap();
     assert_eq!(result.expose_secret(), "from-assembled-vault");
+}
+
+// ── store-level cache + retry ──
+
+#[tokio::test]
+async fn store_vault_cache_hit_single_upstream_get() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/cached"))
+        .respond_with(vault_kv_ok("sk-cached-once"))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    let store = vault_store(mock.uri(), Duration::from_secs(60), 0);
+    let secret_ref = SecretRef::from_str("secret://vault/cached").unwrap();
+    let first = store.resolve(&secret_ref).await.unwrap();
+    let second = store.resolve(&secret_ref).await.unwrap();
+    assert_eq!(first.expose_secret(), "sk-cached-once");
+    assert_eq!(second.expose_secret(), "sk-cached-once");
+}
+
+#[tokio::test]
+async fn store_vault_ttl_zero_does_not_cache() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/nocache"))
+        .respond_with(vault_kv_ok("sk-ttl-zero"))
+        .expect(2)
+        .mount(&mock)
+        .await;
+
+    let store = vault_store(mock.uri(), Duration::ZERO, 0);
+    let secret_ref = SecretRef::from_str("secret://vault/nocache").unwrap();
+    let first = store.resolve(&secret_ref).await.unwrap();
+    let second = store.resolve(&secret_ref).await.unwrap();
+    assert_eq!(first.expose_secret(), "sk-ttl-zero");
+    assert_eq!(second.expose_secret(), "sk-ttl-zero");
+}
+
+#[tokio::test]
+async fn store_vault_expired_ttl_refetches() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/expires"))
+        .respond_with(vault_kv_ok("sk-after-expiry"))
+        .expect(2)
+        .mount(&mock)
+        .await;
+
+    let store = vault_store(mock.uri(), Duration::from_millis(1), 0);
+    let secret_ref = SecretRef::from_str("secret://vault/expires").unwrap();
+    let first = store.resolve(&secret_ref).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let second = store.resolve(&secret_ref).await.unwrap();
+    assert_eq!(first.expose_secret(), "sk-after-expiry");
+    assert_eq!(second.expose_secret(), "sk-after-expiry");
+}
+
+#[tokio::test]
+async fn store_vault_retries_5xx_then_succeeds() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/flaky"))
+        .respond_with(ResponseTemplate::new(500))
+        .up_to_n_times(1)
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/flaky"))
+        .respond_with(vault_kv_ok("sk-after-retry"))
+        .mount(&mock)
+        .await;
+
+    let store = vault_store(mock.uri(), Duration::from_secs(60), 2);
+    let secret_ref = SecretRef::from_str("secret://vault/flaky").unwrap();
+    let result = store.resolve(&secret_ref).await.unwrap();
+    assert_eq!(result.expose_secret(), "sk-after-retry");
+    let hits = mock
+        .received_requests()
+        .await
+        .expect("mock received_requests");
+    assert!(
+        hits.len() >= 2,
+        "expected at least two upstream GETs, got {}",
+        hits.len()
+    );
+}
+
+#[tokio::test]
+async fn store_vault_404_does_not_retry() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/missing-secret"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    let store = vault_store(mock.uri(), Duration::from_secs(60), 2);
+    let secret_ref = SecretRef::from_str("secret://vault/missing-secret").unwrap();
+    let err = store.resolve(&secret_ref).await.unwrap_err();
+    let display = err.to_string();
+    let debug = format!("{err:?}");
+    assert!(display.contains("404"));
+    assert!(!display.contains("missing-secret"));
+    assert!(!debug.contains("missing-secret"));
+    assert!(!display.contains("test-token"));
+    assert!(!debug.contains("test-token"));
+}
+
+#[tokio::test]
+async fn store_infisical_403_does_not_retry() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/secrets/raw/HIDDEN_NAME"))
+        .respond_with(ResponseTemplate::new(403))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    let store = DefaultSecretStore::with_backends()
+        .with_infisical(InfisicalConfig {
+            address: mock.uri(),
+            token: "inf-test-token".to_string(),
+            workspace_id: "ws-123".to_string(),
+            environment: "prod".to_string(),
+        })
+        .with_cache_ttl(Duration::from_secs(60))
+        .with_remote_retries(2);
+
+    let secret_ref = SecretRef::from_str("secret://infisical/HIDDEN_NAME").unwrap();
+    let err = store.resolve(&secret_ref).await.unwrap_err();
+    let display = err.to_string();
+    let debug = format!("{err:?}");
+    assert!(display.contains("403"));
+    assert!(!display.contains("HIDDEN_NAME"));
+    assert!(!debug.contains("HIDDEN_NAME"));
+    assert!(!display.contains("inf-test-token"));
+    assert!(!debug.contains("inf-test-token"));
+}
+
+#[tokio::test]
+async fn store_vault_does_not_cache_failures() {
+    let mock = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/later"))
+        .respond_with(ResponseTemplate::new(404))
+        .up_to_n_times(1)
+        .mount(&mock)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/secret/data/later"))
+        .respond_with(vault_kv_ok("sk-recovered"))
+        .mount(&mock)
+        .await;
+
+    let store = vault_store(mock.uri(), Duration::from_secs(60), 0);
+    let secret_ref = SecretRef::from_str("secret://vault/later").unwrap();
+    assert!(store.resolve(&secret_ref).await.is_err());
+    let ok = store.resolve(&secret_ref).await.unwrap();
+    assert_eq!(ok.expose_secret(), "sk-recovered");
 }

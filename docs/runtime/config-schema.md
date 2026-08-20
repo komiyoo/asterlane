@@ -69,6 +69,8 @@ semantic_search:
 
 ```yaml
 secrets:
+  cache_ttl_secs: 60                        # 可选；缺省 60；0 关闭。只缓存 vault / infisical
+  remote_retries: 2                         # 可选；缺省 2（最多共 3 次）；0 不重试。仅瞬时失败
   vault:
     address: http://127.0.0.1:8200          # 可选；缺省 VAULT_ADDR，再缺省本机 8200
     token_ref: secret://env/VAULT_TOKEN     # 必填；只允许 env / file，禁止明文、禁止 secret://vault/...
@@ -83,7 +85,9 @@ secrets:
     probe: true                             # 启动探测 GET /api/status
 ```
 
-`secret://vault/<path>` 读 Vault KV v2：`GET {address}/v1/{mount}/data/{path}`。`secret://infisical/<name>` 读 Infisical：`GET {address}/api/v3/secrets/raw/{name}`。引导 token 不得再走 vault/infisical，避免循环依赖。无缓存 / TTL / 轮换仍是后续项。
+`secret://vault/<path>` 读 Vault KV v2：`GET {address}/v1/{mount}/data/{path}`。`secret://infisical/<name>` 读 Infisical：`GET {address}/api/v3/secrets/raw/{name}`。引导 token 不得再走 vault/infisical，避免循环依赖。
+
+仅 `secret://vault/...` 与 `secret://infisical/...` 按完整 URI 做进程内 TTL 缓存（缺省 60s，`cache_ttl_secs: 0` 关闭）；失败不写入缓存。轮换等于 TTL 过期后下次 resolve 重新拉取（无 admin 主动失效）。`env` / `file` / 默认 provider→env 不缓存，本地文件或环境变量轮换立即生效。远程瞬时失败（超时、连接失败、HTTP 5xx）按 `remote_retries` 少次重试（缺省 2，共最多 3 次；`0` 不重试）；401/403/404/400 与 KV 缺 key 不重试。启动 probe 单次，不走缓存与这套重试。
 
 ## HTTP
 

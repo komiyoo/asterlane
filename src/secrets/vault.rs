@@ -5,6 +5,7 @@
 
 use crate::secrets::SecretString;
 use crate::secrets::error::SecretError;
+use crate::secrets::remote::{map_http_status, map_reqwest_send_error};
 use crate::secrets::secret_ref::SecretRef;
 use serde::Deserialize;
 
@@ -68,25 +69,23 @@ impl VaultBackend {
             secret_ref.path
         );
 
+        let ref_uri = secret_ref.to_string();
         let response = self
             .client
             .get(&url)
             .header("X-Vault-Token", &self.config.token)
             .send()
             .await
-            .map_err(|e| SecretError::backend(&secret_ref.to_string(), e.to_string()))?;
+            .map_err(|e| map_reqwest_send_error(&ref_uri, &e))?;
 
         if !response.status().is_success() {
-            return Err(SecretError::backend(
-                &secret_ref.to_string(),
-                format!("vault returned {}", response.status()),
-            ));
+            return Err(map_http_status(&ref_uri, "vault", response.status()));
         }
 
         let body: VaultKvResponse = response
             .json()
             .await
-            .map_err(|e| SecretError::backend(&secret_ref.to_string(), e.to_string()))?;
+            .map_err(|_| SecretError::backend(&ref_uri, "invalid vault response"))?;
 
         let key = self.config.key.as_deref().unwrap_or("value");
         body.data
@@ -95,10 +94,7 @@ impl VaultBackend {
             .and_then(|v| v.as_str())
             .map(|s| SecretString::new(s.to_string()))
             .ok_or_else(|| {
-                SecretError::backend(
-                    &secret_ref.to_string(),
-                    format!("key `{key}` not found in vault KV data"),
-                )
+                SecretError::backend(&ref_uri, format!("key `{key}` not found in vault KV data"))
             })
     }
 }

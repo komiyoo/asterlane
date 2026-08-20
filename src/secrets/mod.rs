@@ -13,8 +13,10 @@
 
 pub mod assemble;
 pub mod backend;
+pub mod cache;
 pub mod error;
 pub mod infisical;
+pub mod remote;
 pub mod secret_ref;
 pub mod vault;
 
