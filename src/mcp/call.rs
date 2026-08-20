@@ -86,8 +86,8 @@ pub(super) async fn invoke_meta_call_tool(
         executor = executor.with_mcp_registry(registry.clone());
     }
     executor = executor.with_limits(state.limit_registry_snapshot().await);
-    if let Some(pools) = &state.key_pools {
-        executor = executor.with_key_pools(pools.clone());
+    if let Some(pools) = state.key_pools_snapshot().await {
+        executor = executor.with_key_pools(pools);
     }
     executor = executor
         .with_quarantined(state.quarantined_tools.clone())

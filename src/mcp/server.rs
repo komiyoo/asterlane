@@ -149,8 +149,8 @@ impl AsterlaneToolServer {
             executor = executor.with_mcp_registry(reg.clone());
         }
         executor = executor.with_limits(self.state.limit_registry_snapshot().await);
-        if let Some(pools) = &self.state.key_pools {
-            executor = executor.with_key_pools(pools.clone());
+        if let Some(pools) = self.state.key_pools_snapshot().await {
+            executor = executor.with_key_pools(pools);
         }
         executor = executor
             .with_quarantined(self.state.quarantined_tools.clone())

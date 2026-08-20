@@ -56,14 +56,14 @@ admin:
 | 页面 | 内容 | 端点 | 状态 |
 | --- | --- | --- | --- |
 | Overview | 健康、版本、请求总量/错误数/平均延迟/限流命中/活跃工具/key/资源 | `/admin/health`、`/admin/stats` | 已上线（C1，卡片随 C2 stats 扩展） |
-| Resources | 上游资源清单（id、domain、provider、base_url、endpoint 数） | `/admin/resources` | 已上线（C1） |
+| Resources | 上游资源清单（id、domain、provider、base_url、endpoint 数、`auth_type`、`key_pool_size`）；CRUD 现接受 `auth`/`key_pool`（只收 secret ref，响应不回显完整路径） | `/admin/resources` | 已上线（C1；auth/key_pool 热写入 2026-08-20） |
 | Tools | wrapped tool 目录（name、description，客户端过滤）；每行「调试」展开面板 = 参数 textarea（预填已存默认）+ 调用 + 存为默认 + 结果/耗时/request_id 显示 | `/admin/tools`、`GET/PUT/DELETE /admin/tools/{name}/defaults`、`POST /admin/tools/{name}/invoke` | 已上线（C1，调试面板随 C4）；catalog 大时改服务端过滤，复用 `catalog` 的过滤/分页 |
 | Proxy Keys | key scope 一览（allow/deny 正则、分页大小） | `/admin/proxy-keys` | 已上线（C1） |
-| Key Pools | upstream key 池状态：available/cooling/leased、冷却剩余、权重、EWMA 延迟、LB 策略 | `/admin/key-pools` | 已上线（C2）：key 以脱敏 `key#000N` 展示，ref 隐藏路径段；配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md) |
+| Key Pools | upstream key 池状态：available/cooling/leased、冷却剩余、权重、EWMA 延迟、LB 策略 | `/admin/key-pools` | 已上线（C2）：key 以脱敏 `key#000N` 展示，ref 隐藏路径段；GET 读 resource CRUD 热更新后的池快照；配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md) |
 | Events | 请求事件查询（key/resource/tool/时间范围过滤，时间游标分页）；行「详情」展示负载捕获字段 `request_args`/`response_preview`/`upstream_latency_ms`，含 `request_args` 的行提供「存为默认参数」（前端 PUT 到该 tool 的 defaults） | `/admin/events`（`?tool_name=` 精确过滤） | 已上线（C2，行详情随 C4）：`from`/`to` 为 RFC3339；`to` 不含边界，兼作游标——下一页传上一页末行 `timestamp`（同一时间戳的并发行可能被跳过，微秒精度下可接受） |
 | Security Events | integrity drift、content defense 事件 | `/admin/security-events` | 已上线（C1） |
 | Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中） | `/admin/usage?group_by=&from=&to=` | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
-| Config | 配置校验报告、资源与 key 的 CRUD | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3） |
+| Config | 配置校验报告、资源与 key 的 CRUD；resource 写路径 swap 重建 `KeyPoolRegistry`（按 secret_ref 携带冷却与 EWMA） | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3；key pool 热更新 2026-08-20） |
 | （跨页面）Tool Defaults | 工具默认调用参数全量列表（Tools 调试面板与 CLI 消费） | `GET /admin/tool-defaults` | 已上线（C4） |
 | MCP Servers | MCP 供应商列表（健康状态、builtin/requires_key 标记、tool_count、探测按钮）；页顶「内置集成」区始终可见地列出全部 preset（状态 + 免费/需 key 标记 + 申请 key 链接）：keyless 一键「启用」、keyed「配置 key 启用」预填 url/domain/provider/auth 类型只需填 secret ref；行展开详情 = 元信息 + 健康 + 限额 + security + 工具表（介绍编辑、行内调试）；server 增删改表单创建/编辑均可编辑 security（`integrity_policy` warn/quarantine/block、`defense.enabled`、`result_budget_bytes`；注意写入嵌套 `defense:{enabled}`、读出扁平 `defense_enabled`，无 `deny_unknown_fields`） | `GET/POST /admin/mcp-servers`、`GET/PUT/DELETE /admin/mcp-servers/{id}`、`POST /admin/mcp-servers/{id}/probe`、`GET /admin/mcp-presets` | 已上线（C5，2026-07-06；security 编辑 2026-07-06；内置集成可见区 + 只配 key + rollinggo/exa 预集成 2026-07-07）：JSON 形状钉死于 [MCP 治理与 Key 限额](../runtime/mcp-governance-and-key-limits.md) §6 |
 | （跨页面）Tool Metadata | 工具介绍 override（覆盖上游 description；agent 可见描述 = override ?? 原始）；`/admin/tools` 行含 `resource_id`/`description_override` | `GET /admin/tool-metadata`、`GET/PUT/DELETE /admin/tools/{name}/metadata` | 已上线（C5，2026-07-06） |

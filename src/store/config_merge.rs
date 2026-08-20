@@ -21,8 +21,8 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::config::{
-    ApiResource, GatewayConfig, HealthCheckConfig, KeyLimits, McpServerConfig, ProxyKey,
-    SecurityConfig, UpstreamAuth, UpstreamLimits,
+    ApiResource, GatewayConfig, HealthCheckConfig, KeyLimits, KeyPoolConfig, McpServerConfig,
+    ProxyKey, SecurityConfig, UpstreamAuth, UpstreamLimits,
 };
 use crate::render::ResponseFormat;
 use crate::store::error::StoreError;
@@ -187,19 +187,22 @@ pub fn merge_db_into_config(
 struct ResourceConfigJson {
     #[serde(default)]
     limits: Option<UpstreamLimits>,
+    #[serde(default)]
+    auth: UpstreamAuth,
+    #[serde(default)]
+    key_pool: Option<KeyPoolConfig>,
 }
 
 fn resource_from_record(row: &Resource) -> Result<ApiResource, serde_json::Error> {
     let extra: ResourceConfigJson = serde_json::from_str(&row.config_json)?;
-    // CRUD 写路径未持久化的字段取与 api_resource_from_input 相同的缺省值
     Ok(ApiResource {
         id: row.id.clone(),
         domain: row.domain.clone(),
         provider: row.provider.clone(),
         base_url: row.base_url.clone(),
         description: row.description.clone().unwrap_or_default(),
-        auth: UpstreamAuth::None,
-        key_pool: None,
+        auth: extra.auth,
+        key_pool: extra.key_pool,
         endpoints: Vec::new(),
         discovery: None,
         security: SecurityConfig::default(),

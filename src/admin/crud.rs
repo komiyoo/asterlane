@@ -16,7 +16,7 @@ use tracing::warn;
 
 use crate::catalog::ToolCatalog;
 use crate::config::{
-    ApiResource, GatewayConfig, KeyLimits, ProxyKey, UpstreamAuth, UpstreamLimits,
+    ApiResource, GatewayConfig, KeyLimits, KeyPoolConfig, ProxyKey, UpstreamAuth, UpstreamLimits,
 };
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::gateway_auth::GatewayAuth;
@@ -28,6 +28,7 @@ use crate::store::repository::{
 };
 
 use super::auth::AdminKeyId;
+use super::resource_keys;
 
 // ── request DTOs ──
 
@@ -43,6 +44,12 @@ pub(super) struct ResourceInput {
     /// 上游限额（0 值非法，swap 前经 `LimitRegistry::from_config` 校验 fail fast）。
     #[serde(default)]
     pub limits: Option<UpstreamLimits>,
+    /// 创建缺省 `None`；更新时省略则保留已有值。
+    #[serde(default)]
+    pub auth: Option<UpstreamAuth>,
+    /// 创建原样写入；更新时省略则保留已有值。
+    #[serde(default)]
+    pub key_pool: Option<KeyPoolConfig>,
 }
 
 /// proxy key 创建/更新输入。**不接受凭据字段**（token_ref/token_digest/
@@ -93,9 +100,10 @@ pub(super) async fn create_resource(
 
     let mut new_config = (*config).clone();
     new_config.api_resources.push(resource.clone());
-    // 先校验+原子替换（limits 0 值在此 fail fast），再落库（best-effort）
+    // 先校验+原子替换（limits 0 值 / 非法 key_pool 在此 fail fast），再落库（best-effort）
     swap_config_and_catalog(&state, new_config).await?;
     persist_resource(&state, &resource).await;
+    resource_keys::persist_upstream_keys(&state, &resource).await;
 
     record_audit(&state, &admin.0, "create", "resource", &input.id).await;
     Ok(Json(json!({"created": input.id})))
@@ -115,18 +123,17 @@ pub(super) async fn update_resource(
         ));
     }
 
-    let resource = api_resource_from_input(&input);
-
     let mut new_config = (*config).clone();
+    let mut updated = None;
     if let Some(r) = new_config.api_resources.iter_mut().find(|r| r.id == id) {
-        r.domain = input.domain;
-        r.provider = input.provider;
-        r.base_url = input.base_url;
-        r.description = input.description;
-        r.limits = input.limits;
+        resource_keys::apply_update(r, &input);
+        updated = Some(r.clone());
     }
     swap_config_and_catalog(&state, new_config).await?;
-    update_resource_db(&state, &resource).await;
+    if let Some(resource) = &updated {
+        update_resource_db(&state, resource).await;
+        resource_keys::persist_upstream_keys(&state, resource).await;
+    }
 
     record_audit(&state, &admin.0, "update", "resource", &id).await;
     Ok(Json(json!({"updated": id})))
@@ -145,6 +152,7 @@ pub(super) async fn delete_resource(
         ));
     }
 
+    resource_keys::delete_upstream_keys(&state, &id).await;
     if let Some(repo) = &state.event_repo
         && let Err(e) = repo.delete_resource(&id).await
     {
@@ -312,14 +320,15 @@ pub(super) async fn validate_config(State(state): State<AppState>) -> Json<Value
 // ── helpers ──
 
 fn api_resource_from_input(input: &ResourceInput) -> ApiResource {
+    let (auth, key_pool) = resource_keys::apply_create(input);
     ApiResource {
         id: input.id.clone(),
         domain: input.domain.clone(),
         provider: input.provider.clone(),
         base_url: input.base_url.clone(),
         description: input.description.clone(),
-        auth: UpstreamAuth::None,
-        key_pool: None,
+        auth,
+        key_pool,
         endpoints: Vec::new(),
         discovery: None,
         security: Default::default(),
@@ -368,6 +377,7 @@ pub(super) async fn swap_config_and_catalog(
     let old_registry = state.limit_registry_snapshot().await;
     new_registry.carry_counts_from(&old_registry);
     let new_auth = GatewayAuth::from_config(&new_config, state.secrets.as_ref()).await?;
+    let new_pools = resource_keys::key_pools_from_config(&new_config)?;
 
     // 保留 MCP tools 与介绍 override（overlay 状态存于 catalog，重建时携带）
     {
@@ -393,6 +403,7 @@ pub(super) async fn swap_config_and_catalog(
     *state.catalog.write().await = new_catalog;
     *state.limit_registry.write().await = Arc::new(new_registry);
     *state.gateway_auth.write().await = new_auth;
+    resource_keys::install_key_pools(state, new_pools).await;
     Ok(())
 }
 
@@ -403,7 +414,12 @@ fn to_db_resource(r: &ApiResource) -> Resource {
         provider: r.provider.clone(),
         base_url: r.base_url.clone(),
         description: Some(r.description.clone()),
-        config_json: json!({ "limits": r.limits }).to_string(),
+        config_json: json!({
+            "limits": r.limits,
+            "auth": r.auth,
+            "key_pool": r.key_pool,
+        })
+        .to_string(),
         created_at: String::new(),
         updated_at: String::new(),
     }

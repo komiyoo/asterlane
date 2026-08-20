@@ -61,7 +61,9 @@ pub struct AppState {
     /// Admin API 认证状态；`None` 时 admin 路由不挂载。
     pub admin_auth: Option<Arc<AdminAuth>>,
     /// Key 池注册表；`None` 时资源走单 ref 凭据路径。
-    pub key_pools: Option<Arc<KeyPoolRegistry>>,
+    /// `RwLock<Option<Arc<>>>` 与 `limit_registry` 同模式：CRUD 热更新重建后原子替换，
+    /// 读路径克隆快照后立即释放锁。
+    pub key_pools: Arc<RwLock<Option<Arc<KeyPoolRegistry>>>>,
     /// 语义索引；`None` 时 `asterlane__search_tools` 走关键词打分。
     pub semantic: Option<Arc<SemanticIndex>>,
     /// gateway key 认证状态（Bearer 摘要表 + legacy 集合，见 gateway_auth 模块）。
@@ -104,7 +106,7 @@ impl AppState {
             quarantined_tools: Arc::new(RwLock::new(HashMap::new())),
             metrics_handle: None,
             admin_auth: None,
-            key_pools: None,
+            key_pools: Arc::new(RwLock::new(None)),
             semantic: None,
         }
     }
@@ -123,7 +125,7 @@ impl AppState {
 
     /// 注入 key 池注册表（main.rs 启动时从配置构建后注入）。
     pub fn with_key_pools(mut self, key_pools: Arc<KeyPoolRegistry>) -> Self {
-        self.key_pools = Some(key_pools);
+        self.key_pools = Arc::new(RwLock::new(Some(key_pools)));
         self
     }
 
@@ -190,5 +192,10 @@ impl AppState {
     /// 获取限额注册表快照（读锁瞬间释放）。
     pub async fn limit_registry_snapshot(&self) -> Arc<LimitRegistry> {
         self.limit_registry.read().await.clone()
+    }
+
+    /// 获取 key 池注册表快照（读锁瞬间释放）。
+    pub async fn key_pools_snapshot(&self) -> Option<Arc<KeyPoolRegistry>> {
+        self.key_pools.read().await.clone()
     }
 }

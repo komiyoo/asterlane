@@ -330,6 +330,19 @@ pub trait UpstreamKeyRepository: Send + Sync {
         &self,
         id: &str,
     ) -> impl std::future::Future<Output = Result<bool, StoreError>> + Send;
+
+    /// 按 resource 整表替换：先删该 resource 的行，再插入 `keys`。
+    fn replace_upstream_keys_for_resource(
+        &self,
+        resource_id: &str,
+        keys: &[UpstreamKeyRecord],
+    ) -> impl std::future::Future<Output = Result<(), StoreError>> + Send;
+
+    /// 删除某个 resource 下的全部上游密钥，返回删除行数。
+    fn delete_upstream_keys_for_resource(
+        &self,
+        resource_id: &str,
+    ) -> impl std::future::Future<Output = Result<u64, StoreError>> + Send;
 }
 
 impl UpstreamKeyRepository for () {
@@ -355,6 +368,19 @@ impl UpstreamKeyRepository for () {
     }
     async fn delete_upstream_key(&self, _id: &str) -> Result<bool, StoreError> {
         Ok(false)
+    }
+    async fn replace_upstream_keys_for_resource(
+        &self,
+        _resource_id: &str,
+        _keys: &[UpstreamKeyRecord],
+    ) -> Result<(), StoreError> {
+        Ok(())
+    }
+    async fn delete_upstream_keys_for_resource(
+        &self,
+        _resource_id: &str,
+    ) -> Result<u64, StoreError> {
+        Ok(0)
     }
 }
 

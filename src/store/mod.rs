@@ -760,6 +760,44 @@ mod tests {
         assert!(!repo.delete_upstream_key("u1").await.unwrap());
     }
 
+    #[tokio::test]
+    async fn replace_upstream_keys_for_resource_swaps_rows() {
+        let repo = setup_repo().await;
+        repo.insert_resource(&sample_resource("r1")).await.unwrap();
+        repo.insert_upstream_key(&sample_upstream_key("u1", "r1"))
+            .await
+            .unwrap();
+
+        let replacement = vec![
+            sample_upstream_key("r1:1", "r1"),
+            sample_upstream_key("r1:2", "r1"),
+        ];
+        repo.replace_upstream_keys_for_resource("r1", &replacement)
+            .await
+            .unwrap();
+
+        let keys = repo.list_upstream_keys_for_resource("r1").await.unwrap();
+        assert_eq!(keys.len(), 2);
+        assert_eq!(keys[0].id, "r1:1");
+        assert_eq!(keys[1].id, "r1:2");
+        assert!(repo.get_upstream_key("u1").await.is_err());
+
+        assert_eq!(
+            repo.delete_upstream_keys_for_resource("r1").await.unwrap(),
+            2
+        );
+        assert!(
+            repo.list_upstream_keys_for_resource("r1")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            repo.delete_upstream_keys_for_resource("r1").await.unwrap(),
+            0
+        );
+    }
+
     // ── UsageBucketRepository 测试 ──
 
     fn sample_bucket() -> UsageBucket {
