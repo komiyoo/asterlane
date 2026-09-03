@@ -65,10 +65,12 @@ async function connect() {
   try {
     const health = await api("/admin/health");
     conn.textContent = "已连接 · v" + health.version; conn.className = "ok";
+    $("#refresh").hidden = false;
     buildNav();
     await loadCurrent();
   } catch (e) {
     conn.textContent = e.message; conn.className = "err";
+    $("#refresh").hidden = true;
     $("#view").innerHTML = '<p class="hint">' + esc(e.message) + "</p>";
   }
 }
@@ -78,6 +80,7 @@ $("#connect").addEventListener("click", () => {
   connect();
 });
 $("#token").addEventListener("keydown", e => { if (e.key === "Enter") $("#connect").click(); });
+$("#refresh").addEventListener("click", () => loadCurrent());
 
 if (sessionStorage.getItem(TOKEN_KEY)) {
   $("#token").value = sessionStorage.getItem(TOKEN_KEY);

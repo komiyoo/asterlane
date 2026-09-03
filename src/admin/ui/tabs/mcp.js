@@ -24,6 +24,7 @@ export async function loadMcpServers(view) {
     try { const r = await api("/admin/mcp-presets"); presets = Array.isArray(r) ? r : []; }
     catch { $("#ms-presets").innerHTML = ""; return; } // 目录不可用则静默隐藏，手动添加仍可用
     let h = '<div class="card" style="margin:8px 0"><h3 style="margin:0 0 8px">内置集成</h3>'
+      + '<div id="ms-preset-status" class="hint" style="display:none;margin:0 0 6px;text-align:left;color:var(--err)"></div>'
       + '<div class="tablewrap"><table><thead><tr><th>集成</th><th>描述</th><th>状态</th><th>凭据</th><th></th></tr></thead><tbody>';
     presets.forEach((p, i) => {
       const status = p.enabled
@@ -63,7 +64,12 @@ export async function loadMcpServers(view) {
         description: p.description || "", auth: { type: "none" },
       });
       await refresh(); // 同步刷新列表与内置集成区（状态翻绿）
-    } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = "启用"; }
+    } catch (e) {
+      // alert 会随点击消失；行内常驻提示让失败原因（如 id 与现有资源冲突）可停留查阅
+      btn.disabled = false; btn.textContent = "启用";
+      const st = $("#ms-preset-status");
+      if (st) { st.style.display = "block"; st.textContent = "启用 " + p.id + " 失败：" + e.message; }
+    }
   };
 
   const renderList = () => {

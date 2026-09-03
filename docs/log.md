@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-09-02（控制台 UX 审计：preset 启用失败行内提示 + 页头刷新按钮）
+
+- **背景**：对主用户流（登录、总览、MCP 服务、代理密钥、工具调试、事件、审计、配置）做了一轮浏览器实操审计。两个可复现的 papercut：
+  1. 用 `examples/gateway.yaml`（README 快速开始配置）时，内置集成区一键「启用」exa preset 必然 400——preset id 与 YAML 里的 HTTP 资源 id `exa` 冲突；此前唯一反馈是瞬时 `alert`，关闭后页面无任何痕迹，用户无法知道失败原因。
+  2. 所有页签数据只在连接或切换时加载，没有任何刷新入口；「重点当前 tab」可重载但不可发现。
+- **修复**（`src/admin/ui/tabs/mcp.js`、`console.html`、`app.js`，均编译期嵌入需重构建）：preset 一键启用失败改为在内置集成卡片顶部常驻行内错误提示；页头新增「刷新」按钮，连接成功后显示、失败时隐藏，点击重载当前页签。
+- **文档**：[Admin Console](admin-console.md) 页面地图补「（跨页面）数据刷新」行，MCP Servers 行补启用失败行内提示说明。
+- **验证**：`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py`；浏览器实操复验两条流（见 PR 描述）。
+
 ## 2026-08-19（新增 PR 模板）
 
 - **新增** `.github/PULL_REQUEST_TEMPLATE.md`：改动摘要 + 验证表格 + 分块自查 + 备注。验证表格列出与 CI 对齐的四条命令并要求填**实际结果**而非打勾，未通过项须写出精确命令与原因；自查分文档（OKF 三问 + supersede 就地更正）、工程纲领（分层单向、错误码、禁 unwrap、500 行预算、新依赖过 crate-selection）、安全（密钥零提交、错误可安全展示）三块，按改动相关性选填。
