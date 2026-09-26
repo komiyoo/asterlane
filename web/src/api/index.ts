@@ -12,3 +12,22 @@ export { getHealth, getStats } from "./overview.ts";
 export { listSecurityEvents } from "./security.ts";
 export { getUsage } from "./usage.ts";
 export type * from "./generated/admin.d.ts";
+export {
+  createMcpServer,
+  deleteMcpServer,
+  getMcpServer,
+  listMcpPresets,
+  listMcpServers,
+  mcpServerPath,
+  probeMcpServer,
+  updateMcpServer,
+} from "./mcp.ts";
+export {
+  deleteToolMetadata,
+  getToolDefault,
+  invokeTool,
+  listTools,
+  putToolDefault,
+  putToolMetadata,
+  toolAdminPath,
+} from "./tools.ts";

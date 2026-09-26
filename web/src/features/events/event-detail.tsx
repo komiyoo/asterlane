@@ -1,5 +1,6 @@
 import type { OutputRequestEventResponse } from "../../api/index.ts";
 import { formatOptionalNumber } from "../format.ts";
+import { SaveDefaultControl } from "../tools/save-default-control.tsx";
 
 export function EventDetail({ event }: { event: OutputRequestEventResponse }) {
   return (
@@ -9,6 +10,7 @@ export function EventDetail({ event }: { event: OutputRequestEventResponse }) {
       <pre>{event.request_args ?? "（未捕获）"}</pre>
       <p>响应预览</p>
       <pre>{event.response_preview ?? "（未捕获）"}</pre>
+      <SaveDefaultControl toolName={event.tool_name} requestArgs={event.request_args} />
     </div>
   );
 }
