@@ -29,7 +29,7 @@ The original product requirements are preserved in [Product Requirements](../pro
 | 决策 | 原始需求 | 变更后 | 依据 |
 | --- | --- | --- | --- |
 | MCP 工具名格式 | `domain:provider:tool:method`（冒号四段） | `domain__provider__tool`（双下划线三段） | 冒号不兼容 MCP/LLM API 字符集；`method` 段信息量为零（HTTP method 为路由细节，MCP 固定 `call`）。详见 [Naming Convention](naming-convention.md)。 |
-| 控制台交付形态（2026-09-26 目标） | 早期 vanilla UI 编译进 Rust 二进制 | 同仓库独立前端，独立构建部署，同源访问管理 API | 11 个页面及管理交互需要组件与类型支持；Rust 构建保持独立。见 [控制台与网关分离架构](console-separation.md#决策与实施状态)，尚未完成代码迁移。 |
+| 控制台交付形态（2026-09-26 目标） | 早期 vanilla UI 编译进 Rust 二进制 | 同仓库独立前端，独立构建部署，同源访问管理 API | 11 个页面及管理交互需要组件与类型支持；Rust 构建保持独立。管理 API 的 Rust DTO 与 `schemas/admin.json` 已落地，前端与旧 UI 退役尚未完成。见 [控制台与网关分离架构](console-separation.md#决策与实施状态)。 |
 
 # Module Map
 
@@ -57,7 +57,7 @@ The original product requirements are preserved in [Product Requirements](../pro
 
 # Control Plane
 
-控制台与网关的目标边界、工具链、API 类型生成和部署方式集中在 [控制台与网关分离架构](console-separation.md#系统结构)。当前 `admin` 模块仍含旧内嵌页面；迁移完成后由 `web/` 消费 `/admin/*`，Rust 继续拥有校验、审计、持久化和工具执行，agent 数据流保持下节所述边界。
+控制台与网关的目标边界、工具链、API 类型生成和部署方式集中在 [控制台与网关分离架构](console-separation.md#系统结构)。管理 HTTP 的 Rust DTO 与 Draft 7 schema 已从 `src/admin/types/` 导出；当前 `admin` 模块仍含旧内嵌页面。迁移完成后由 `web/` 消费 `/admin/*`，Rust 继续拥有校验、审计、持久化和工具执行，agent 数据流保持下节所述边界。
 
 # Data Flow
 

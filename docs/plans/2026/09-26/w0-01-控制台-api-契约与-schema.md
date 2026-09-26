@@ -44,25 +44,25 @@ sources:
 
 ## PR1 固定现有接口行为
 
-- [ ] 从管理 Router 列出所有 method/path 及请求、查询、响应类型，在测试中覆盖主要字段、状态码和非 JSON 返回；测试值全部使用假凭据。
-- [ ] 在迁移前运行现有 admin/HTTP/CLI 测试并记录结果；新增响应兼容检查，覆盖数组和对象包裹、可空字段、空签发 body、204 与 YAML 下载。
+- [x] 从管理 Router 列出所有 method/path 及请求、查询、响应类型，在测试中覆盖主要字段、状态码和非 JSON 返回；测试值全部使用假凭据。
+- [x] 在迁移前运行现有 admin/HTTP/CLI 测试并记录结果；新增响应兼容检查，覆盖数组和对象包裹、可空字段、空签发 body、204 与 YAML 下载。
 
 验收：新 DTO 的预期来自实际端点与已有契约；不能凭页面猜字段或把观察到的脱敏字段反向写入配置。
 
 ## PR2 集中 DTO 并接入处理函数
 
-- [ ] 按资源域迁移共享输入和查询类型，统一由 `src/admin/types/mod.rs` 导出；命名采用 Params/Response 等固定语义后缀，序列化字段不改名。
-- [ ] 对 11 个页面消费的响应建立 DTO 并显式映射；对配置、store 记录和错误分别沿用正确的层级，不暴露数据库实体或密钥摘要。
-- [ ] 补齐 MCP security 读写差异、auth 更新省略、资源 key pool、token 一次性返回、事件 payload 和工具默认参数的契约回归。
-- [ ] 保持已有校验、审计、204 与错误码；动态工具 JSON 不生成虚假的固定字段，也不新增一套手写校验器。
+- [x] 按资源域迁移共享输入和查询类型，统一由 `src/admin/types/mod.rs` 导出；命名采用 Params/Response 等固定语义后缀，序列化字段不改名。
+- [x] 对 11 个页面消费的响应建立 DTO 并显式映射；对配置、store 记录和错误分别沿用正确的层级，不暴露数据库实体或密钥摘要。
+- [x] 补齐 MCP security 读写差异、auth 更新省略、资源 key pool、token 一次性返回、事件 payload 和工具默认参数的契约回归。
+- [x] 保持已有校验、审计、204 与错误码；动态工具 JSON 不生成虚假的固定字段，也不新增一套手写校验器。
 
 验收：迁移前后的兼容断言及原有测试通过，旧 UI 与 CLI 仍能读取与写入相同形状。
 
 ## PR3 导出 schema
 
-- [ ] 用 `schemars` Draft 7 导出 `schemas/admin.json`；区分反序列化输入与序列化输出，覆盖缺省、null、枚举、时间及数字，不引入 TS 类型生成 Rust crate。
-- [ ] 新增 `just admin-schema` 和只检查不覆盖的 `just admin-schema-check`；输出稳定且带生成说明，重复导出无差异，差异检查失败时给出重生成命令。
-- [ ] 运行契约测试、schema 检查和 `just check`，更新类型与生成入口的文档状态。
+- [x] 用 `schemars` Draft 7 导出 `schemas/admin.json`；区分反序列化输入与序列化输出，覆盖缺省、null、枚举、时间及数字，不引入 TS 类型生成 Rust crate。
+- [x] 新增 `just admin-schema` 和只检查不覆盖的 `just admin-schema-check`；输出稳定且带生成说明，重复导出无差异，差异检查失败时给出重生成命令。
+- [x] 运行契约测试、schema 检查和 `just check`，更新类型与生成入口的文档状态。
 
 ## Verification
 

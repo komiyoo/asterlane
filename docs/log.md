@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-09-27（管理 API 契约与 JSON Schema）
+
+- **行为**：管理 HTTP 的请求、查询和响应集中到 `src/admin/types/`，处理函数改为 DTO 映射。wire 形状、状态码、204、YAML 导出、校验和审计保持不变。明文 token 仍只出现在签发响应。
+- **Schema**：`schemars` Draft 7 生成 `schemas/admin.json`。`inputs` 按反序列化，`outputs` 按序列化。`just admin-schema` 覆盖生成，`just admin-schema-check` 只比较；失败时提示重生成。不生成 TypeScript。
+- **文档**：[控制台与网关分离架构](architecture/console-separation.md#单一真实源)、[Architecture](architecture/architecture.md)、[schemas/README.md](../schemas/README.md)。旧内嵌 UI 仍保留。
+- **验证**：`just admin-schema`、`just admin-schema-check`、`cargo test --test admin_contracts` 与 `just check` 通过（886 项测试通过、2 项忽略）。
+
 ## 2026-09-26（控制台前后端分离架构与执行计划）
 
 - **决策**：同仓库独立前端，React + TypeScript + Kumo，Vite+ 研发工具链与 Bun 包管理；控制台静态站独立部署，经 Nginx 同源代理管理 API。Rust 构建不依赖前端。

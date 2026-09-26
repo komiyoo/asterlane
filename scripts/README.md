@@ -35,6 +35,8 @@ CI 的 `docs` job（`.github/workflows/ci.yml`）运行 `check_okf_docs.py`。�
 | `just worktree-prune` | 主仓清理失效 worktree 登记和空的 `.worktrees/` |
 | `just worktree-prune-merged` | prune，并删除已合进 main 且无树占用的本地分支 |
 | `just check` | doctor + fmt + clippy + test + OKF，对齐 CI 的前四项 |
+| `just admin-schema` | 从 Rust 管理 DTO 生成 `schemas/admin.json` |
+| `just admin-schema-check` | 比较已提交 schema，不覆盖；失败时提示 `just admin-schema` |
 | `just fmt` / `just fmt-check` | 格式化 / 格式检查 |
 | `just lint` | clippy，警告视为错误 |
 | `just test` | `cargo test` |

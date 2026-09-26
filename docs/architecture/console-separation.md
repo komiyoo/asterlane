@@ -46,7 +46,7 @@ sources:
 
 2026-09-26 确定目标：控制台与 Rust 网关留在同一仓库，独立构建、独立部署，经同一个控制台域名访问页面和 admin API。前端采用 React、TypeScript、Kumo 和 Vite+，Bun 作为包管理器。
 
-本文件是已选定的架构目标，`status: stable` 不表示功能已实现。当前代码仍使用 `src/admin/ui/` 与 `include_str!`；本次文档交付不改变运行行为。实施状态以 [执行计划索引](../plans/README.md) 的待办为准。
+本文件是已选定的架构目标，`status: stable` 不表示前端已经切换。管理请求、查询和响应 DTO 已集中在 `src/admin/types/`，`schemas/admin.json` 由 `just admin-schema` 从这些 DTO 生成，`just admin-schema-check` 只比较不覆盖。TypeScript 声明、`web/` 和旧 UI 退役仍未落地；当前运行时仍使用 `src/admin/ui/` 与 `include_str!`。其余实施状态以 [执行计划索引](../plans/README.md) 的待办为准。
 
 本决策替代 [Admin Console](../admin/admin-console.md#形态决策) 中的免构建、逐文件嵌入和控制台随单二进制交付约定。页面业务范围、admin key 与 gateway key 分离、上游凭据留在网关等约束继续适用。[^console]
 
@@ -122,7 +122,7 @@ flowchart LR
 
 生成器使用 JSON Schema Draft 7，按输入反序列化、输出序列化的真实语义导出；读写形状不同就使用不同 DTO，不能用手写 TS 修补差异。重点验证默认值、缺省与 `null`、枚举标记、数字和时间字段。动态工具参数与结果保留 JSON 值类型，不虚构固定业务结构。[^schemars] [^schema-ts]
 
-`schemas/admin.json` 和 `web/src/api/generated/admin.d.ts` 均提交并标记 generated。前端从 `web/src/api/index.ts` 获取调用函数和类型，不在页面重复定义 HTTP 契约。schema 与 TS 各有重生成和差异检查入口；前端独立构建只需已提交产物，契约 CI 同时校验 Rust → schema → TS，发现漂移即失败。
+`schemas/admin.json` 已提交并在文件内标记 generated。用 `just admin-schema` 重生成，用 `just admin-schema-check` 只比较不覆盖；检查失败时命令会提示 `just admin-schema`。`web/src/api/generated/admin.d.ts` 仍由后续前端计划生成。前端落地后从 `web/src/api/index.ts` 获取调用函数和类型，不在页面重复定义 HTTP 契约。schema 与 TS 各有重生成和差异检查入口；前端独立构建只需已提交产物。TS 生成接入后，契约检查同时校验 Rust → schema → TS，发现漂移即失败。
 
 不另手写一套前端校验 schema。浏览器原生约束处理必填和格式反馈，业务合法性由后端已有校验决定；Rust 正则的合法性不能由 JS `RegExp` 的判断替代。TS 类型不被当作运行时校验或授权。
 
