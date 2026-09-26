@@ -148,7 +148,7 @@ The management backend should start small:
 - usage summary by key/provider/tool/status
 - config validation report
 
-早期免构建 UI 已覆盖上述管理能力。2026-09-26 已确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：采用独立 React/TypeScript 前端、Vite+ 与 Bun，静态产物独立部署；旧内嵌 UI 在新页面与部署验收后退役。管理 API 的 Rust DTO 与 `schemas/admin.json` 已落地，用 `just admin-schema` 生成、`just admin-schema-check` 检查漂移；这两条还不在 `just check` 里。前端工程与 TS 生成仍由对应计划接入，现行 `just check` 仍按下文执行。
+早期免构建 UI 已覆盖上述管理能力。2026-09-26 已确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：采用独立 React/TypeScript 前端、Vite+ 与 Bun，静态产物独立部署；旧内嵌 UI 在新页面与部署验收后退役。管理 API 的 Rust DTO 与 `schemas/admin.json` 已落地，用 `just admin-schema` 生成、`just admin-schema-check` 检查漂移。`web/` 已能独立安装、检查和构建。schema 检查、TypeScript 生成和仓库级前端命令还不在 `just check` 里，由应用外壳计划接入。现行 `just check` 仍按下文执行。
 
 Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](../admin/admin-console.md)。
 

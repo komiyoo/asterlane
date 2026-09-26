@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-09-27（控制台前端工具链）
+
+- **工程**：新增独立 `web/`，使用 React 19.3、TypeScript strict、Kumo 2.14、Vite+ 1.0.0-rc.0 和 Bun 1.4.2。开发服务器把 `/admin` 代理到本机网关，端口由 `ASTERLANE_DEV_GATEWAY_PORT` 覆盖。生产构建不写入凭据或任意 API 地址。
+- **检查**：`web/` 内 `vp check`、`vp test --run`、`vp build` 可用。`.github/workflows/web.yml` 冻结安装并上传 `web/dist`，不部署。Playwright 只覆盖生产预览的冒烟对话框。
+- **尚未接入**：TypeScript 类型生成、`just web-*`、把前端检查并入 `just check`，以及业务页面。旧内嵌 UI 仍是运行入口。
+- **文档**：[依赖选型 · 控制台构建依赖](architecture/crate-selection.md#控制台构建依赖)、[web/README.md](../web/README.md)。
+
 ## 2026-09-27（管理 API 契约与 JSON Schema）
 
 - **行为**：管理 HTTP 的请求、查询和响应集中到 `src/admin/types/`，处理函数改为 DTO 映射。wire 形状、状态码、204、YAML 导出、校验和审计保持不变。明文 token 仍只出现在签发响应。

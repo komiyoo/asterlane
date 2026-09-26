@@ -110,7 +110,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | 浏览器路由 | React Router 声明式模式 | `react-router` 8.4.0 | `BrowserRouter`。刷新和后退可用，不引入 SSR。peer 要求 React `>=19.2.7`、Node `>=22.22.0`。见 [官方接入](https://reactrouter.com/start/declarative/installation)。 |
 | 开发、检查、构建与单元测试 | Vite+ | CLI 与 `vite-plus` 均为 1.0.0-rc.0 | 与本机已验证的 CLI 相同。包内 Vite 8.3.0、Rolldown 1.2.9、Vitest 5.0.1、Oxlint 1.85.0、Oxfmt 0.70.0。`overrides.vite` 指向 `@voidzero-dev/vite-plus-core@1.0.0-rc.0`，`overrides.vitest` 钉 5.0.1。`vp check` 打开 `lint.options.typeAware` 和 `typeCheck`。见 [官方指南](https://viteplus.dev/guide/)。 |
 | 运行时与包管理 | Node、Bun | Node 22.23.1；Bun 1.4.2 | Node 写在 `web/.node-version`，满足 `vite-plus` 的 Node 要求：22.18 起的 22、24.11 起的 24，或 26 及以上。`packageManager` 为 `bun@1.4.2`，唯一锁文件是 `bun.lock`。CI 用 `voidzero-dev/setup-vp@v1.21.1` 安装同一版 `vp` 和 Node，不用 `latest`。 |
-| API schema | 复用 `schemars` 1.2 | 未安装到前端 | 从实际 Rust DTO 生成 Draft 7 schema，按输入/输出序列化方向验证；不新增 Rust 类型生成 crate。这次不生成 schema。 |
+| API schema | 复用 `schemars` 1.2，启用 `chrono04` | Rust 已生成 `schemas/admin.json`；前端尚未消费 | `just admin-schema` 覆盖生成，`just admin-schema-check` 只比较。按输入反序列化、输出序列化。不新增把 TypeScript 生成进 Rust 的 crate。 |
 | TS 声明生成 | `json-schema-to-typescript` | 未安装 | 从提交的 schema 生成一个管理 API 类型文件，仅开发依赖。这次不接入。见 [官方仓库](https://github.com/bcherny/json-schema-to-typescript)。 |
 | 浏览器回归 | `@playwright/test` | 1.63.0 | 独立于 Vitest。这次只有一条生产预览冒烟，不覆盖认证和写操作，CI 也不跑它。 |
 | 仓库级接线 | `just web-*`、`just check` 的前端步骤 | 未实施 | 留给后续应用外壳计划，避免和 API 契约计划同时改 `justfile`。 |
