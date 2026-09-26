@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { E2E_ADMIN_TOKEN } from "./fixture.ts";
 
 const readPages = ["总览", "用量", "密钥池", "事件", "安全事件", "审计", "配置"] as const;
-const pendingPages = ["资源", "MCP 服务", "工具", "代理密钥"] as const;
+const pendingPages = ["MCP 服务", "工具"] as const;
 
 async function login(page: Page, token = E2E_ADMIN_TOKEN) {
   await page.goto("/");
