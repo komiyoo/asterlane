@@ -5,7 +5,7 @@
 ## 脚本
 
 - [check_okf_docs.py](check_okf_docs.py) - 校验 `docs/` OKF frontmatter、索引覆盖和子目录导航；`docs/plans/` 的日期目录由年份索引导航。
-- [setup_worktree.py](setup_worktree.py) - Worktree / 本机工具链检查、`cargo fetch`、打印本树环境变量。约定见 [Worktree Workflow](../docs/engineering/worktree-workflow.md)。
+- [setup_worktree.py](setup_worktree.py) - Worktree / 本机工具链检查、`cargo fetch`、冻结安装本树 `web/` 依赖、打印本树环境变量。约定见 [Worktree Workflow](../docs/engineering/worktree-workflow.md)。没有 `vp` 时跳过前端安装，纯 Cargo 构建不需要 Node。
 
 ## 用法
 
@@ -34,9 +34,13 @@ CI 的 `docs` job（`.github/workflows/ci.yml`）运行 `check_okf_docs.py`。�
 | `just worktree-env` | 打印本树应 `export` 的变量 |
 | `just worktree-prune` | 主仓清理失效 worktree 登记和空的 `.worktrees/` |
 | `just worktree-prune-merged` | prune，并删除已合进 main 且无树占用的本地分支 |
-| `just check` | doctor + fmt + clippy + test + OKF，对齐 CI 的前四项 |
+| `just check` | doctor + fmt + clippy + test + OKF + schema/TS 差异检查 + 前端静态检查、测试和构建。不含 `just web-e2e` |
 | `just admin-schema` | 从 Rust 管理 DTO 生成 `schemas/admin.json` |
 | `just admin-schema-check` | 比较已提交 schema，不覆盖；失败时提示 `just admin-schema` |
+| `just api-types` | 生成 schema，再生成 `web/src/api/generated/admin.d.ts` |
+| `just api-types-check` | 只比较 schema 和 `admin.d.ts`，不覆盖 |
+| `just web-check` / `just web-test` / `just web-build` | `web/` 里的 `vp check`、`vp test --run`、`vp build` |
+| `just web-e2e` | Playwright。用隔离配置和 SQLite 起本机网关，不进 `just check` |
 | `just fmt` / `just fmt-check` | 格式化 / 格式检查 |
 | `just lint` | clippy，警告视为错误 |
 | `just test` | `cargo test` |

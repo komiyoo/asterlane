@@ -53,8 +53,30 @@ admin-schema:
 admin-schema-check:
     cargo run --example export_admin_schema -- --check schemas/admin.json
 
-# 提交前的完整本地验证（Worktree 默认也走这条）
-check: worktree-doctor fmt-check lint test docs-check
+# 从 Rust DTO 生成 schema，再生成 web/src/api/generated/admin.d.ts
+api-types:
+    just admin-schema
+    cd web && bun scripts/generate-api-types.ts
+
+# 比较已提交 schema 和 admin.d.ts，不覆盖
+api-types-check: admin-schema-check
+    cd web && bun scripts/generate-api-types.ts --check
+
+web-check:
+    cd web && vp check
+
+web-test:
+    cd web && vp test --run
+
+web-build:
+    cd web && vp build
+
+# 浏览器回归。不进 just check。
+web-e2e:
+    cd web && vp exec playwright test
+
+# 提交前的完整本地验证（Worktree 默认也走这条）。端到端用 just web-e2e。
+check: worktree-doctor fmt-check lint test docs-check api-types-check web-check web-test web-build
 
 # 构建(debug)
 build:

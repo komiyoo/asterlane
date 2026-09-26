@@ -9,7 +9,7 @@ timestamp: 2026-08-19T14:55:00Z
 
 # 背景
 
-并行 agent 或并行分支使用 Git Worktree（含 Cursor `/worktree`、Agents Window、`git worktree add`）。Worktree 只隔离工作区文件和当前分支；`rustup`、`~/.cargo` 缓存、本机 `just` / `python3` 是共享的。当前实现没有 `node_modules`、venv、`.sqlx/` 或 `DATABASE_URL` 要求（`src/store/sqlite.rs` 使用运行时 query，不用 `query!`）。[独立前端](../architecture/console-separation.md#开发与检查) 落地后，`web/node_modules` 与开发端口按树隔离，初始化命令在实施时同步更新。
+并行 agent 或并行分支使用 Git Worktree（含 Cursor `/worktree`、Agents Window、`git worktree add`）。Worktree 只隔离工作区文件和当前分支；`rustup`、`~/.cargo` 缓存、本机 `just` / `python3` / `vp` 是共享的。存储仍用运行时 query，不用 `sqlx` 的 `query!`，因此没有 `.sqlx/` 或固定 `DATABASE_URL`。`web/node_modules` 按树隔离，不要把依赖目录符号链接到另一棵树。开发端口用 `ASTERLANE_DEV_GATEWAY_PORT` 只覆盖端口。
 
 研发验证一律在本机、当前仓库根执行。功能树与主仓都跑同一套 `just check`，不要把验证指到其他机器或其他工作副本。
 
@@ -22,9 +22,10 @@ timestamp: 2026-08-19T14:55:00Z
 | `CARGO_TARGET_DIR` | 默认不设 | 指向树外目录并并行编译会损坏 incremental |
 | `*.db` / 真实 `.env` | 隔离 | 不要从主仓复制 |
 | OS 用户配置（macOS `~/Library/Application Support/asterlane/config.yaml`） | 共享且危险 | 必须用 `--config` 或 `ASTERLANE_CONFIG` 钉到本树 |
-| `just serve` 默认 `127.0.0.1:3000`、`compose.yaml` 的 `3721` | 冲突 | 并行时换 bind；功能树不要起 compose |
+| `web/node_modules` | 隔离 | 每棵树 `vp install --frozen-lockfile`；不要 symlink 到主仓 |
+| `just serve` 默认 `127.0.0.1:3000`、`compose.yaml` 的 `3721` | 冲突 | 并行时换 bind，并把同一端口写入 `ASTERLANE_DEV_GATEWAY_PORT`；功能树不要起 compose |
 
-Cursor 不建议把依赖目录 symlink 回主仓。[Cursor Worktrees](https://cursor.com/docs/configuration/worktrees) 用 `.cursor/worktrees.json` 在建树后跑 setup。本仓 setup **只**做医生检查、补齐 `rustfmt`/`clippy` 组件、`cargo fetch`。
+Cursor 不建议把依赖目录 symlink 回主仓。[Cursor Worktrees](https://cursor.com/docs/configuration/worktrees) 用 `.cursor/worktrees.json` 在建树后跑 setup。本仓 setup 做医生检查、补齐 `rustfmt`/`clippy` 组件、`cargo fetch`，并在本机 `vp` 为 `1.0.0-rc.0` 时冻结安装本树的 `web/` 依赖。没有 `vp` 时跳过前端安装，纯 Cargo 构建仍然可用。
 
 仓库 `.gitignore` 忽略 `/.worktrees/`，供手工 `git worktree add .worktrees/<name>`。Cursor 也可能把树放在 `~/.cursor/worktrees/`；规则相同，以该树 cwd 为准。
 
@@ -57,10 +58,11 @@ just worktree-env
 2. 警告缺失的 `just` / `jq`，以及指向树外的 `CARGO_TARGET_DIR`。
 3. 尝试 `rustup component add rustfmt clippy`（写入用户 toolchain，不是本树）。
 4. 在本树 `Cargo.toml` 上执行 `cargo fetch`（crate 仍进 `~/.cargo`）。
+5. 若 `vp` 是 `1.0.0-rc.0`，在本树 `web/` 执行 `vp install --frozen-lockfile`。依赖落在该树的 `web/node_modules`。
 
-不要做：拷贝主仓 `target/`、拷贝含密钥的 `.env`、共享 `CARGO_TARGET_DIR`、在 init 里起网关。`.env.example` 只是变量清单。
+不要做：拷贝主仓 `target/`、拷贝含密钥的 `.env`、共享 `CARGO_TARGET_DIR`、把 `web/node_modules` 指到别的树、在 init 里起网关。`.env.example` 只是变量清单。纯 `cargo build` 不要求 Node。
 
-本机 `just` / `python3` / `rustup` 装一次即可，不是每棵树一份。每棵树自己的代价是一份 `target/`（主仓 debug target 体积很大）；`/best-of-n` 会按模型数倍增。
+本机 `just` / `python3` / `rustup` / `vp` 装一次即可，不是每棵树一份。每棵树自己的代价是一份 `target/` 和一份 `web/node_modules`（主仓 debug target 体积很大）；`/best-of-n` 会按模型数倍增。
 
 # 验证
 
@@ -70,7 +72,7 @@ just worktree-env
 just check
 ```
 
-等价于 `just worktree-doctor` + fmt + clippy（`--all-targets -D warnings`）+ `cargo test` + `python3 scripts/check_okf_docs.py`。与 CI 前四项对齐；`cargo deny` 留给 CI 的 `deny` job，不是 Worktree 必跑项。
+等价于 `just worktree-doctor` + fmt + clippy（`--all-targets -D warnings`）+ `cargo test` + `python3 scripts/check_okf_docs.py` + `just api-types-check` + `just web-check` + `just web-test` + `just web-build`。Rust 与 OKF 部分对齐 CI；前端静态检查、测试、构建和类型差异检查也在这条命令里。`just web-e2e` 与 `cargo deny` 都不是默认必跑项。
 
 PR 上的 Linux 形状由 GitHub Actions 把关。本机是 `aarch64-apple-darwin` 时，本地全绿仍要等 CI。
 

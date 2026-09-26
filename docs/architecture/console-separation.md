@@ -46,7 +46,7 @@ sources:
 
 2026-09-26 确定目标：控制台与 Rust 网关留在同一仓库，独立构建、独立部署，经同一个控制台域名访问页面和 admin API。前端采用 React、TypeScript、Kumo 和 Vite+，Bun 作为包管理器。
 
-本文件是已选定的架构目标，`status: stable` 不表示前端已经切换。管理请求、查询和响应 DTO 已集中在 `src/admin/types/`，`schemas/admin.json` 由 `just admin-schema` 从这些 DTO 生成，`just admin-schema-check` 只比较不覆盖。`web/` 已有 Vite+、Bun 和 Kumo 工具链，目前只提供冒烟页。TypeScript 声明、业务页面和旧 UI 退役仍未落地；当前运行时仍使用 `src/admin/ui/` 与 `include_str!`。其余实施状态以 [执行计划索引](../plans/README.md) 的待办为准。
+本文件是已选定的架构目标，`status: stable` 不表示前端已经切换。管理请求、查询和响应 DTO 已集中在 `src/admin/types/`，`schemas/admin.json` 由 `just admin-schema` 从这些 DTO 生成，`just admin-schema-check` 只比较不覆盖。`web/src/api/generated/admin.d.ts` 由 `just api-types` 从已提交 schema 生成，`just api-types-check` 只比较。认证、11 条路由，以及总览、用量、密钥池、事件、安全事件、审计、配置七个只读页已在开发入口落地。资源、代理密钥、MCP、工具四个页面仍是待迁移占位；写操作和部署切换仍未做。当前运行时仍使用 `src/admin/ui/` 与 `include_str!`。其余实施状态以 [执行计划索引](../plans/README.md) 的待办为准。
 
 本决策替代 [Admin Console](../admin/admin-console.md#形态决策) 中的免构建、逐文件嵌入和控制台随单二进制交付约定。页面业务范围、admin key 与 gateway key 分离、上游凭据留在网关等约束继续适用。[^console]
 

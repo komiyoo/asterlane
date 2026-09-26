@@ -148,7 +148,7 @@ The management backend should start small:
 - usage summary by key/provider/tool/status
 - config validation report
 
-早期免构建 UI 已覆盖上述管理能力。2026-09-26 已确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：采用独立 React/TypeScript 前端、Vite+ 与 Bun，静态产物独立部署；旧内嵌 UI 在新页面与部署验收后退役。管理 API 的 Rust DTO 与 `schemas/admin.json` 已落地，用 `just admin-schema` 生成、`just admin-schema-check` 检查漂移。`web/` 已能独立安装、检查和构建。schema 检查、TypeScript 生成和仓库级前端命令还不在 `just check` 里，由应用外壳计划接入。现行 `just check` 仍按下文执行。
+早期免构建 UI 已覆盖上述管理能力。2026-09-26 已确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：采用独立 React/TypeScript 前端、Vite+ 与 Bun，静态产物独立部署；旧内嵌 UI 在新页面与部署验收后退役。管理 API 的 Rust DTO 与 `schemas/admin.json` 已落地。`just api-types` 再生成 `web/src/api/generated/admin.d.ts`，`just api-types-check` 只比较 schema 和这份声明。开发入口已有认证、11 条路由和七个只读页；四个写页面和部署切换仍未做。`just check` 包含前端静态检查、单元测试、构建和契约差异检查。端到端用 `just web-e2e`，不在默认检查里。纯 `cargo build` / `cargo test` 仍然不安装 Node 依赖。
 
 Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](../admin/admin-console.md)。
 
@@ -192,6 +192,7 @@ Or via just:
 
 ```bash
 just check
+just web-e2e   # 可选：隔离网关上的浏览器回归，不在 just check 里
 ```
 
 For docs changes:
@@ -202,7 +203,7 @@ python3 scripts/check_okf_docs.py
 
 脚本行为与仓库其他任务入口见 [scripts/README.md](../../scripts/README.md)。
 
-CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny 五个 job。供应链检查用 `cargo-deny`（`deny.toml`）。Lint 配置在 `Cargo.toml` `[lints]` 与 `clippy.toml`（测试代码允许 `unwrap`/`expect`/`print`）。
+CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny；test job 额外比较 `schemas/admin.json`。`.github/workflows/web.yml` 用固定的 `vp` 1.0.0-rc.0、Node 22.23.1 和 Bun 1.4.2 冻结安装，再检查生成类型、`vp check`、`vp test --run` 和 `vp build`，并上传 `web/dist`，不部署。供应链检查用 `cargo-deny`（`deny.toml`）。Lint 配置在 `Cargo.toml` `[lints]` 与 `clippy.toml`（测试代码允许 `unwrap`/`expect`/`print`）。
 
 PR 描述用 `.github/PULL_REQUEST_TEMPLATE.md`：验证表格要求填实际结果而非打勾，自查分文档、工程纲领、安全三块，按改动相关性选填。
 

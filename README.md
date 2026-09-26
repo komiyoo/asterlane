@@ -27,6 +27,7 @@
 | Rust | ≥ 1.94 | `rustup install stable` |
 | just | 最新 | 可选，任务运行器 (`cargo install just`) |
 | Python 3 | ≥ 3.10 | 仅文档检查脚本需要（`pyyaml`） |
+| Node / Bun / `vp` | Node 22.23.1，Bun 1.4.2，`vp` 1.0.0-rc.0 | 只在前端检查和 `web/` 开发时需要。纯 `cargo build` 不使用它们 |
 | jq | 最新 | 快速开始中从签发响应提取一次性 gateway token |
 | cargo-deny | 最新 | 仅供应链审计需要 (`cargo install cargo-deny`) |
 
@@ -84,16 +85,21 @@ cargo run -- admin stats
 ## 构建与测试
 
 ```bash
-# 全量检查（推荐，对齐 CI 前四项；Worktree 也用这条）
+# 全量检查（Worktree 也用这条）：Rust、OKF、schema/TS 差异、前端静态检查、测试和构建
 just check
 
-# 或手动逐步执行：
+# 浏览器回归不在 just check 里。它会起隔离的本机网关。
+just web-e2e
+
+# 或手动逐步执行后端部分：
 cargo fmt -- --check          # 格式检查
 cargo clippy --all-targets -- -D warnings  # lint
 cargo test                    # 测试
 python3 scripts/check_okf_docs.py          # 文档校验
 cargo deny check              # 供应链审计
 ```
+
+控制台开发入口在 `web/`。`vp dev` 把 `/admin` 代理到 `127.0.0.1:$ASTERLANE_DEV_GATEWAY_PORT`（默认 3000）。生产构建不写入管理员凭据或任意 API 地址。旧控制台仍由网关的 `/admin/ui` 提供，本阶段不切换生产入口。前端命令见 [web/README.md](web/README.md)。
 
 Git / Cursor Worktree：进入新树后先 `just worktree-init`，在**该目录**本机跑 `just check`。做完合回 `main`，再 `just worktree-prune` 清残留。从 [AGENTS.md](AGENTS.md) 的发现路径进入 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
 
@@ -118,15 +124,16 @@ docker run --rm -p 3000:3000 \
 
 ## CI
 
-GitHub Actions（`.github/workflows/ci.yml`）在 push main 和 PR 时运行五个 job：
+GitHub Actions 在 push main 和 PR 时运行 `.github/workflows/ci.yml` 与 `.github/workflows/web.yml`。两个工作流都不部署。
 
 | Job | 内容 |
 |-----|------|
 | `fmt` | `cargo fmt -- --check` |
 | `clippy` | `cargo clippy --all-targets -- -D warnings` |
-| `test` | `cargo test` |
+| `test` | `cargo test`，并比较 `schemas/admin.json` |
 | `docs` | OKF 文档 frontmatter/type 校验 |
 | `deny` | `cargo-deny` 供应链审计 |
+| `web` | 固定 `vp` 1.0.0-rc.0 / Node 22.23.1 / Bun 1.4.2，冻结安装后检查生成类型、`vp check`、`vp test --run`、`vp build`，上传 `web/dist` |
 
 ## 配置
 

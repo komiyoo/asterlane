@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-09-27（控制台应用外壳与只读页面）
+
+- **类型**：`just api-types` 从已提交的 `schemas/admin.json` 生成 `web/src/api/generated/admin.d.ts`。动态工具参数、调试结果、事件 `details` 和 MCP `input_schema` 保持递归 `JsonValue`。`just api-types-check` 只比较 schema 和声明；改 DTO 文档或生成声明都会失败。`web/` 内生成和 `vp build` 不调用 Cargo。
+- **页面**：开发入口手输 admin token，只放当前标签页 `sessionStorage`。11 条路由可刷新、后退。总览、用量、密钥池、事件、安全事件、审计、配置为只读页。资源、代理密钥、MCP、工具只显示待迁移，没有写请求。旧内嵌 UI 仍是生产入口。
+- **检查**：`just check` 纳入前端静态检查、单元测试、构建，以及 `admin-schema-check` 和 `api-types-check`。`just web-e2e` 单独运行，使用隔离配置和 SQLite。`just worktree-init` 在 `vp` 1.0.0-rc.0 时为本树冻结安装 `web/` 依赖。
+- **文档**：[控制台与网关分离架构](architecture/console-separation.md#决策与实施状态)、[依赖选型](architecture/crate-selection.md#控制台构建依赖)、[开发流程](engineering/development-workflow.md)、[Worktree 工作流](engineering/worktree-workflow.md)、[web/README.md](../web/README.md)。
+- **验证**：`just worktree-init`、`just api-types`、`just api-types-check`、故意改动声明和 DTO 后的差异检查失败并已恢复、`just web-check`、`just web-test`、`just web-build`、`PLAYWRIGHT_CHANNEL=chrome just web-e2e`（9 项通过）、`just check`（886 项测试通过、2 项忽略）。
+
 ## 2026-09-27（控制台前端工具链）
 
 - **工程**：新增独立 `web/`，使用 React 19.3、TypeScript strict、Kumo 2.14、Vite+ 1.0.0-rc.0 和 Bun 1.4.2。开发服务器把 `/admin` 代理到本机网关，端口由 `ASTERLANE_DEV_GATEWAY_PORT` 覆盖。生产构建不写入凭据或任意 API 地址。

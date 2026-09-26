@@ -18,7 +18,9 @@ from pathlib import Path
 
 MSRV_RE = re.compile(r'^rust-version\s*=\s*"([^"]+)"', re.M)
 RUSTC_RE = re.compile(r"rustc\s+(\d+\.\d+(?:\.\d+)?)")
+VP_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+(?:-[\w.]+)?)")
 DEFAULT_MSRV = "1.94"
+REQUIRED_VP_VERSION = "1.0.0-rc.0"
 
 
 def version_tuple(raw: str) -> tuple[int, ...]:
@@ -81,6 +83,21 @@ def has_yaml() -> bool:
     except ImportError:
         return False
     return True
+
+
+def parse_vp_version(text: str) -> str | None:
+    match = VP_VERSION_RE.search(text)
+    return match.group(1) if match else None
+
+
+def vp_version() -> str | None:
+    vp = shutil.which("vp")
+    if vp is None:
+        return None
+    result = run_capture([vp, "--version"])
+    if result.returncode != 0:
+        return None
+    return parse_vp_version(result.stdout)
 
 
 def warn_shared_target(root: Path) -> str | None:
@@ -159,6 +176,23 @@ def doctor(root: Path) -> tuple[list[str], list[str], list[str]]:
         warnings.append(shared)
     else:
         notes.append("CARGO_TARGET_DIR=unset-or-in-tree")
+
+    actual_vp = vp_version()
+    node_modules = root / "web" / "node_modules"
+    if actual_vp is None:
+        warnings.append(
+            f"未找到 vp {REQUIRED_VP_VERSION}。纯 Cargo 构建不需要它；前端检查需要本机安装这一版"
+        )
+    elif actual_vp != REQUIRED_VP_VERSION:
+        warnings.append(f"vp {actual_vp} 与仓库要求的 {REQUIRED_VP_VERSION} 不一致，不要改工具链")
+    else:
+        notes.append(f"vp={actual_vp}")
+    if node_modules.is_symlink():
+        warnings.append("web/node_modules 是符号链接；每棵树应各自 vp install --frozen-lockfile")
+    elif not node_modules.exists():
+        warnings.append("未安装 web/node_modules（有 vp 时 just worktree-init 会冻结安装）")
+    else:
+        notes.append("web/node_modules=present")
 
     if os.environ.get("ROOT_WORKTREE_PATH"):
         notes.append(
@@ -315,12 +349,41 @@ def prune_remnants(root: Path, *, delete_merged: bool) -> int:
     return 0
 
 
+def install_web_deps(root: Path) -> None:
+    web = root / "web"
+    lock = web / "bun.lock"
+    if not lock.is_file():
+        raise SystemExit(f"缺少 {lock}，无法冻结安装前端依赖")
+    node_modules = web / "node_modules"
+    if node_modules.is_symlink():
+        raise SystemExit("web/node_modules 是符号链接。删除它后重新 init，不要把依赖指到别的树")
+    version = vp_version()
+    if version is None:
+        print(
+            f"warn  未找到 vp {REQUIRED_VP_VERSION}，跳过 web/ 依赖安装。cargo 构建不需要它",
+            file=sys.stderr,
+        )
+        return
+    if version != REQUIRED_VP_VERSION:
+        raise SystemExit(f"vp {version} 与仓库要求的 {REQUIRED_VP_VERSION} 不一致，不要升级或降级")
+    vp = shutil.which("vp")
+    if vp is None:
+        raise SystemExit(f"未找到 vp {REQUIRED_VP_VERSION}")
+    result = subprocess.run([vp, "install", "--frozen-lockfile"], cwd=web, check=False)
+    if result.returncode != 0:
+        raise SystemExit(f"vp install --frozen-lockfile 失败：exit {result.returncode}")
+    if node_modules.is_symlink() or not node_modules.is_dir():
+        raise SystemExit("web/node_modules 没有装在本树目录里")
+    print("init  web dependencies ok")
+
+
 def print_env(root: Path) -> None:
     config = root / "examples" / "gateway.yaml"
     print("# Asterlane 二进制不自动加载 .env；在本树 shell 中执行下列 export。")
     print(f"export ASTERLANE_CONFIG={config.as_posix()!r}")
     print("# 并行起网关时改端口，并同步 ASTERLANE_SERVER，勿占用主仓 127.0.0.1:3000")
     print("# export ASTERLANE_SERVER='http://127.0.0.1:3100'")
+    print("# export ASTERLANE_DEV_GATEWAY_PORT=3100  # 只填端口，vp dev 把 /admin 代理到 127.0.0.1")
     print("# export ASTERLANE_ADMIN_TOKEN='replace-me-admin-token'")
 
 
@@ -341,6 +404,8 @@ def self_test() -> None:
     sample = '[package]\nrust-version = "1.94"\n'
     assert parse_msrv(sample) == "1.94"
     assert parse_msrv("[package]\nname = \"x\"\n") == DEFAULT_MSRV
+    assert parse_vp_version("vp v1.0.0-rc.0\n") == "1.0.0-rc.0"
+    assert parse_vp_version("no version") is None
     rows = parse_worktree_porcelain(
         "worktree /tmp/main\nHEAD abc\nbranch refs/heads/main\n\n"
         "worktree /tmp/feat\nHEAD def\nbranch refs/heads/feat/x\n"
@@ -403,7 +468,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     warnings.extend(ensure_rust_components())
     cargo_fetch(root)
     print("init  cargo fetch ok")
-    print("next  在本目录运行 just check（或 cargo fmt/clippy/test）")
+    install_web_deps(root)
+    print("next  在本目录运行 just check（含前端静态检查、测试和构建；端到端另跑 just web-e2e）")
     print("next  做完合回 main 后，在主仓运行 just worktree-prune")
     return 0
 
