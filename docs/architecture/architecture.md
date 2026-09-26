@@ -29,6 +29,7 @@ The original product requirements are preserved in [Product Requirements](../pro
 | 决策 | 原始需求 | 变更后 | 依据 |
 | --- | --- | --- | --- |
 | MCP 工具名格式 | `domain:provider:tool:method`（冒号四段） | `domain__provider__tool`（双下划线三段） | 冒号不兼容 MCP/LLM API 字符集；`method` 段信息量为零（HTTP method 为路由细节，MCP 固定 `call`）。详见 [Naming Convention](naming-convention.md)。 |
+| 控制台交付形态（2026-09-26 目标） | 早期 vanilla UI 编译进 Rust 二进制 | 同仓库独立前端，独立构建部署，同源访问管理 API | 11 个页面及管理交互需要组件与类型支持；Rust 构建保持独立。见 [控制台与网关分离架构](console-separation.md#决策与实施状态)，尚未完成代码迁移。 |
 
 # Module Map
 
@@ -53,6 +54,10 @@ The original product requirements are preserved in [Product Requirements](../pro
 | `admin` | admin API 与管理 UI。 | 已实现（资源/key/MCP server CRUD + Bearer 认证 + Web 控制台） |
 
 模块编排关系：proxy 执行层编排 keys/limits/routing/transform/secrets，不反向依赖；observability 横切所有层；catalog 是 config→MCP/HTTP 的投影层。借鉴 NyaProxy 的 TrafficManager 三合一（key 池+限流+LB）反模式，Asterlane 保持 keys/limits/routing 边界独立。
+
+# Control Plane
+
+控制台与网关的目标边界、工具链、API 类型生成和部署方式集中在 [控制台与网关分离架构](console-separation.md#系统结构)。当前 `admin` 模块仍含旧内嵌页面；迁移完成后由 `web/` 消费 `/admin/*`，Rust 继续拥有校验、审计、持久化和工具执行，agent 数据流保持下节所述边界。
 
 # Data Flow
 

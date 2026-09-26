@@ -13,24 +13,26 @@ timestamp: 2026-08-19T00:00:00Z
 
 控制台是 admin API 的**纯消费者**：所有数据经 `/admin/*` JSON 端点获取，不开私有数据通道。凡控制台需要而 admin API 没有的数据，先补端点再画页面——API 缺口清单见下文。
 
+2026-09-26 已确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：React + TypeScript + Kumo，Vite+ 工具链与 Bun 包管理，前后端独立构建部署、同源访问。当前代码仍为内嵌 vanilla UI；下文页面能力和 C0–C6 是已交付基线，形态决策表描述新目标，实施进度见 [执行计划](../plans/README.md)。
+
 # 非目标
 
 - 不做多租户 SaaS 控制台、不做面向最终用户的门户。
 - 不做模型网关 dashboard（产品护栏：Asterlane 不是 LLM provider gateway）。
 - v1 不做实时推送（SSE/WebSocket live tail）、不做多管理员 RBAC、不做 SSO。
-- 不引入独立前端部署物：控制台静态资源编译期嵌入网关二进制，保持单二进制交付。
+- 不引入常驻 JS 应用服务器：控制台部署静态产物，后端继续由 Rust 提供 API；部署边界见 [生产入口](../architecture/console-separation.md#生产入口)。
 
 # 形态决策
 
 | 决策 | 结论 | 依据 |
 | --- | --- | --- |
-| 部署形态 | 与网关同进程同端口，`GET /admin/ui` 返回页面 | 单二进制交付；同源部署免 CORS |
+| 部署形态 | 目标为独立静态站与 Rust 网关，由控制台入口同源代理 `/admin/*` | 独立构建、发布和回滚；迁移前仍由 `GET /admin/ui` 返回旧页面 |
 | 认证 | 独立 admin key（Bearer），与 proxy key 物理分离 | 架构护栏：admin key 与 proxy key 不得混用（NyaProxy 混用是反模式） |
-| C1 技术栈 | vanilla JS + 静态 CSS，源码按 tab 拆为 `src/admin/ui/` 下免构建 ES module（`app.js` 入口 + 共享 `core.js` + `tabs/*.js` + `styles.css`），逐个 `include_str!` 嵌入，`GET /admin/ui/{*path}` 静态服务 | 零新 crate、零 node 工具链；每个 tab 独立文件，按需只改一个 tab |
-| C3 升级条件 | 表单编辑、多步交互、客户端状态需求以**模块化**应对（per-tab ES module + 共享 `core.js`，仍免构建、仍 `include_str!` 嵌入），不迁 Vite/重框架；单二进制交付不变 | 遵循 [Development Workflow – Admin Console Strategy](../engineering/development-workflow.md)：数据模型稳定前不承诺重前端 |
+| C1 技术栈 | 目标为 `web/` 下 React + TypeScript + Kumo，Vite+ 管研发工具链，Bun 管依赖 | 原免构建决策由 [前端工具链](../architecture/console-separation.md#前端工具链) 替代；Rust 编译不依赖前端 |
+| C3 演进方式 | 按业务模块迁移既有页面；API DTO 生成 schema 与 TS 类型，共用基础组件 | 见 [API 契约与类型](../architecture/console-separation.md#api-契约与类型) 与 [迁移与发布](../architecture/console-separation.md#迁移与发布) |
 | token 传递 | 浏览器端 admin key 手输、存 sessionStorage、随 fetch 走 `Authorization: Bearer` | 不写 cookie，同源 + Bearer 天然免 CSRF |
 
-`/admin/ui` 页面本身不含敏感数据，可不带鉴权返回（登录引导页）；所有数据请求必须带 admin key。
+登录引导页本身不含敏感数据，可公开返回；所有数据请求必须带 admin key。旧 `/admin/ui` 的退役与入口重定向见 [迁移与发布](../architecture/console-separation.md#迁移与发布)。
 
 # 前置依赖：admin 认证（C0，已交付 2026-07-05）
 

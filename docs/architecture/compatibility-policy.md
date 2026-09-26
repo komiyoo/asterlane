@@ -103,7 +103,7 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 
 - admin API 路径与 JSON 字段向后兼容。
 - 新增字段不算 breaking；删除/改名需经过弃用周期。
-- admin API 版本通过 URL 前缀（`/api/v1/`）或 header 标注，第一阶段用 `/api/v1/`。
+- 当前实现使用 `/admin/*`，没有 `/api/v1/` 管理前缀；此前的版本前缀设想未落地。[控制台分离](console-separation.md#迁移兼容性) 保持现有路径与 JSON 形状，独立发布时先上线兼容后端，再上线使用新能力的前端；未来破坏性演进须另行定义版本与弃用周期。
 
 # 数据库迁移
 

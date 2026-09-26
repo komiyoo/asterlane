@@ -9,7 +9,7 @@ timestamp: 2026-08-19T14:55:00Z
 
 # 背景
 
-并行 agent 或并行分支使用 Git Worktree（含 Cursor `/worktree`、Agents Window、`git worktree add`）。Worktree 只隔离工作区文件和当前分支；`rustup`、`~/.cargo` 缓存、本机 `just` / `python3` 是共享的。本项目没有 `node_modules`、venv、`.sqlx/` 或 `DATABASE_URL` 要求（`src/store/sqlite.rs` 使用运行时 query，不用 `query!`）。
+并行 agent 或并行分支使用 Git Worktree（含 Cursor `/worktree`、Agents Window、`git worktree add`）。Worktree 只隔离工作区文件和当前分支；`rustup`、`~/.cargo` 缓存、本机 `just` / `python3` 是共享的。当前实现没有 `node_modules`、venv、`.sqlx/` 或 `DATABASE_URL` 要求（`src/store/sqlite.rs` 使用运行时 query，不用 `query!`）。[独立前端](../architecture/console-separation.md#开发与检查) 落地后，`web/node_modules` 与开发端口按树隔离，初始化命令在实施时同步更新。
 
 研发验证一律在本机、当前仓库根执行。功能树与主仓都跑同一套 `just check`，不要把验证指到其他机器或其他工作副本。
 

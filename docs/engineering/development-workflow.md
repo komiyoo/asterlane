@@ -148,7 +148,7 @@ The management backend should start small:
 - usage summary by key/provider/tool/status
 - config validation report
 
-The first UI may be static or server-rendered. Avoid committing to a heavy frontend before the data model and admin workflows are stable.
+早期免构建 UI 已覆盖上述管理能力。2026-09-26 已确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：采用独立 React/TypeScript 前端、Vite+ 与 Bun，静态产物独立部署；旧内嵌 UI 在新页面与部署验收后退役。代码迁移尚未完成，现行验证命令仍按下文执行；新增前端与契约检查由对应执行计划接入。
 
 Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](../admin/admin-console.md)。
 

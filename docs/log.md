@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-09-26（控制台前后端分离架构与执行计划）
+
+- **决策**：同仓库独立前端，React + TypeScript + Kumo，Vite+ 研发工具链与 Bun 包管理；控制台静态站独立部署，经 Nginx 同源代理管理 API。Rust 构建不依赖前端。
+- **设计**：[控制台与网关分离架构](architecture/console-separation.md#决策与实施状态) 规定模块、类型生成、敏感数据生命周期、11 页范围、部署与退役条件；保留 `/admin/*` 及既有 API 语义。
+- **计划**：[执行索引](plans/README.md) 中建立六份计划，以 `depends_on` 派生 Wave；架构事实留在设计文，计划只安排落点与验收。
+- **同步**：总架构、管理控制台、依赖选型、开发/Worktree 文档和分类索引；更正兼容性文档中未实现的 `/api/v1/` 管理前缀。
+- **状态**：本次只交付文档，旧内嵌 UI、构建与部署代码未变；实现与部署验收由执行计划完成。
+- **验证**：`just check` 通过（878 项测试通过、2 项忽略）；计划索引、待办扫描、文档章节链接检查与 `git diff --check` 通过。
+
 ## 2026-09-26（默认 lazy 与批量工具操作）
 
 - **行为**：未配置 `discovery_mode` 的 key 与开放 MCP 模式默认 lazy；显式 `full` 保留完整列表。`search_tools` 返回可翻页的 `{tools,next_cursor}`。新增按当前 key scope 批量取详情的 `get_tools` 和顺序执行独立调用的 `call_tools`，逐项返回结果，超预算内容通过 key 绑定游标续取。MCP 还提供可选的 `asterlane_tool_workflow` prompt。

@@ -99,6 +99,20 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | --- | --- | --- | --- |
 | OpenAPI 3.x 解析 | `openapiv3` | 2.2 | 官方 OpenAPI 3.0/3.1 类型定义，用于读取第三方 spec 并提取 operation/params/schema。仅做解析，不依赖 codegen。详见 [API Discovery](../runtime/api-discovery.md)。 |
 
+# 控制台构建依赖（目标，待实施）
+
+2026-09-26 的 [控制台分离决策](console-separation.md#前端工具链) 引入独立前端工具链。下表记录选型，尚未安装或锁定具体版本；实施时核实兼容版本并提交锁文件，不表示这些依赖已经进入当前构建。
+
+| 能力 | 选择 | 理由与范围 |
+| --- | --- | --- |
+| 页面与基础组件 | React、TypeScript、Kumo 及其必需 peer dependencies | 管理页面组件化与类型检查；Kumo 消费发布包，官方入口见 [Kumo](https://github.com/cloudflare/kumo)。 |
+| 浏览器路由 | React Router 声明式模式 | 11 个页面的 URL、刷新和后退；不引入 SSR。见 [官方接入](https://reactrouter.com/start/declarative/installation)。 |
+| 开发、检查、构建与单元测试 | Vite+ | 统一 Vite、Vitest、Oxlint、Oxfmt；见 [官方指南](https://viteplus.dev/guide/)。 |
+| 包管理 | Bun | 固定版本与 `bun.lock`；经 Vite+ 安装，运行时 Node 由 `vp` 管理。 |
+| API schema | 复用 `schemars` 1.2 | 从实际 Rust DTO 生成 Draft 7 schema，按输入/输出序列化方向验证；不新增 Rust 类型生成 crate。 |
+| TS 声明生成 | `json-schema-to-typescript` | 从提交的 schema 生成一个管理 API 类型文件，仅开发依赖；见 [官方仓库](https://github.com/bcherny/json-schema-to-typescript)。 |
+| 浏览器回归 | Playwright | 覆盖认证、管理写操作、一次性 token 与真实静态入口；仅测试依赖。 |
+
 # 依赖增减规则
 
 1. 新增依赖前先查本表；若本表未覆盖，先在本文件补条目并说明选型理由。
