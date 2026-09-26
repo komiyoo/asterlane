@@ -20,6 +20,15 @@
 - **文档**：[API Discovery](runtime/api-discovery.md)；[Product Requirements](product/product-requirements.md)；根 `README.md`。
 - **验证**：`just check`。
 
+## 2026-09-02（控制台 UX 审计：preset 启用失败行内提示 + 页头刷新按钮）
+
+- **背景**：对主用户流（登录、总览、MCP 服务、代理密钥、工具调试、事件、审计、配置）做了一轮浏览器实操审计。两个可复现的问题：
+  1. 用 `examples/gateway.yaml`（README 快速开始配置）时，内置集成区一键「启用」exa preset 返回 400：preset id 与 YAML 里的 HTTP 资源 id `exa` 冲突；此前唯一反馈是瞬时 `alert`，关闭后页面无任何痕迹。
+  2. 所有页签数据只在连接或切换时加载，没有可见的刷新入口。
+- **修复**（`src/admin/ui/tabs/mcp.js`、`console.html`、`app.js`，均编译期嵌入需重构建）：preset 一键启用失败改为在内置集成卡片顶部常驻行内错误提示；页头新增「刷新」按钮，连接成功后显示、失败时隐藏，点击重载当前页签。
+- **文档**：[Admin Console](admin/admin-console.md) 页面地图补「（跨页面）数据刷新」行，MCP Servers 行补启用失败行内提示说明。
+- **验证**：原提交记录 `cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python3 scripts/check_okf_docs.py`，以及浏览器实操复验。
+
 ## 2026-08-20（订阅上游 tools/list_changed）
 
 - **行为**：握手后 best-effort `subscriptions/listen`（`toolsListChanged=true`）；legacy session 走 `ClientHandler::on_tool_list_changed`。通知与周期 refresh 共用拉目录 / catalog / drift / 下游推送。上游不支持 listen 时安静降级。`mcp.refresh_interval_secs: 0` 不 tick，仍收 notify。对照配置：`examples/gateway-mcp.yaml`（Exa，keyless）、`examples/gateway-rollinggo.yaml`（RollingGo Hotel，需 `ROLLINGGO_API_KEY`）。多数托管 MCP 工具集很少变，本机集成测试用进程内 Streamable HTTP 模拟推送。
