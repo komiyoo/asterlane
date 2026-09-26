@@ -99,19 +99,21 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | --- | --- | --- | --- |
 | OpenAPI 3.x 解析 | `openapiv3` | 2.2 | 官方 OpenAPI 3.0/3.1 类型定义，用于读取第三方 spec 并提取 operation/params/schema。仅做解析，不依赖 codegen。详见 [API Discovery](../runtime/api-discovery.md)。 |
 
-# 控制台构建依赖（目标，待实施）
+# 控制台构建依赖
 
-2026-09-26 的 [控制台分离决策](console-separation.md#前端工具链) 引入独立前端工具链。下表记录选型，尚未安装或锁定具体版本；实施时核实兼容版本并提交锁文件，不表示这些依赖已经进入当前构建。
+2026-09-27 起，`web/` 已按 [前端工具链](console-separation.md#前端工具链) 安装并锁定开发工具链。下表版本以 `web/package.json`、`web/bun.lock` 和 `web/.node-version` 为准。类型生成和仓库级 `just` 接线仍未实施。
 
-| 能力 | 选择 | 理由与范围 |
-| --- | --- | --- |
-| 页面与基础组件 | React、TypeScript、Kumo 及其必需 peer dependencies | 管理页面组件化与类型检查；Kumo 消费发布包，官方入口见 [Kumo](https://github.com/cloudflare/kumo)。 |
-| 浏览器路由 | React Router 声明式模式 | 11 个页面的 URL、刷新和后退；不引入 SSR。见 [官方接入](https://reactrouter.com/start/declarative/installation)。 |
-| 开发、检查、构建与单元测试 | Vite+ | 统一 Vite、Vitest、Oxlint、Oxfmt；见 [官方指南](https://viteplus.dev/guide/)。 |
-| 包管理 | Bun | 固定版本与 `bun.lock`；经 Vite+ 安装，运行时 Node 由 `vp` 管理。 |
-| API schema | 复用 `schemars` 1.2 | 从实际 Rust DTO 生成 Draft 7 schema，按输入/输出序列化方向验证；不新增 Rust 类型生成 crate。 |
-| TS 声明生成 | `json-schema-to-typescript` | 从提交的 schema 生成一个管理 API 类型文件，仅开发依赖；见 [官方仓库](https://github.com/bcherny/json-schema-to-typescript)。 |
-| 浏览器回归 | Playwright | 覆盖认证、管理写操作、一次性 token 与真实静态入口；仅测试依赖。 |
+| 能力 | 选择 | 版本 | 理由与范围 |
+| --- | --- | --- | --- |
+| 页面与基础组件 | React、React DOM、TypeScript、`@cloudflare/kumo` | React / React DOM 19.3.0；TypeScript 6.0.3；Kumo 2.14.0 | 管理页面组件化与 strict 类型检查。Kumo 只用发布包，样式入口是 `@cloudflare/kumo/styles/standalone`。必需 peer `@phosphor-icons/react` 2.1.10。官方入口见 [Kumo](https://github.com/cloudflare/kumo)。 |
+| React 插件 | `@vitejs/plugin-react` | 6.1.1 | Vite 8 官方 React 插件，与 `vite-plus` 1.0.0-rc.0 的 React 模板一致。 |
+| 浏览器路由 | React Router 声明式模式 | `react-router` 8.4.0 | `BrowserRouter`。刷新和后退可用，不引入 SSR。peer 要求 React `>=19.2.7`、Node `>=22.22.0`。见 [官方接入](https://reactrouter.com/start/declarative/installation)。 |
+| 开发、检查、构建与单元测试 | Vite+ | CLI 与 `vite-plus` 均为 1.0.0-rc.0 | 与本机已验证的 CLI 相同。包内 Vite 8.3.0、Rolldown 1.2.9、Vitest 5.0.1、Oxlint 1.85.0、Oxfmt 0.70.0。`overrides.vite` 指向 `@voidzero-dev/vite-plus-core@1.0.0-rc.0`，`overrides.vitest` 钉 5.0.1。`vp check` 打开 `lint.options.typeAware` 和 `typeCheck`。见 [官方指南](https://viteplus.dev/guide/)。 |
+| 运行时与包管理 | Node、Bun | Node 22.23.1；Bun 1.4.2 | Node 写在 `web/.node-version`，满足 `vite-plus` 的 Node 要求：22.18 起的 22、24.11 起的 24，或 26 及以上。`packageManager` 为 `bun@1.4.2`，唯一锁文件是 `bun.lock`。CI 用 `voidzero-dev/setup-vp@v1.21.1` 安装同一版 `vp` 和 Node，不用 `latest`。 |
+| API schema | 复用 `schemars` 1.2 | 未安装到前端 | 从实际 Rust DTO 生成 Draft 7 schema，按输入/输出序列化方向验证；不新增 Rust 类型生成 crate。这次不生成 schema。 |
+| TS 声明生成 | `json-schema-to-typescript` | 未安装 | 从提交的 schema 生成一个管理 API 类型文件，仅开发依赖。这次不接入。见 [官方仓库](https://github.com/bcherny/json-schema-to-typescript)。 |
+| 浏览器回归 | `@playwright/test` | 1.63.0 | 独立于 Vitest。这次只有一条生产预览冒烟，不覆盖认证和写操作，CI 也不跑它。 |
+| 仓库级接线 | `just web-*`、`just check` 的前端步骤 | 未实施 | 留给后续应用外壳计划，避免和 API 契约计划同时改 `justfile`。 |
 
 # 依赖增减规则
 

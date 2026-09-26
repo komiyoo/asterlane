@@ -36,3 +36,12 @@ task.md
 
 # Local Git worktrees
 /.worktrees/
+
+# Frontend toolchain outputs
+web/node_modules/
+web/dist/
+web/dist-ssr/
+web/.vite/
+web/playwright-report/
+web/test-results/
+web/blob-report/
