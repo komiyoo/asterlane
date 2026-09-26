@@ -2,7 +2,7 @@ import {
   isStaleOrAborted,
   listMcpServers,
   listResources,
-  listToolCatalog,
+  listTools,
 } from "../../api/index.ts";
 import type { CallInit } from "../../api/index.ts";
 
@@ -33,7 +33,7 @@ export async function loadScopeOptions(init?: CallInit): Promise<ScopeOptions> {
     readOptional("MCP 服务列表", listMcpServers(init)),
     readOptional(
       "工具列表",
-      listToolCatalog(init).then((catalog) =>
+      listTools(init).then((catalog) =>
         catalog.tools.map((tool) => ({ name: tool.name, resourceId: tool.resource_id })),
       ),
     ),

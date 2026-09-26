@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-09-27（控制台资源、密钥、MCP 与工具页）
+
+- **资源与代理密钥**：开发入口可以创建和删除资源。认证类型、Header 名、`secret://` 引用和密钥池只提交用户填写的内容。代理密钥可以创建、编辑和删除，保留范围、页大小、限额和用量。签发或轮换得到的明文 gateway token 只留在弹窗里；关闭、退出或离开页面后，DOM 和浏览器存储里都没有这枚 token。
+- **MCP 与工具**：MCP 页接上 preset、创建、编辑、删除、探测和详情。工具页接上过滤、列宽、调试、默认参数和介绍覆盖。事件详情可以「存为默认参数」，时间游标说明没有改。更新 MCP 服务时省略 `auth` 会保留已有 secret ref，响应不回显引用。
+- **尚未切换**：旧内嵌 UI 仍是运行入口。独立静态站、同源 Nginx 和退役旧页面还没做。
+- **文档**：[控制台与网关分离架构](architecture/console-separation.md#决策与实施状态)。
+
 ## 2026-09-27（控制台应用外壳与只读页面）
 
 - **类型**：`just api-types` 从已提交的 `schemas/admin.json` 生成 `web/src/api/generated/admin.d.ts`。动态工具参数、调试结果、事件 `details` 和 MCP `input_schema` 保持递归 `JsonValue`。`just api-types-check` 只比较 schema 和声明；改 DTO 文档或生成声明都会失败。`web/` 内生成和 `vp build` 不调用 Cargo。

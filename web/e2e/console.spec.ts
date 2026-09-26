@@ -3,7 +3,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { E2E_ADMIN_TOKEN } from "./fixture.ts";
 
 const readPages = ["总览", "用量", "密钥池", "事件", "安全事件", "审计", "配置"] as const;
-const pendingPages = ["MCP 服务", "工具"] as const;
 
 async function login(page: Page, token = E2E_ADMIN_TOKEN) {
   await page.goto("/");
@@ -45,26 +44,6 @@ test("login, refresh, back, and read pages hit the gateway", async ({ page }) =>
     await page.getByRole("link", { name, exact: true }).click();
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   }
-});
-
-test("placeholder pages make no write requests", async ({ page }) => {
-  const writes: string[] = [];
-  page.on("request", (request) => {
-    if (
-      request.method() !== "GET" &&
-      request.method() !== "HEAD" &&
-      request.url().includes("/admin")
-    ) {
-      writes.push(`${request.method()} ${request.url()}`);
-    }
-  });
-  await login(page);
-  for (const name of pendingPages) {
-    await page.getByRole("link", { name, exact: true }).click();
-    await expect(page.getByRole("heading", { name: "尚未迁移" })).toBeVisible();
-    await expect(page.getByText("不会创建、删除、签发、探测或调试")).toBeVisible();
-  }
-  expect(writes).toEqual([]);
 });
 
 test("filters, cursor note, limit scope, and YAML export", async ({ page }) => {

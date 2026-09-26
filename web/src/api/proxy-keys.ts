@@ -4,10 +4,8 @@ import type {
   InputTokenIssueParams,
   OutputCreatedResponse,
   OutputDeletedResponse,
-  OutputMcpServerResponse,
   OutputProxyKeyResponse,
   OutputTokenIssueResponse,
-  OutputToolCatalogResponse,
   OutputUpdatedResponse,
 } from "./generated/admin.d.ts";
 
@@ -20,14 +18,6 @@ export type {
 
 export function listProxyKeys(init?: CallInit): Promise<OutputProxyKeyResponse[]> {
   return getApiClient().getJson<OutputProxyKeyResponse[]>("/admin/proxy-keys", init);
-}
-
-export function listMcpServers(init?: CallInit): Promise<OutputMcpServerResponse[]> {
-  return getApiClient().getJson<OutputMcpServerResponse[]>("/admin/mcp-servers", init);
-}
-
-export function listToolCatalog(init?: CallInit): Promise<OutputToolCatalogResponse> {
-  return getApiClient().getJson<OutputToolCatalogResponse>("/admin/tools", init);
 }
 
 export async function createProxyKey(

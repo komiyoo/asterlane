@@ -232,10 +232,15 @@ pub(super) async fn update_server(
     Path(id): Path<String>,
     Json(input): Json<McpServerWriteParams>,
 ) -> Result<Json<McpServerResponse>, AsterlaneError> {
-    let server = input.into_config(Some(&id))?;
+    // 省略 auth 表示保留已有 secret ref。响应不回显引用，编辑端无法原样重传。
+    let preserve_auth = input.auth.is_none();
+    let mut server = input.into_config(Some(&id))?;
     let config = state.config_snapshot().await;
-    if config.mcp_server(&id).is_none() {
+    let Some(existing_auth) = config.mcp_server(&id).map(|item| item.auth.clone()) else {
         return Err(not_found(&id));
+    };
+    if preserve_auth {
+        server.auth = existing_auth;
     }
     let mut new_config = (*config).clone();
     if let Some(existing) = new_config.mcp_servers.iter_mut().find(|s| s.id == id) {
@@ -731,6 +736,34 @@ mcp_servers:
         assert_eq!(body["security"]["integrity_policy"], "warn");
         assert_eq!(body["security"]["defense_enabled"], false);
         assert_eq!(body["security"]["result_budget_bytes"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn update_omitting_auth_keeps_existing_credential() {
+        let peers: Vec<Arc<dyn RemoteMcpPeer>> = vec![
+            FakePeer::new(vec![vec![make_tool("web_search_exa", "d")]]),
+            FakePeer::new(vec![vec![make_tool("ask", "d")]]),
+        ];
+        let state = with_store(state_with_registry(TWO_SERVER_YAML, peers).await).await;
+        let input = r#"{"domain":"search","provider":"exa","url":"https://mcp.exa.ai/mcp",
+            "description":"kept","security":{"integrity_policy":"block","defense":{"enabled":true}}}"#;
+        let (status, body) = send(&state, "PUT", "/admin/mcp-servers/exa", Some(input)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["requires_key"], true);
+        assert_eq!(body["auth_type"], "bearer");
+        assert_eq!(body["security"]["defense_enabled"], true);
+        assert_eq!(body["security"]["integrity_policy"], "block");
+        let raw = body.to_string();
+        assert!(!raw.contains("token_ref"), "response leaks ref: {raw}");
+        assert!(!raw.contains("secret://"), "response leaks ref: {raw}");
+
+        let stored = state.config_snapshot().await;
+        assert_eq!(
+            stored
+                .mcp_server("exa")
+                .and_then(|server| server.auth.bearer_ref()),
+            Some("secret://env/EXA_KEY")
+        );
     }
 
     #[tokio::test]
