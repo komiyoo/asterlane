@@ -26,7 +26,7 @@ use crate::mcp::registry::{
 use crate::secrets::{SecretError, SecretRef, SecretStore, SecretString};
 
 /// MCP server 健康状态（serde 小写，供 wave 2 admin JSON 直接输出）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum HealthStatus {

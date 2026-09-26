@@ -11,9 +11,9 @@ use asterlane::admin::AdminAuth;
 use asterlane::config::{AdminConfig, AdminKey};
 use asterlane::http::{AppState, build_app};
 use asterlane::limits::LimitRegistry;
-use asterlane::secrets::DefaultSecretStore;
 use asterlane::mcp::McpServerRegistry;
 use asterlane::observability::{RequestEvent, RequestStatus};
+use asterlane::secrets::DefaultSecretStore;
 use asterlane::store::{
     RequestEventRepository, SqliteRequestEventRepository, in_memory_pool, run_migrations,
 };
@@ -124,7 +124,10 @@ async fn call(
         req = req.header("content-type", "application/json");
     }
     let response = app
-        .oneshot(req.body(Body::from(body.unwrap_or_default().to_vec())).expect("request"))
+        .oneshot(
+            req.body(Body::from(body.unwrap_or_default().to_vec()))
+                .expect("request"),
+        )
         .await
         .expect("response");
     let status = response.status();
@@ -185,7 +188,11 @@ async fn route_inventory_covers_status_and_wrapping() {
     assert_eq!(health.status, StatusCode::OK);
     assert!(is_json(&health));
     assert_eq!(health.json()["status"], "ok");
-    assert!(health.json()["version"].as_str().is_some_and(|v| !v.is_empty()));
+    assert!(
+        health.json()["version"]
+            .as_str()
+            .is_some_and(|v| !v.is_empty())
+    );
 
     let resources = call_json(&state, "GET", "/admin/resources", None).await;
     assert_eq!(resources.status, StatusCode::OK);
@@ -301,7 +308,11 @@ async fn route_inventory_covers_status_and_wrapping() {
 
     let ui = call(&state, "GET", "/admin/ui", None, false).await;
     assert_eq!(ui.status, StatusCode::OK);
-    assert!(ui.content_type.as_deref().is_some_and(|ct| ct.starts_with("text/html")));
+    assert!(
+        ui.content_type
+            .as_deref()
+            .is_some_and(|ct| ct.starts_with("text/html"))
+    );
     assert!(!ui.body.is_empty());
     assert!(serde_json::from_slice::<Value>(&ui.body).is_err());
 
@@ -371,13 +382,7 @@ async fn mutation_acks_nullable_fields_and_error_codes() {
     assert_eq!(updated.status, StatusCode::OK);
     assert_eq!(updated.json(), serde_json::json!({"updated": "example"}));
 
-    let missing = call_json(
-        &state,
-        "DELETE",
-        "/admin/resources/missing",
-        None,
-    )
-    .await;
+    let missing = call_json(&state, "DELETE", "/admin/resources/missing", None).await;
     assert_error(&missing, StatusCode::NOT_FOUND, "admin.not_found");
 
     let deleted = call_json(&state, "DELETE", "/admin/resources/example", None).await;
@@ -411,9 +416,14 @@ async fn mutation_acks_nullable_fields_and_error_codes() {
     )
     .await;
     assert_eq!(key_updated.status, StatusCode::OK);
-    assert_eq!(key_updated.json(), serde_json::json!({"updated": "agent-b"}));
+    assert_eq!(
+        key_updated.json(),
+        serde_json::json!({"updated": "agent-b"})
+    );
 
-    let listed = call_json(&state, "GET", "/admin/proxy-keys", None).await.json();
+    let listed = call_json(&state, "GET", "/admin/proxy-keys", None)
+        .await
+        .json();
     assert_eq!(listed[0]["display_name"], "Agent B2");
     assert_eq!(listed[0]["default_tool_page_size"], 7);
     assert!(listed[0]["expires_at"].is_null());
@@ -431,7 +441,14 @@ async fn mutation_acks_nullable_fields_and_error_codes() {
 #[tokio::test]
 async fn token_appears_only_in_issue_response_and_revoke_is_204() {
     let state = with_store(BASE_YAML).await;
-    let issued = call(&state, "POST", "/admin/proxy-keys/agent-a/token", Some(b""), true).await;
+    let issued = call(
+        &state,
+        "POST",
+        "/admin/proxy-keys/agent-a/token",
+        Some(b""),
+        true,
+    )
+    .await;
     assert_eq!(issued.status, StatusCode::OK);
     assert!(is_json(&issued));
     let body = issued.json();
@@ -459,11 +476,25 @@ async fn token_appears_only_in_issue_response_and_revoke_is_204() {
     assert!(!yaml.contains(&token));
     assert!(yaml.contains("token_digest"));
 
-    let revoked = call(&state, "DELETE", "/admin/proxy-keys/agent-a/token", None, true).await;
+    let revoked = call(
+        &state,
+        "DELETE",
+        "/admin/proxy-keys/agent-a/token",
+        None,
+        true,
+    )
+    .await;
     assert_eq!(revoked.status, StatusCode::NO_CONTENT);
     assert!(revoked.body.is_empty());
 
-    let again = call(&state, "DELETE", "/admin/proxy-keys/agent-a/token", None, true).await;
+    let again = call(
+        &state,
+        "DELETE",
+        "/admin/proxy-keys/agent-a/token",
+        None,
+        true,
+    )
+    .await;
     assert_eq!(again.status, StatusCode::NO_CONTENT);
     let after = call_json(&state, "GET", "/admin/proxy-keys", None).await;
     assert_eq!(after.json()[0]["auth_mode"], "legacy");
@@ -508,7 +539,9 @@ async fn resource_update_omitting_auth_keeps_key_pool() {
     .await;
     assert_eq!(updated.status, StatusCode::OK);
 
-    let resources = call_json(&state, "GET", "/admin/resources", None).await.json();
+    let resources = call_json(&state, "GET", "/admin/resources", None)
+        .await
+        .json();
     assert_eq!(resources[0]["auth_type"], "bearer");
     assert_eq!(resources[0]["key_pool_size"], 1);
     assert!(!resources.to_string().contains("secret://example/pool-a"));
@@ -518,11 +551,16 @@ async fn resource_update_omitting_auth_keeps_key_pool() {
     assert_eq!(config.api_resources[0].description, "renamed only");
     assert!(!config.api_resources[0].auth.is_none());
     assert_eq!(
-        config.api_resources[0].key_pool.as_ref().map(|p| p.keys.len()),
+        config.api_resources[0]
+            .key_pool
+            .as_ref()
+            .map(|p| p.keys.len()),
         Some(1)
     );
 
-    let pools = call_json(&state, "GET", "/admin/key-pools", None).await.json();
+    let pools = call_json(&state, "GET", "/admin/key-pools", None)
+        .await
+        .json();
     assert!(pools.is_array());
     assert_eq!(pools[0]["resource_id"], "example");
     assert_eq!(pools[0]["strategy"], "round_robin");
@@ -629,7 +667,13 @@ api_resources:
     let state = with_store(&yaml).await;
     let tool = "search__example__lookup";
 
-    let missing = call_json(&state, "GET", &format!("/admin/tools/{tool}/defaults"), None).await;
+    let missing = call_json(
+        &state,
+        "GET",
+        &format!("/admin/tools/{tool}/defaults"),
+        None,
+    )
+    .await;
     assert_error(&missing, StatusCode::NOT_FOUND, "admin.not_found");
 
     let saved = call(
@@ -643,7 +687,13 @@ api_resources:
     assert_eq!(saved.status, StatusCode::OK);
     assert_eq!(saved.json(), serde_json::json!({"updated": tool}));
 
-    let one = call_json(&state, "GET", &format!("/admin/tools/{tool}/defaults"), None).await;
+    let one = call_json(
+        &state,
+        "GET",
+        &format!("/admin/tools/{tool}/defaults"),
+        None,
+    )
+    .await;
     assert_eq!(one.status, StatusCode::OK);
     let one = one.json();
     assert_eq!(one["tool_name"], tool);
@@ -651,7 +701,9 @@ api_resources:
     assert_eq!(one["source"], "manual");
     assert!(one["args"].as_object().is_some_and(|m| m.len() == 1));
 
-    let listed = call_json(&state, "GET", "/admin/tool-defaults", None).await.json();
+    let listed = call_json(&state, "GET", "/admin/tool-defaults", None)
+        .await
+        .json();
     assert_eq!(listed[0]["args"]["q"], "example");
 
     let invoked = call(
@@ -664,7 +716,11 @@ api_resources:
     .await;
     assert_eq!(invoked.status, StatusCode::OK);
     let invoked = invoked.json();
-    assert!(invoked["request_id"].as_str().is_some_and(|s| !s.is_empty()));
+    assert!(
+        invoked["request_id"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+    );
     assert!(invoked["status"].is_number());
     assert!(invoked["latency_ms"].is_number());
     assert_eq!(invoked["result"]["ok"], true);
@@ -681,12 +737,28 @@ api_resources:
     assert_eq!(described.status, StatusCode::OK);
     let tools = call_json(&state, "GET", "/admin/tools", None).await.json();
     assert_eq!(tools["tools"][0]["description"], "example lookup");
-    assert_eq!(tools["tools"][0]["description_override"], "example override");
-    let meta = call_json(&state, "GET", &format!("/admin/tools/{tool}/metadata"), None).await;
+    assert_eq!(
+        tools["tools"][0]["description_override"],
+        "example override"
+    );
+    let meta = call_json(
+        &state,
+        "GET",
+        &format!("/admin/tools/{tool}/metadata"),
+        None,
+    )
+    .await;
     assert_eq!(meta.json()["description"], "example override");
     assert_eq!(meta.json()["tool_name"], tool);
 
-    let removed = call(&state, "DELETE", &format!("/admin/tools/{tool}/defaults"), None, true).await;
+    let removed = call(
+        &state,
+        "DELETE",
+        &format!("/admin/tools/{tool}/defaults"),
+        None,
+        true,
+    )
+    .await;
     assert_eq!(removed.status, StatusCode::OK);
     assert_eq!(removed.json(), serde_json::json!({"deleted": tool}));
 }

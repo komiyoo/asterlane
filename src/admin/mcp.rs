@@ -14,13 +14,10 @@ use axum::Extension;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use tracing::warn;
 
-use crate::config::{
-    GatewayConfig, HealthCheckConfig, McpServerConfig, SecurityConfig, UpstreamAuth, UpstreamLimits,
-};
+use crate::config::{GatewayConfig, McpServerConfig, UpstreamAuth};
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
 use crate::limits::LimitRegistry;
@@ -29,31 +26,12 @@ use crate::store::{McpServerRecord, McpServerRepository};
 
 use super::auth::AdminKeyId;
 use super::crud::{record_audit, swap_config_and_catalog};
+use super::types::{
+    McpHealthResponse, McpServerDetailResponse, McpServerResponse, McpServerToolResponse,
+    McpServerWriteParams,
+};
 
-// ── request DTO 与输入校验 ──
-
-#[derive(Deserialize)]
-pub(super) struct McpServerInput {
-    /// POST 必填；PUT 以路径 id 为准（body id 忽略）。
-    #[serde(default)]
-    pub id: Option<String>,
-    pub domain: String,
-    pub provider: String,
-    pub url: String,
-    #[serde(default)]
-    pub description: String,
-    /// auth 同配置 schema tagged 形态；支持明文 key 或 `secret://` 引用。
-    #[serde(default)]
-    pub auth: Option<UpstreamAuth>,
-    #[serde(default)]
-    pub security: Option<SecurityConfig>,
-    #[serde(default)]
-    pub limits: Option<UpstreamLimits>,
-    #[serde(default)]
-    pub health_check: Option<HealthCheckConfig>,
-}
-
-impl McpServerInput {
+impl McpServerWriteParams {
     /// 转换为配置结构并做输入校验；非法输入一律 400 `admin.invalid_query`。
     fn into_config(self, path_id: Option<&str>) -> Result<McpServerConfig, AsterlaneError> {
         let id = path_id.map(str::to_string).or(self.id).unwrap_or_default();
@@ -138,64 +116,12 @@ fn require_registry(state: &AppState) -> Result<Arc<McpServerRegistry>, Asterlan
 
 // ── 契约 §6 JSON 构造 ──
 
-/// 契约 health 对象（不含 `server_id`/`tool_count`——`tool_count` 顶层单列）。
-fn health_json(health: &ServerHealth) -> Value {
-    json!({
-        "status": health.status,
-        "last_check_at": health.last_check_at,
-        "last_ok_at": health.last_ok_at,
-        "latency_ms": health.latency_ms,
-        "consecutive_failures": health.consecutive_failures,
-        "last_error": health.last_error,
-    })
-}
-
-/// 未探测占位（无 registry 时）：全 unknown。
-fn unknown_health() -> Value {
-    json!({
-        "status": "unknown",
-        "last_check_at": null,
-        "last_ok_at": null,
-        "latency_ms": null,
-        "consecutive_failures": 0,
-        "last_error": null,
-    })
-}
-
-/// 契约 §6 列表项。auth 只回显 `auth_type`，绝不含 ref 或明文。
 fn server_json(
     server: &McpServerConfig,
     config: &GatewayConfig,
     health: Option<&ServerHealth>,
-) -> Value {
-    let auth_type = match &server.auth {
-        UpstreamAuth::None => "none",
-        UpstreamAuth::Bearer { .. } => "bearer",
-        UpstreamAuth::Header { .. } => "header",
-    };
-    json!({
-        "id": server.id,
-        "domain": server.domain,
-        "provider": server.provider,
-        "url": server.url,
-        "description": server.description,
-        "builtin": config.builtin_mcp.contains(&server.id),
-        "requires_key": !matches!(server.auth, UpstreamAuth::None),
-        "auth_type": auth_type,
-        "security": {
-            "integrity_policy": server.security.integrity_policy,
-            "defense_enabled": server.security.defense.enabled,
-            "result_budget_bytes": server.security.result_budget_bytes,
-        },
-        "limits": {
-            "rps": server.limits.as_ref().and_then(|l| l.rps),
-            "rpm": server.limits.as_ref().and_then(|l| l.rpm),
-            "max_concurrent": server.limits.as_ref().and_then(|l| l.max_concurrent),
-        },
-        "health_check_enabled": server.health_check.enabled,
-        "health": health.map(health_json).unwrap_or_else(unknown_health),
-        "tool_count": health.map_or(0, |h| h.tool_count),
-    })
+) -> McpServerResponse {
+    McpServerResponse::from_config(server, config, health)
 }
 
 /// registry 健康快照按 server id 索引；无 registry 返回空表。
@@ -216,48 +142,50 @@ fn health_by_id(state: &AppState) -> HashMap<String, ServerHealth> {
 // ── read handlers ──
 
 /// `GET /admin/mcp-servers` — 全部已配置 MCP server + 健康快照合并。
-pub(super) async fn list_servers(State(state): State<AppState>) -> Json<Value> {
+pub(super) async fn list_servers(State(state): State<AppState>) -> Json<Vec<McpServerResponse>> {
     let config = state.config_snapshot().await;
     let health = health_by_id(&state);
-    let list: Vec<Value> = config
+    let list = config
         .mcp_servers
         .iter()
-        .map(|s| server_json(s, &config, health.get(&s.id)))
+        .map(|server| server_json(server, &config, health.get(&server.id)))
         .collect();
-    Json(json!(list))
+    Json(list)
 }
 
 /// `GET /admin/mcp-servers/{id}` — 单项 + 该 server 工具清单（含介绍 override）。
 pub(super) async fn get_server(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<McpServerDetailResponse>, AsterlaneError> {
     let config = state.config_snapshot().await;
     let Some(server) = config.mcp_server(&id) else {
         return Err(not_found(&id));
     };
     let health = health_by_id(&state);
-    let mut item = server_json(server, &config, health.get(&id));
-
     let catalog = state.catalog.read().await;
-    let tools: Vec<Value> = catalog
+    let tools = catalog
         .all_tools()
         .iter()
-        .filter(|t| t.resource_id == id)
-        .map(|t| {
-            let wire_name = t.name.to_wire_name();
-            json!({
-                // catalog 中 description 为有效描述；原始描述从 overlay 侧表取
-                "description": catalog.original_description(&wire_name).unwrap_or(&t.description),
-                "description_override": catalog.description_override(&wire_name),
-                "wire_name": wire_name,
-                "upstream_name": t.upstream_path,
-                "input_schema": t.input_schema,
-            })
+        .filter(|tool| tool.resource_id == id)
+        .map(|tool| {
+            let wire_name = tool.name.to_wire_name();
+            McpServerToolResponse {
+                description: catalog
+                    .original_description(&wire_name)
+                    .unwrap_or(&tool.description)
+                    .to_string(),
+                description_override: catalog.description_override(&wire_name).map(str::to_string),
+                wire_name,
+                upstream_name: tool.upstream_path.clone(),
+                input_schema: tool.input_schema.clone(),
+            }
         })
         .collect();
-    item["tools"] = Value::Array(tools);
-    Ok(Json(item))
+    Ok(Json(McpServerDetailResponse {
+        server: server_json(server, &config, health.get(&id)),
+        tools,
+    }))
 }
 
 // ── write handlers ──
@@ -267,8 +195,8 @@ pub(super) async fn get_server(
 pub(super) async fn create_server(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
-    Json(input): Json<McpServerInput>,
-) -> Result<(StatusCode, Json<Value>), AsterlaneError> {
+    Json(input): Json<McpServerWriteParams>,
+) -> Result<(StatusCode, Json<McpServerResponse>), AsterlaneError> {
     let server = input.into_config(None)?;
     let config = state.config_snapshot().await;
     // 重复 id 预检（含 api_resources——catalog 按 resource_id 分片，不允许互撞），干净 400
@@ -302,8 +230,8 @@ pub(super) async fn update_server(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
-    Json(input): Json<McpServerInput>,
-) -> Result<Json<Value>, AsterlaneError> {
+    Json(input): Json<McpServerWriteParams>,
+) -> Result<Json<McpServerResponse>, AsterlaneError> {
     let server = input.into_config(Some(&id))?;
     let config = state.config_snapshot().await;
     if config.mcp_server(&id).is_none() {
@@ -370,11 +298,11 @@ pub(super) async fn delete_server(
 pub(super) async fn probe_server(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<McpHealthResponse>, AsterlaneError> {
     let registry = require_registry(&state)?;
     let health = registry.probe(&id, state.secrets.as_ref()).await?;
     sync_catalog_from_registry(&state, &registry).await;
-    Ok(Json(health_json(&health)))
+    Ok(Json(McpHealthResponse::from_health(&health)))
 }
 
 // ── registry → catalog/baseline 同步 ──
@@ -454,6 +382,7 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::Request;
     use rmcp::model::{CallToolResult, ContentBlock, Tool};
+    use serde_json::Value;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tower::ServiceExt;
 

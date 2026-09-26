@@ -5,24 +5,23 @@
 //! { "error": { "code": "...", "message": "...", "request_id": "..." } }
 //! ```
 
-use crate::error::AsterlaneError;
+use crate::error::{AsterlaneError, HttpErrorEnvelope, HttpErrorObject};
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde_json::json;
 
 impl IntoResponse for AsterlaneError {
     fn into_response(self) -> Response {
         let view = self.http_response();
         let request_id = super::request_id::error_request_id();
         let status = StatusCode::from_u16(view.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let body = json!({
-            "error": {
-                "code": view.code.as_str(),
-                "message": view.message,
-                "request_id": request_id,
-            }
-        });
+        let body = HttpErrorEnvelope {
+            error: HttpErrorObject {
+                code: view.code.as_str().to_string(),
+                message: view.message,
+                request_id,
+            },
+        };
         let mut response = (status, Json(body)).into_response();
         if let Some(dur) = view.retry_after {
             let secs = dur.as_secs().max(1).to_string();

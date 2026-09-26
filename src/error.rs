@@ -345,6 +345,20 @@ impl AsterlaneError {
     }
 }
 
+/// HTTP JSON 错误包络。`request_id` 由 HTTP 层填成非空字符串。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
+pub struct HttpErrorEnvelope {
+    pub error: HttpErrorObject,
+}
+
+/// `error` 对象。`code` 是稳定错误码字符串，如 `admin.not_found`。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
+pub struct HttpErrorObject {
+    pub code: String,
+    pub message: String,
+    pub request_id: String,
+}
+
 /// HTTP 边界返回的纯数据视图。
 ///
 /// 不依赖 axum/reqwest，由调用方转换为实际 HTTP 响应。

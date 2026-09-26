@@ -12,7 +12,7 @@ use crate::http::AppState;
 use crate::keys::KeyPoolRegistry;
 use crate::store::repository::{UpstreamKeyRecord, UpstreamKeyRepository};
 
-use super::crud::ResourceInput;
+use super::types::ResourceWriteParams;
 
 /// 非法 key_pool 在 admin 边界收成 400 `admin.invalid_query`（消息已脱敏）。
 pub(super) fn invalid_key_pool(err: crate::keys::KeyPoolError) -> AsterlaneError {
@@ -20,7 +20,7 @@ pub(super) fn invalid_key_pool(err: crate::keys::KeyPoolError) -> AsterlaneError
 }
 
 /// 创建：`auth` 缺省 `None`，`key_pool` 原样。
-pub(super) fn apply_create(input: &ResourceInput) -> (UpstreamAuth, Option<KeyPoolConfig>) {
+pub(super) fn apply_create(input: &ResourceWriteParams) -> (UpstreamAuth, Option<KeyPoolConfig>) {
     (
         input.auth.clone().unwrap_or(UpstreamAuth::None),
         input.key_pool.clone(),
@@ -28,7 +28,7 @@ pub(super) fn apply_create(input: &ResourceInput) -> (UpstreamAuth, Option<KeyPo
 }
 
 /// 更新：字段省略则保留库里已有值。
-pub(super) fn apply_update(existing: &mut ApiResource, input: &ResourceInput) {
+pub(super) fn apply_update(existing: &mut ApiResource, input: &ResourceWriteParams) {
     existing.domain = input.domain.clone();
     existing.provider = input.provider.clone();
     existing.base_url = input.base_url.clone();
@@ -40,22 +40,6 @@ pub(super) fn apply_update(existing: &mut ApiResource, input: &ResourceInput) {
     if let Some(key_pool) = input.key_pool.clone() {
         existing.key_pool = Some(key_pool);
     }
-}
-
-pub(super) fn auth_type_label(auth: &UpstreamAuth) -> &'static str {
-    match auth {
-        UpstreamAuth::None => "none",
-        UpstreamAuth::Bearer { .. } => "bearer",
-        UpstreamAuth::Header { .. } => "header",
-    }
-}
-
-pub(super) fn key_pool_size(resource: &ApiResource) -> usize {
-    resource
-        .key_pool
-        .as_ref()
-        .map(|p| p.keys.len())
-        .unwrap_or(0)
 }
 
 /// 校验新配置的 key_pool；失败则整次写拒绝，内存态不变。

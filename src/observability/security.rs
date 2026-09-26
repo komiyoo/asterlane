@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::integrity::IntegrityEvent;
 
 /// 安全事件分类。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SecurityEventKind {
     /// 工具定义变更（fingerprint 不同）。
@@ -31,7 +31,7 @@ pub enum SecurityEventKind {
 }
 
 /// 安全事件严重级别。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
     Info,

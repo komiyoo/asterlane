@@ -45,6 +45,14 @@ worktree-prune:
 worktree-prune-merged:
     python3 scripts/setup_worktree.py --prune --delete-merged-branches
 
+# 从 Rust 管理 DTO 生成 schemas/admin.json（Draft 7）
+admin-schema:
+    cargo run --example export_admin_schema -- --output schemas/admin.json
+
+# 比较已提交的 schema，不覆盖。失败时提示重生成。
+admin-schema-check:
+    cargo run --example export_admin_schema -- --check schemas/admin.json
+
 # 提交前的完整本地验证（Worktree 默认也走这条）
 check: worktree-doctor fmt-check lint test docs-check
 

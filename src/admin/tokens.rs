@@ -15,8 +15,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use rand::RngExt;
-use serde::Deserialize;
-use serde_json::{Value, json};
+
 use tracing::warn;
 
 use crate::config::ProxyKey;
@@ -27,13 +26,7 @@ use crate::store::repository::ProxyKeyRepository;
 
 use super::auth::AdminKeyId;
 use super::crud::{record_audit, swap_config_and_catalog, to_db_proxy_key};
-
-/// 签发请求体；空 body 与 `{}` 等价（永不过期）。
-#[derive(Deserialize)]
-struct IssueRequest {
-    #[serde(default)]
-    expires_at: Option<DateTime<Utc>>,
-}
+use super::types::{TokenIssueParams, TokenIssueResponse};
 
 /// `POST /admin/proxy-keys/{id}/token` — 签发 gateway token；已有 token 即轮换。
 ///
@@ -43,7 +36,7 @@ pub(super) async fn issue_token(
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
     body: Bytes,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<TokenIssueResponse>, AsterlaneError> {
     let expires_at = parse_expires_at(&body)?;
     let config = state.config_snapshot().await;
     let key = config
@@ -77,7 +70,7 @@ pub(super) async fn issue_token(
         upsert_proxy_key_db(&state, key).await;
     }
     record_audit(&state, &admin.0, action, "proxy_key", &id).await;
-    Ok(Json(json!({ "token": token, "expires_at": expires_at })))
+    Ok(Json(TokenIssueResponse { token, expires_at }))
 }
 
 /// `DELETE /admin/proxy-keys/{id}/token` — 吊销 token，key 回到 legacy
@@ -123,7 +116,7 @@ fn parse_expires_at(body: &[u8]) -> Result<Option<DateTime<Utc>>, AsterlaneError
     if body.is_empty() {
         return Ok(None);
     }
-    let request: IssueRequest = serde_json::from_slice(body).map_err(|_| {
+    let request: TokenIssueParams = serde_json::from_slice(body).map_err(|_| {
         AsterlaneError::internal(
             ErrorCode::AdminInvalidQuery,
             "invalid body: expected {\"expires_at\": \"RFC3339\"} or empty",
@@ -175,6 +168,7 @@ mod tests {
     use crate::{GatewayConfig, ToolCatalog};
     use axum::body::{Body, to_bytes};
     use axum::http::Request;
+    use serde_json::{Value, json};
     use std::sync::Arc;
     use tower::ServiceExt;
 

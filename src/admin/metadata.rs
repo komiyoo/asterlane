@@ -9,7 +9,7 @@ use axum::Extension;
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
@@ -18,6 +18,7 @@ use crate::store::{ToolMetadataEntry, ToolMetadataRepository};
 use super::auth::AdminKeyId;
 use super::crud::record_audit;
 use super::defaults::{parse_object_body, require_store};
+use super::types::{DeletedResponse, ToolMetadataResponse, UpdatedResponse};
 
 fn not_found(name: &str) -> AsterlaneError {
     AsterlaneError::internal(
@@ -26,8 +27,8 @@ fn not_found(name: &str) -> AsterlaneError {
     )
 }
 
-fn entry_json(entry: &ToolMetadataEntry) -> Value {
-    serde_json::to_value(entry).unwrap_or_default()
+fn entry_json(entry: &ToolMetadataEntry) -> ToolMetadataResponse {
+    ToolMetadataResponse::from_entry(entry)
 }
 
 fn invalid_body() -> AsterlaneError {
@@ -51,25 +52,25 @@ fn parse_description(body: &Bytes) -> Result<String, AsterlaneError> {
 /// `GET /admin/tool-metadata` — 全量介绍 override 列表。
 pub(super) async fn list_metadata(
     State(state): State<AppState>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<Vec<ToolMetadataResponse>>, AsterlaneError> {
     let Some(repo) = &state.event_repo else {
-        return Ok(Json(json!([])));
+        return Ok(Json(Vec::new()));
     };
     let rows = repo.list_tool_metadata().await?;
-    Ok(Json(Value::Array(rows.iter().map(entry_json).collect())))
+    Ok(Json(rows.iter().map(entry_json).collect()))
 }
 
 /// `GET /admin/tools/{name}/metadata` — 单条；不存在 404 `admin.not_found`。
 pub(super) async fn get_metadata(
     State(state): State<AppState>,
     Path(name): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<ToolMetadataResponse>, AsterlaneError> {
     let entry = match &state.event_repo {
         Some(repo) => repo.get_tool_metadata(&name).await?,
         None => None,
     };
     entry
-        .map(|e| Json(entry_json(&e)))
+        .map(|item| Json(entry_json(&item)))
         .ok_or_else(|| not_found(&name))
 }
 
@@ -80,7 +81,7 @@ pub(super) async fn put_metadata(
     Extension(admin): Extension<AdminKeyId>,
     Path(name): Path<String>,
     body: Bytes,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<UpdatedResponse>, AsterlaneError> {
     let description = parse_description(&body)?;
     let repo = require_store(&state)?;
     repo.set_tool_metadata(&name, &description, Some(&admin.0))
@@ -91,7 +92,7 @@ pub(super) async fn put_metadata(
         .await
         .set_description_override(&name, &description);
     record_audit(&state, &admin.0, "set", "tool_metadata", &name).await;
-    Ok(Json(json!({"updated": name})))
+    Ok(Json(UpdatedResponse { updated: name }))
 }
 
 /// `DELETE /admin/tools/{name}/metadata` — 不存在 404；
@@ -100,7 +101,7 @@ pub(super) async fn delete_metadata(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(name): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<DeletedResponse>, AsterlaneError> {
     let repo = require_store(&state)?;
     if !repo.delete_tool_metadata(&name).await? {
         return Err(not_found(&name));
@@ -111,7 +112,7 @@ pub(super) async fn delete_metadata(
         .await
         .remove_description_override(&name);
     record_audit(&state, &admin.0, "delete", "tool_metadata", &name).await;
-    Ok(Json(json!({"deleted": name})))
+    Ok(Json(DeletedResponse { deleted: name }))
 }
 
 #[cfg(test)]

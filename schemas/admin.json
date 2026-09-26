@@ -1,0 +1,2381 @@
+{
+  "$comment": "由 `just admin-schema` 从 Rust 管理 DTO 生成（schemars JSON Schema Draft 7）。不要手改。inputs 按反序列化，outputs 按序列化。检查失败时运行 `just admin-schema`。",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "InputDefenseConfig": {
+      "description": "Content defense 配置。\n\n默认 disabled（保守，需显式开启）。",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "是否启用 content defense 扫描。",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "InputEventsListParams": {
+      "description": "`GET /admin/events` 的查询参数。",
+      "properties": {
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "proxy_key_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputHealthCheckConfig": {
+      "description": "MCP server 测活配置。\n\n`enabled: false` 时该 server 不参与周期探测（健康状态 `disabled`），\n按需 probe 仍可用；工具快照沿用 stale 缓存。",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "InputIntegrityPolicy": {
+      "description": "What to do when drift is detected.",
+      "oneOf": [
+        {
+          "const": "warn",
+          "description": "Log the event, do not block.",
+          "type": "string"
+        },
+        {
+          "const": "quarantine",
+          "description": "Quarantine the tool (pause usage).",
+          "type": "string"
+        },
+        {
+          "const": "block",
+          "description": "Reject all calls to the tool.",
+          "type": "string"
+        }
+      ]
+    },
+    "InputJsonObject": {
+      "additionalProperties": true,
+      "description": "动态 JSON object，不声明固定业务字段",
+      "type": "object"
+    },
+    "InputKeyLimits": {
+      "description": "Per-key 限额（`proxy_keys[]` 可选）。\n\n`max_calls` 为累计调用配额：有 store 时从成功次数回填跨重启累计\n（`request_count − error_count`），无 store 时仅内存计数\n（见 docs/runtime/mcp-governance-and-key-limits.md §3）。",
+      "properties": {
+        "max_calls": {
+          "default": null,
+          "description": "累计调用配额。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_calls_per_day": {
+          "default": null,
+          "description": "当日调用配额（UTC 零点重置）。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rpm": {
+          "default": null,
+          "description": "每分钟请求数。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rps": {
+          "default": null,
+          "description": "每秒请求数。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputKeyPoolConfig": {
+      "description": "上游 key 池配置（见 docs/runtime/config-schema.md Key Pool）。",
+      "properties": {
+        "keys": {
+          "items": {
+            "$ref": "#/definitions/InputPoolKeyConfig"
+          },
+          "type": "array"
+        },
+        "strategy": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputLoadBalanceStrategy"
+            }
+          ],
+          "default": "round_robin",
+          "description": "LB 策略，缺省 `round_robin`。"
+        }
+      },
+      "required": [
+        "keys"
+      ],
+      "type": "object"
+    },
+    "InputLoadBalanceStrategy": {
+      "description": "负载均衡策略。\n\n`select` 在候选 `KeyCandidate` 列表上选取一个。`cursor` 由调用方\n（`KeyPool`）持有并传入，用于 `RoundRobin` 的游标推进。\n\nserde 形态为 snake_case 字符串（配置 `key_pool.strategy` 直接反序列化）。",
+      "oneOf": [
+        {
+          "const": "round_robin",
+          "description": "轮询：按 cursor 顺序循环选取。",
+          "type": "string"
+        },
+        {
+          "const": "random",
+          "description": "随机：真随机选取。",
+          "type": "string"
+        },
+        {
+          "const": "least_requests",
+          "description": "最少请求：选取 `active_count` 最小的候选。",
+          "type": "string"
+        },
+        {
+          "const": "fastest_response",
+          "description": "最快响应：选取 EWMA 延迟最低的候选（无数据视为最慢）。",
+          "type": "string"
+        },
+        {
+          "const": "weighted",
+          "description": "加权随机：按 `weight` 加权随机选取（`WeightedIndex`，O(log n)）。",
+          "type": "string"
+        }
+      ]
+    },
+    "InputMcpServerWriteParams": {
+      "description": "`POST/PUT /admin/mcp-servers` 的请求体。`PUT` 以路径 id 为准。",
+      "properties": {
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputUpstreamAuth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "health_check": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputHealthCheckConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputUpstreamLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "provider": {
+          "type": "string"
+        },
+        "security": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputSecurityConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "domain",
+        "provider",
+        "url"
+      ],
+      "type": "object"
+    },
+    "InputPoolKeyConfig": {
+      "description": "池内单个 key：secret ref + 权重。",
+      "properties": {
+        "ref": {
+          "description": "secret ref（如 `secret://tavily/key-a`），不存明文。",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1,
+          "description": "`weighted` 策略下的权重，缺省 1。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "type": "object"
+    },
+    "InputProxyKeyWriteParams": {
+      "description": "`POST/PUT /admin/proxy-keys` 的请求体。不接受凭据字段；未知字段被 serde 忽略。",
+      "properties": {
+        "allowed_servers": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowed_tool_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowed_tools": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_tool_page_size": {
+          "default": 20,
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "denied_tools": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "display_name": {
+          "default": "",
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputKeyLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "InputResourceWriteParams": {
+      "description": "`POST/PUT /admin/resources` 的请求体。更新时省略 `auth` 或 `key_pool` 表示保留原值。",
+      "properties": {
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputUpstreamAuth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "创建缺省为无凭据；更新时省略则保留已有值。"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key_pool": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputKeyPoolConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "创建原样写入；更新时省略则保留已有值。"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InputUpstreamLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "上游限额。`0` 在替换配置时拒绝。"
+        },
+        "provider": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "base_url"
+      ],
+      "type": "object"
+    },
+    "InputSecurityConfig": {
+      "description": "Per-resource 安全配置：integrity 策略、content defense、result shaping 预算。\n\n统一挂载到 `ApiResource` 与 `McpServerConfig`，后续 subagent 在执行路径接入时读取。",
+      "properties": {
+        "defense": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputDefenseConfig"
+            }
+          ],
+          "default": {
+            "enabled": false
+          },
+          "description": "Content defense 配置。"
+        },
+        "integrity_policy": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputIntegrityPolicy"
+            }
+          ],
+          "default": "warn",
+          "description": "Integrity drift 策略（见 `src/integrity.rs` `IntegrityPolicy`）。"
+        },
+        "result_budget_bytes": {
+          "default": null,
+          "description": "Result shaping 字节预算上限（超过则截断 + cursor 分页）。",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputSecurityEventsListParams": {
+      "description": "`GET /admin/security-events` 的查询参数。审计页复用 `kind=admin_audit`。",
+      "properties": {
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "resource_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputTokenIssueParams": {
+      "description": "`POST /admin/proxy-keys/{id}/token` 的对象请求体。空 body 与 `{}` 等价。",
+      "properties": {
+        "expires_at": {
+          "default": null,
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputToolInvokeParams": {
+      "description": "`POST /admin/tools/{name}/invoke` 的查询参数。",
+      "properties": {
+        "save": {
+          "description": "调用成功时把实际使用的 args 存为该工具默认。",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "use_defaults": {
+          "description": "body 为空时是否合并存储默认参数。",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputToolMetadataWriteParams": {
+      "description": "`PUT /admin/tools/{name}/metadata` 的对象形状。非空校验仍由现有解析函数负责。",
+      "properties": {
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "type": "object"
+    },
+    "InputUpstreamAuth": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "header",
+              "type": "string"
+            },
+            "value_ref": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name",
+            "value_ref"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "token_ref": {
+              "type": "string"
+            },
+            "type": {
+              "const": "bearer",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "token_ref"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "InputUpstreamLimits": {
+      "description": "上游限额（`api_resources[]` 与 `mcp_servers[]` 可选）。\n\n数值必须 > 0，构建限流器时校验（`config.*` 错误 fail fast）；\n语义见 docs/runtime/mcp-governance-and-key-limits.md §3。",
+      "properties": {
+        "max_concurrent": {
+          "default": null,
+          "description": "并发上限（队列准入）。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "queue_timeout_secs": {
+          "default": 10,
+          "description": "队列准入排队超时秒数，缺省 10。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rpm": {
+          "default": null,
+          "description": "每分钟请求数。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rps": {
+          "default": null,
+          "description": "每秒请求数（GCRA）。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InputUsageListParams": {
+      "description": "`GET /admin/usage` 的查询参数。",
+      "properties": {
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "proxy_key_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "OutputAuthTypeResponse": {
+      "description": "资源与 MCP 列表里的凭据形态。不含 secret ref。",
+      "enum": [
+        "none",
+        "bearer",
+        "header"
+      ],
+      "type": "string"
+    },
+    "OutputConfigIssueLevel": {
+      "description": "校验问题级别。序列化为 `error` / `warn`。",
+      "enum": [
+        "error",
+        "warn"
+      ],
+      "type": "string"
+    },
+    "OutputConfigIssueResponse": {
+      "properties": {
+        "level": {
+          "$ref": "#/definitions/OutputConfigIssueLevel"
+        },
+        "message": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "target",
+        "message"
+      ],
+      "type": "object"
+    },
+    "OutputConfigValidateResponse": {
+      "description": "`GET /admin/config/validate`。",
+      "properties": {
+        "issues": {
+          "items": {
+            "$ref": "#/definitions/OutputConfigIssueResponse"
+          },
+          "type": "array"
+        },
+        "mcp_server_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proxy_key_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resource_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "valid",
+        "resource_count",
+        "proxy_key_count",
+        "mcp_server_count",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "OutputCreatedResponse": {
+      "description": "`POST` 创建成功。字段名保持 `created`。",
+      "properties": {
+        "created": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created"
+      ],
+      "type": "object"
+    },
+    "OutputDeletedResponse": {
+      "description": "`DELETE` 删除成功且响应为 JSON。字段名保持 `deleted`。",
+      "properties": {
+        "deleted": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "OutputHealthResponse": {
+      "description": "`GET /admin/health`。",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "version"
+      ],
+      "type": "object"
+    },
+    "OutputHealthStatus": {
+      "description": "MCP server 健康状态（serde 小写，供 wave 2 admin JSON 直接输出）。",
+      "oneOf": [
+        {
+          "const": "ok",
+          "description": "最近一次探测成功。",
+          "type": "string"
+        },
+        {
+          "const": "unreachable",
+          "description": "最近一次探测（含连接）失败。",
+          "type": "string"
+        },
+        {
+          "const": "unknown",
+          "description": "尚未探测。",
+          "type": "string"
+        },
+        {
+          "const": "disabled",
+          "description": "`health_check.enabled: false`，不参与周期探测。",
+          "type": "string"
+        }
+      ]
+    },
+    "OutputHttpErrorEnvelope": {
+      "description": "HTTP JSON 错误包络。`request_id` 由 HTTP 层填成非空字符串。",
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/OutputHttpErrorObject"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
+    "OutputHttpErrorObject": {
+      "description": "`error` 对象。`code` 是稳定错误码字符串，如 `admin.not_found`。",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "request_id"
+      ],
+      "type": "object"
+    },
+    "OutputIntegrityPolicy": {
+      "description": "What to do when drift is detected.",
+      "oneOf": [
+        {
+          "const": "warn",
+          "description": "Log the event, do not block.",
+          "type": "string"
+        },
+        {
+          "const": "quarantine",
+          "description": "Quarantine the tool (pause usage).",
+          "type": "string"
+        },
+        {
+          "const": "block",
+          "description": "Reject all calls to the tool.",
+          "type": "string"
+        }
+      ]
+    },
+    "OutputKeyLimits": {
+      "description": "Per-key 限额（`proxy_keys[]` 可选）。\n\n`max_calls` 为累计调用配额：有 store 时从成功次数回填跨重启累计\n（`request_count − error_count`），无 store 时仅内存计数\n（见 docs/runtime/mcp-governance-and-key-limits.md §3）。",
+      "properties": {
+        "max_calls": {
+          "default": null,
+          "description": "累计调用配额。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_calls_per_day": {
+          "default": null,
+          "description": "当日调用配额（UTC 零点重置）。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rpm": {
+          "default": null,
+          "description": "每分钟请求数。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rps": {
+          "default": null,
+          "description": "每秒请求数。",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "rps",
+        "rpm",
+        "max_calls",
+        "max_calls_per_day"
+      ],
+      "type": "object"
+    },
+    "OutputKeyPoolKeyResponse": {
+      "description": "`GET /admin/key-pools` 里的一个 key。`ref` 已脱敏。",
+      "properties": {
+        "cooling_remaining_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ewma_latency_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "key_id": {
+          "type": "string"
+        },
+        "leased_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/OutputKeyRuntimeStateResponse"
+        },
+        "weight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key_id",
+        "state",
+        "leased_count",
+        "cooling_remaining_ms",
+        "weight",
+        "ewma_latency_ms",
+        "ref"
+      ],
+      "type": "object"
+    },
+    "OutputKeyPoolResponse": {
+      "description": "`GET /admin/key-pools` 的一个资源池。",
+      "properties": {
+        "keys": {
+          "items": {
+            "$ref": "#/definitions/OutputKeyPoolKeyResponse"
+          },
+          "type": "array"
+        },
+        "resource_id": {
+          "type": "string"
+        },
+        "strategy": {
+          "$ref": "#/definitions/OutputLoadBalanceStrategy"
+        }
+      },
+      "required": [
+        "resource_id",
+        "strategy",
+        "keys"
+      ],
+      "type": "object"
+    },
+    "OutputKeyRuntimeStateResponse": {
+      "description": "key pool 中单个 key 的运行状态。",
+      "enum": [
+        "available",
+        "leased",
+        "cooling"
+      ],
+      "type": "string"
+    },
+    "OutputKeyUsage": {
+      "description": "单 key 用量快照（admin 面板直接序列化输出，见契约 §K3）。",
+      "properties": {
+        "calls_today": {
+          "description": "当日（UTC）调用数。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "calls_total": {
+          "description": "累计调用总数。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_calls": {
+          "description": "累计配额上限；未配置为 `None`。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_calls_per_day": {
+          "description": "当日配额上限；未配置为 `None`。",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "calls_total",
+        "calls_today",
+        "max_calls",
+        "max_calls_per_day"
+      ],
+      "type": "object"
+    },
+    "OutputLoadBalanceStrategy": {
+      "description": "负载均衡策略。\n\n`select` 在候选 `KeyCandidate` 列表上选取一个。`cursor` 由调用方\n（`KeyPool`）持有并传入，用于 `RoundRobin` 的游标推进。\n\nserde 形态为 snake_case 字符串（配置 `key_pool.strategy` 直接反序列化）。",
+      "oneOf": [
+        {
+          "const": "round_robin",
+          "description": "轮询：按 cursor 顺序循环选取。",
+          "type": "string"
+        },
+        {
+          "const": "random",
+          "description": "随机：真随机选取。",
+          "type": "string"
+        },
+        {
+          "const": "least_requests",
+          "description": "最少请求：选取 `active_count` 最小的候选。",
+          "type": "string"
+        },
+        {
+          "const": "fastest_response",
+          "description": "最快响应：选取 EWMA 延迟最低的候选（无数据视为最慢）。",
+          "type": "string"
+        },
+        {
+          "const": "weighted",
+          "description": "加权随机：按 `weight` 加权随机选取（`WeightedIndex`，O(log n)）。",
+          "type": "string"
+        }
+      ]
+    },
+    "OutputMcpHealthResponse": {
+      "description": "契约 health 对象。不含 `server_id` 与 `tool_count`。",
+      "properties": {
+        "consecutive_failures": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_check_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_ok_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "latency_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/definitions/OutputHealthStatus"
+        }
+      },
+      "required": [
+        "status",
+        "last_check_at",
+        "last_ok_at",
+        "latency_ms",
+        "consecutive_failures",
+        "last_error"
+      ],
+      "type": "object"
+    },
+    "OutputMcpLimitsResponse": {
+      "description": "读取侧限额。不包含 `queue_timeout_secs`。",
+      "properties": {
+        "max_concurrent": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rpm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rps": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "rps",
+        "rpm",
+        "max_concurrent"
+      ],
+      "type": "object"
+    },
+    "OutputMcpPresetAuthResponse": {
+      "description": "Preset 目录里的默认凭据形态。不含 secret ref。",
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "bearer",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "header",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OutputMcpPresetResponse": {
+      "description": "`GET /admin/mcp-presets` 的一行。",
+      "properties": {
+        "apply_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "auth": {
+          "$ref": "#/definitions/OutputMcpPresetAuthResponse"
+        },
+        "description": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "requires_key": {
+          "type": "boolean"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "provider",
+        "url",
+        "description",
+        "enabled",
+        "auth",
+        "requires_key",
+        "apply_url"
+      ],
+      "type": "object"
+    },
+    "OutputMcpSecurityResponse": {
+      "description": "读取侧 security。与写入的 `SecurityConfig` 不是同一形状。",
+      "properties": {
+        "defense_enabled": {
+          "type": "boolean"
+        },
+        "integrity_policy": {
+          "$ref": "#/definitions/OutputIntegrityPolicy"
+        },
+        "result_budget_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "integrity_policy",
+        "defense_enabled",
+        "result_budget_bytes"
+      ],
+      "type": "object"
+    },
+    "OutputMcpServerDetailResponse": {
+      "description": "`GET /admin/mcp-servers/{id}`。列表字段展平，另加 `tools`。",
+      "properties": {
+        "auth_type": {
+          "$ref": "#/definitions/OutputAuthTypeResponse"
+        },
+        "builtin": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "health": {
+          "$ref": "#/definitions/OutputMcpHealthResponse"
+        },
+        "health_check_enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/definitions/OutputMcpLimitsResponse"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "requires_key": {
+          "type": "boolean"
+        },
+        "security": {
+          "$ref": "#/definitions/OutputMcpSecurityResponse"
+        },
+        "tool_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/OutputMcpServerToolResponse"
+          },
+          "type": "array"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "provider",
+        "url",
+        "description",
+        "builtin",
+        "requires_key",
+        "auth_type",
+        "security",
+        "limits",
+        "health_check_enabled",
+        "health",
+        "tool_count",
+        "tools"
+      ],
+      "type": "object"
+    },
+    "OutputMcpServerResponse": {
+      "description": "`GET /admin/mcp-servers` 与创建/更新响应。",
+      "properties": {
+        "auth_type": {
+          "$ref": "#/definitions/OutputAuthTypeResponse"
+        },
+        "builtin": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "health": {
+          "$ref": "#/definitions/OutputMcpHealthResponse"
+        },
+        "health_check_enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/definitions/OutputMcpLimitsResponse"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "requires_key": {
+          "type": "boolean"
+        },
+        "security": {
+          "$ref": "#/definitions/OutputMcpSecurityResponse"
+        },
+        "tool_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "provider",
+        "url",
+        "description",
+        "builtin",
+        "requires_key",
+        "auth_type",
+        "security",
+        "limits",
+        "health_check_enabled",
+        "health",
+        "tool_count"
+      ],
+      "type": "object"
+    },
+    "OutputMcpServerToolResponse": {
+      "description": "详情里的工具行。`input_schema` 保持任意 JSON。",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "description_override": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_schema": true,
+        "upstream_name": {
+          "type": "string"
+        },
+        "wire_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "description_override",
+        "wire_name",
+        "upstream_name",
+        "input_schema"
+      ],
+      "type": "object"
+    },
+    "OutputProxyKeyAuthModeResponse": {
+      "description": "列表中的认证形态。不是明文，也不是摘要。",
+      "enum": [
+        "token",
+        "legacy"
+      ],
+      "type": "string"
+    },
+    "OutputProxyKeyResponse": {
+      "description": "`GET /admin/proxy-keys` 的一行。只给认证形态与过期时间，不给明文或摘要。",
+      "properties": {
+        "allowed_servers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowed_tool_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "auth_mode": {
+          "$ref": "#/definitions/OutputProxyKeyAuthModeResponse"
+        },
+        "default_tool_page_size": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "denied_tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OutputKeyLimits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage": {
+          "$ref": "#/definitions/OutputKeyUsage"
+        }
+      },
+      "required": [
+        "id",
+        "display_name",
+        "auth_mode",
+        "expires_at",
+        "usage",
+        "allowed_tools",
+        "denied_tools",
+        "allowed_servers",
+        "allowed_tool_names",
+        "limits",
+        "default_tool_page_size"
+      ],
+      "type": "object"
+    },
+    "OutputRequestEventResponse": {
+      "description": "`GET /admin/events` 的一行。负载字段保持截断后的字符串，不解析成固定对象。",
+      "properties": {
+        "latency_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proxy_key_id": {
+          "type": "string"
+        },
+        "queued_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rate_limited": {
+          "type": "boolean"
+        },
+        "request_args": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "request_units": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resource_id": {
+          "type": "string"
+        },
+        "response_preview": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry_count": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/OutputRequestStatus"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "upstream_key_ref": {
+          "type": "string"
+        },
+        "upstream_latency_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "timestamp",
+        "request_id",
+        "proxy_key_id",
+        "resource_id",
+        "tool_name",
+        "upstream_key_ref",
+        "status",
+        "latency_ms",
+        "request_units",
+        "retry_count",
+        "rate_limited",
+        "queued_ms",
+        "request_args",
+        "response_preview",
+        "upstream_latency_ms"
+      ],
+      "type": "object"
+    },
+    "OutputRequestStatus": {
+      "description": "上游请求的最终状态。\n\n`UpstreamError(0)` 与 `ConnectionFailed` 均表示传输层失败（未拿到有效响应），\n对应指标中的 `status=0` 哨兵（见 observability.md）。",
+      "oneOf": [
+        {
+          "description": "上游返回成功响应（2xx）。",
+          "properties": {
+            "kind": {
+              "const": "Success",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "上游返回错误状态码；`0` 表示传输层失败未拿到响应。",
+          "properties": {
+            "code": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "UpstreamError",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "上游超时。",
+          "properties": {
+            "kind": {
+              "const": "Timeout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "连接失败（DNS/TCP/TLS 层）。",
+          "properties": {
+            "kind": {
+              "const": "ConnectionFailed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "被网关限流拦截。",
+          "properties": {
+            "kind": {
+              "const": "Limited",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OutputResourceSummaryResponse": {
+      "description": "`GET /admin/resources` 的一行。只暴露凭据形态和池大小。",
+      "properties": {
+        "auth_type": {
+          "$ref": "#/definitions/OutputAuthTypeResponse"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "endpoint_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key_pool_size": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "provider",
+        "base_url",
+        "endpoint_count",
+        "auth_type",
+        "key_pool_size"
+      ],
+      "type": "object"
+    },
+    "OutputSecurityEventKind": {
+      "description": "安全事件分类。",
+      "oneOf": [
+        {
+          "const": "integrity_tool_changed",
+          "description": "工具定义变更（fingerprint 不同）。",
+          "type": "string"
+        },
+        {
+          "const": "integrity_tool_added",
+          "description": "基线外新增工具。",
+          "type": "string"
+        },
+        {
+          "const": "integrity_tool_removed",
+          "description": "基线中工具消失。",
+          "type": "string"
+        },
+        {
+          "const": "integrity_hint_flipped",
+          "description": "安全标注翻转（readOnlyHint / destructiveHint）。",
+          "type": "string"
+        },
+        {
+          "const": "content_defense_flag",
+          "description": "content defense 检测到可疑注入内容。",
+          "type": "string"
+        },
+        {
+          "const": "admin_audit",
+          "description": "admin 配置写操作审计事件。",
+          "type": "string"
+        }
+      ]
+    },
+    "OutputSecurityEventResponse": {
+      "description": "`GET /admin/security-events` 的一行。`details` 保持任意 JSON。",
+      "properties": {
+        "details": true,
+        "kind": {
+          "$ref": "#/definitions/OutputSecurityEventKind"
+        },
+        "resource_id": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/definitions/OutputSeverity"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "tool_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "timestamp",
+        "resource_id",
+        "tool_name",
+        "kind",
+        "severity",
+        "details"
+      ],
+      "type": "object"
+    },
+    "OutputSeverity": {
+      "description": "安全事件严重级别。",
+      "enum": [
+        "info",
+        "warn",
+        "error"
+      ],
+      "type": "string"
+    },
+    "OutputStatsResponse": {
+      "description": "`GET /admin/stats`。",
+      "properties": {
+        "avg_latency_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "total_errors": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "total_rate_limit_hits": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "total_requests": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "unique_proxy_keys": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "unique_resources": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "unique_tools": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_requests",
+        "total_errors",
+        "unique_tools",
+        "unique_proxy_keys",
+        "unique_resources",
+        "avg_latency_ms",
+        "total_rate_limit_hits"
+      ],
+      "type": "object"
+    },
+    "OutputTokenIssueResponse": {
+      "description": "签发响应。明文 token 只允许出现在这个 DTO。",
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "OutputToolCatalogResponse": {
+      "description": "`GET /admin/tools`。",
+      "properties": {
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/OutputToolSummaryResponse"
+          },
+          "type": "array"
+        },
+        "total_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_count",
+        "tools"
+      ],
+      "type": "object"
+    },
+    "OutputToolDefaultResponse": {
+      "description": "工具默认参数响应。`args` 不声明固定字段。",
+      "properties": {
+        "args": true,
+        "source": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "updated_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "tool_name",
+        "args",
+        "source",
+        "updated_by",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "OutputToolInvokeResponse": {
+      "description": "调试调用响应。`result` 是执行管线返回的 JSON 值，不虚构字段。",
+      "properties": {
+        "latency_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "result": true,
+        "status": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "request_id",
+        "status",
+        "latency_ms",
+        "result"
+      ],
+      "type": "object"
+    },
+    "OutputToolMetadataResponse": {
+      "description": "工具介绍 override 响应。从 store 记录映射，不直接序列化数据库行。",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "updated_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "tool_name",
+        "description",
+        "updated_by",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "OutputToolSummaryResponse": {
+      "description": "`GET /admin/tools` 的一行。",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "description_override": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "resource_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource_id",
+        "description",
+        "description_override",
+        "name"
+      ],
+      "type": "object"
+    },
+    "OutputUpdatedResponse": {
+      "description": "`PUT` 更新成功。字段名保持 `updated`。",
+      "properties": {
+        "updated": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "updated"
+      ],
+      "type": "object"
+    },
+    "OutputUsageResponse": {
+      "description": "`GET /admin/usage`。",
+      "properties": {
+        "group_by": {
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/definitions/OutputUsageSummaryResponse"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "group_by",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "OutputUsageSummaryResponse": {
+      "description": "用量聚合的一行。从查询投影映射，不是数据库行。",
+      "properties": {
+        "avg_latency_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dimension_value": {
+          "type": "string"
+        },
+        "error_count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "rate_limit_hits": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "request_count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "total_units": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dimension_value",
+        "request_count",
+        "error_count",
+        "total_units",
+        "avg_latency_ms",
+        "rate_limit_hits"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "管理 HTTP 契约。动态工具参数、调用结果、事件 details 与 input_schema 保持 JSON 值，不声明固定业务字段。",
+  "properties": {
+    "inputs": {
+      "description": "反序列化输入。字段不是一次请求，而是各端点的请求或查询类型。",
+      "properties": {
+        "events_list_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputEventsListParams"
+            }
+          ],
+          "description": "`GET /admin/events`"
+        },
+        "mcp_server_write_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputMcpServerWriteParams"
+            }
+          ],
+          "description": "`POST/PUT /admin/mcp-servers`。security 为嵌套 `defense.enabled`。"
+        },
+        "proxy_key_write_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputProxyKeyWriteParams"
+            }
+          ],
+          "description": "`POST/PUT /admin/proxy-keys`"
+        },
+        "resource_write_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputResourceWriteParams"
+            }
+          ],
+          "description": "`POST/PUT /admin/resources`"
+        },
+        "security_events_list_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputSecurityEventsListParams"
+            }
+          ],
+          "description": "`GET /admin/security-events`"
+        },
+        "token_issue_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputTokenIssueParams"
+            }
+          ],
+          "description": "`POST /admin/proxy-keys/{id}/token` 的对象 body。空 body 与省略 expires_at 等价。"
+        },
+        "tool_default_body": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputJsonObject"
+            }
+          ],
+          "description": "`PUT /admin/tools/{name}/defaults` 的裸 JSON object。"
+        },
+        "tool_invoke_body": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputJsonObject"
+            }
+          ],
+          "description": "`POST /admin/tools/{name}/invoke` 的裸 JSON object。"
+        },
+        "tool_invoke_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputToolInvokeParams"
+            }
+          ],
+          "description": "`POST /admin/tools/{name}/invoke`"
+        },
+        "tool_metadata_write_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputToolMetadataWriteParams"
+            }
+          ],
+          "description": "`PUT /admin/tools/{name}/metadata`"
+        },
+        "usage_list_params": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/InputUsageListParams"
+            }
+          ],
+          "description": "`GET /admin/usage`"
+        }
+      },
+      "required": [
+        "resource_write_params",
+        "proxy_key_write_params",
+        "mcp_server_write_params",
+        "token_issue_params",
+        "tool_metadata_write_params",
+        "tool_default_body",
+        "tool_invoke_body",
+        "events_list_params",
+        "security_events_list_params",
+        "usage_list_params",
+        "tool_invoke_params"
+      ],
+      "title": "AdminInputs",
+      "type": "object"
+    },
+    "outputs": {
+      "description": "序列化输出。数组端点的类型本身就是数组，不另包一层。",
+      "properties": {
+        "config_validate": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputConfigValidateResponse"
+            }
+          ],
+          "description": "`GET /admin/config/validate`。`GET /admin/config/export` 是 text/yaml，不是此对象。"
+        },
+        "created": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputCreatedResponse"
+            }
+          ],
+          "description": "创建成功的 JSON body。"
+        },
+        "deleted": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputDeletedResponse"
+            }
+          ],
+          "description": "删除成功且返回 JSON 时的 body。MCP server 与 token 吊销是 204，无 body。"
+        },
+        "events": {
+          "description": "`GET /admin/events`",
+          "items": {
+            "$ref": "#/definitions/OutputRequestEventResponse"
+          },
+          "type": "array"
+        },
+        "health": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputHealthResponse"
+            }
+          ],
+          "description": "`GET /admin/health`"
+        },
+        "http_error": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputHttpErrorEnvelope"
+            }
+          ],
+          "description": "失败响应 `{error:{code,message,request_id}}`。"
+        },
+        "key_pools": {
+          "description": "`GET /admin/key-pools`",
+          "items": {
+            "$ref": "#/definitions/OutputKeyPoolResponse"
+          },
+          "type": "array"
+        },
+        "mcp_health": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputMcpHealthResponse"
+            }
+          ],
+          "description": "`POST /admin/mcp-servers/{id}/probe`"
+        },
+        "mcp_presets": {
+          "description": "`GET /admin/mcp-presets`",
+          "items": {
+            "$ref": "#/definitions/OutputMcpPresetResponse"
+          },
+          "type": "array"
+        },
+        "mcp_server": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputMcpServerDetailResponse"
+            }
+          ],
+          "description": "`GET /admin/mcp-servers/{id}`"
+        },
+        "mcp_servers": {
+          "description": "`GET/POST/PUT /admin/mcp-servers`。security 为扁平 `defense_enabled`。",
+          "items": {
+            "$ref": "#/definitions/OutputMcpServerResponse"
+          },
+          "type": "array"
+        },
+        "proxy_keys": {
+          "description": "`GET /admin/proxy-keys`",
+          "items": {
+            "$ref": "#/definitions/OutputProxyKeyResponse"
+          },
+          "type": "array"
+        },
+        "resources": {
+          "description": "`GET /admin/resources`",
+          "items": {
+            "$ref": "#/definitions/OutputResourceSummaryResponse"
+          },
+          "type": "array"
+        },
+        "security_events": {
+          "description": "`GET /admin/security-events`，审计页使用 `kind=admin_audit`。",
+          "items": {
+            "$ref": "#/definitions/OutputSecurityEventResponse"
+          },
+          "type": "array"
+        },
+        "stats": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputStatsResponse"
+            }
+          ],
+          "description": "`GET /admin/stats`"
+        },
+        "token_issue": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputTokenIssueResponse"
+            }
+          ],
+          "description": "`POST /admin/proxy-keys/{id}/token`。明文只出现在这个响应。"
+        },
+        "tool_default": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputToolDefaultResponse"
+            }
+          ],
+          "description": "`GET /admin/tools/{name}/defaults`"
+        },
+        "tool_defaults": {
+          "description": "`GET /admin/tool-defaults`",
+          "items": {
+            "$ref": "#/definitions/OutputToolDefaultResponse"
+          },
+          "type": "array"
+        },
+        "tool_invoke": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputToolInvokeResponse"
+            }
+          ],
+          "description": "`POST /admin/tools/{name}/invoke`"
+        },
+        "tool_metadata": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputToolMetadataResponse"
+            }
+          ],
+          "description": "`GET /admin/tools/{name}/metadata`"
+        },
+        "tool_metadata_list": {
+          "description": "`GET /admin/tool-metadata`",
+          "items": {
+            "$ref": "#/definitions/OutputToolMetadataResponse"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputToolCatalogResponse"
+            }
+          ],
+          "description": "`GET /admin/tools`"
+        },
+        "updated": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputUpdatedResponse"
+            }
+          ],
+          "description": "更新成功的 JSON body。"
+        },
+        "usage": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputUsageResponse"
+            }
+          ],
+          "description": "`GET /admin/usage`"
+        }
+      },
+      "required": [
+        "health",
+        "stats",
+        "usage",
+        "resources",
+        "created",
+        "updated",
+        "deleted",
+        "proxy_keys",
+        "token_issue",
+        "key_pools",
+        "events",
+        "security_events",
+        "tools",
+        "tool_defaults",
+        "tool_default",
+        "tool_metadata_list",
+        "tool_metadata",
+        "tool_invoke",
+        "mcp_servers",
+        "mcp_server",
+        "mcp_health",
+        "mcp_presets",
+        "config_validate",
+        "http_error"
+      ],
+      "title": "AdminOutputs",
+      "type": "object"
+    }
+  },
+  "title": "AsterlaneAdminApi",
+  "type": "object"
+}

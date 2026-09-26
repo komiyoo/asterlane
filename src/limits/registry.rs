@@ -118,7 +118,7 @@ impl Drop for CallQuotaGuard {
 }
 
 /// 单 key 用量快照（admin 面板直接序列化输出，见契约 §K3）。
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
 pub struct KeyUsage {
     /// 累计调用总数。
     pub calls_total: u64,

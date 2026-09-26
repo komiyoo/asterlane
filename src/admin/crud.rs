@@ -10,14 +10,11 @@ use axum::Extension;
 use axum::Json;
 use axum::extract::{Path, State};
 use chrono::Utc;
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use tracing::warn;
 
 use crate::catalog::ToolCatalog;
-use crate::config::{
-    ApiResource, GatewayConfig, KeyLimits, KeyPoolConfig, ProxyKey, UpstreamAuth, UpstreamLimits,
-};
+use crate::config::{ApiResource, GatewayConfig, ProxyKey};
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::gateway_auth::GatewayAuth;
 use crate::http::AppState;
@@ -29,65 +26,18 @@ use crate::store::repository::{
 
 use super::auth::AdminKeyId;
 use super::resource_keys;
-
-// ── request DTOs ──
-
-#[derive(Deserialize)]
-pub(super) struct ResourceInput {
-    pub id: String,
-    pub domain: String,
-    #[serde(default)]
-    pub provider: String,
-    pub base_url: String,
-    #[serde(default)]
-    pub description: String,
-    /// 上游限额（0 值非法，swap 前经 `LimitRegistry::from_config` 校验 fail fast）。
-    #[serde(default)]
-    pub limits: Option<UpstreamLimits>,
-    /// 创建缺省 `None`；更新时省略则保留已有值。
-    #[serde(default)]
-    pub auth: Option<UpstreamAuth>,
-    /// 创建原样写入；更新时省略则保留已有值。
-    #[serde(default)]
-    pub key_pool: Option<KeyPoolConfig>,
-}
-
-/// proxy key 创建/更新输入。**不接受凭据字段**（token_ref/token_digest/
-/// expires_at 等未知字段被 serde 忽略）：token 签发只走
-/// `POST /admin/proxy-keys/{id}/token`（`super::tokens`），更新不触碰已签发凭据。
-#[derive(Deserialize)]
-pub(super) struct ProxyKeyInput {
-    pub id: String,
-    #[serde(default)]
-    pub display_name: String,
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
-    #[serde(default)]
-    pub denied_tools: Vec<String>,
-    /// 结构化范围：resource/mcp server id 白名单（见 §2）。
-    #[serde(default)]
-    pub allowed_servers: Vec<String>,
-    /// 结构化范围：精确 wire name 白名单。
-    #[serde(default)]
-    pub allowed_tool_names: Vec<String>,
-    /// Per-key 限额（rps/rpm/max_calls；0 值非法）。
-    #[serde(default)]
-    pub limits: Option<KeyLimits>,
-    #[serde(default = "default_page_size")]
-    pub default_tool_page_size: usize,
-}
-
-fn default_page_size() -> usize {
-    20
-}
+use super::types::{
+    ConfigIssueLevel, ConfigIssueResponse, ConfigValidateResponse, CreatedResponse,
+    DeletedResponse, ProxyKeyWriteParams, ResourceWriteParams, UpdatedResponse,
+};
 
 // ── resource CRUD ──
 
 pub(super) async fn create_resource(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
-    Json(input): Json<ResourceInput>,
-) -> Result<Json<Value>, AsterlaneError> {
+    Json(input): Json<ResourceWriteParams>,
+) -> Result<Json<CreatedResponse>, AsterlaneError> {
     let config = state.config_snapshot().await;
     if config.api_resources.iter().any(|r| r.id == input.id) {
         return Err(AsterlaneError::internal(
@@ -106,15 +56,15 @@ pub(super) async fn create_resource(
     resource_keys::persist_upstream_keys(&state, &resource).await;
 
     record_audit(&state, &admin.0, "create", "resource", &input.id).await;
-    Ok(Json(json!({"created": input.id})))
+    Ok(Json(CreatedResponse { created: input.id }))
 }
 
 pub(super) async fn update_resource(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
-    Json(input): Json<ResourceInput>,
-) -> Result<Json<Value>, AsterlaneError> {
+    Json(input): Json<ResourceWriteParams>,
+) -> Result<Json<UpdatedResponse>, AsterlaneError> {
     let config = state.config_snapshot().await;
     if !config.api_resources.iter().any(|r| r.id == id) {
         return Err(AsterlaneError::internal(
@@ -136,14 +86,14 @@ pub(super) async fn update_resource(
     }
 
     record_audit(&state, &admin.0, "update", "resource", &id).await;
-    Ok(Json(json!({"updated": id})))
+    Ok(Json(UpdatedResponse { updated: id }))
 }
 
 pub(super) async fn delete_resource(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<DeletedResponse>, AsterlaneError> {
     let config = state.config_snapshot().await;
     if !config.api_resources.iter().any(|r| r.id == id) {
         return Err(AsterlaneError::internal(
@@ -164,7 +114,7 @@ pub(super) async fn delete_resource(
     swap_config_and_catalog(&state, new_config).await?;
 
     record_audit(&state, &admin.0, "delete", "resource", &id).await;
-    Ok(Json(json!({"deleted": id})))
+    Ok(Json(DeletedResponse { deleted: id }))
 }
 
 // ── proxy key CRUD ──
@@ -172,8 +122,8 @@ pub(super) async fn delete_resource(
 pub(super) async fn create_proxy_key(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
-    Json(input): Json<ProxyKeyInput>,
-) -> Result<Json<Value>, AsterlaneError> {
+    Json(input): Json<ProxyKeyWriteParams>,
+) -> Result<Json<CreatedResponse>, AsterlaneError> {
     let config = state.config_snapshot().await;
     if config.proxy_keys.iter().any(|k| k.id == input.id) {
         return Err(AsterlaneError::internal(
@@ -191,15 +141,15 @@ pub(super) async fn create_proxy_key(
     persist_proxy_key(&state, &key).await;
 
     record_audit(&state, &admin.0, "create", "proxy_key", &input.id).await;
-    Ok(Json(json!({"created": input.id})))
+    Ok(Json(CreatedResponse { created: input.id }))
 }
 
 pub(super) async fn update_proxy_key(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
-    Json(input): Json<ProxyKeyInput>,
-) -> Result<Json<Value>, AsterlaneError> {
+    Json(input): Json<ProxyKeyWriteParams>,
+) -> Result<Json<UpdatedResponse>, AsterlaneError> {
     let config = state.config_snapshot().await;
     if !config.proxy_keys.iter().any(|k| k.id == id) {
         return Err(AsterlaneError::internal(
@@ -228,14 +178,14 @@ pub(super) async fn update_proxy_key(
     }
 
     record_audit(&state, &admin.0, "update", "proxy_key", &id).await;
-    Ok(Json(json!({"updated": id})))
+    Ok(Json(UpdatedResponse { updated: id }))
 }
 
 pub(super) async fn delete_proxy_key(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<DeletedResponse>, AsterlaneError> {
     let config = state.config_snapshot().await;
     if !config.proxy_keys.iter().any(|k| k.id == id) {
         return Err(AsterlaneError::internal(
@@ -255,71 +205,84 @@ pub(super) async fn delete_proxy_key(
     swap_config_and_catalog(&state, new_config).await?;
 
     record_audit(&state, &admin.0, "delete", "proxy_key", &id).await;
-    Ok(Json(json!({"deleted": id})))
+    Ok(Json(DeletedResponse { deleted: id }))
 }
 
 // ── config validation ──
 
-pub(super) async fn validate_config(State(state): State<AppState>) -> Json<Value> {
+pub(super) async fn validate_config(State(state): State<AppState>) -> Json<ConfigValidateResponse> {
     let config = state.config_snapshot().await;
-    let mut issues: Vec<Value> = Vec::new();
+    let mut issues = Vec::new();
 
-    // 重复 resource ID
     let mut seen_ids = HashSet::new();
-    for r in &config.api_resources {
-        if !seen_ids.insert(&r.id) {
-            issues.push(json!({"level": "error", "target": format!("resource:{}", r.id), "message": "duplicate resource id"}));
+    for resource in &config.api_resources {
+        if !seen_ids.insert(&resource.id) {
+            issues.push(ConfigIssueResponse {
+                level: ConfigIssueLevel::Error,
+                target: format!("resource:{}", resource.id),
+                message: "duplicate resource id".to_string(),
+            });
         }
     }
 
-    // 重复 proxy key ID
     seen_ids.clear();
-    for k in &config.proxy_keys {
-        if !seen_ids.insert(&k.id) {
-            issues.push(json!({"level": "error", "target": format!("proxy_key:{}", k.id), "message": "duplicate proxy key id"}));
+    for key in &config.proxy_keys {
+        if !seen_ids.insert(&key.id) {
+            issues.push(ConfigIssueResponse {
+                level: ConfigIssueLevel::Error,
+                target: format!("proxy_key:{}", key.id),
+                message: "duplicate proxy key id".to_string(),
+            });
         }
     }
 
-    // proxy key scope 正则校验
-    for k in &config.proxy_keys {
-        for pattern in k.allowed_tools.iter().chain(k.denied_tools.iter()) {
-            if let Err(e) = regex::Regex::new(pattern) {
-                issues.push(json!({
-                    "level": "warn",
-                    "target": format!("proxy_key:{}", k.id),
-                    "message": format!("invalid regex in scope: {e}")
-                }));
+    for key in &config.proxy_keys {
+        for pattern in key.allowed_tools.iter().chain(key.denied_tools.iter()) {
+            if let Err(err) = regex::Regex::new(pattern) {
+                issues.push(ConfigIssueResponse {
+                    level: ConfigIssueLevel::Warn,
+                    target: format!("proxy_key:{}", key.id),
+                    message: format!("invalid regex in scope: {err}"),
+                });
             }
         }
     }
 
-    // resource base_url 为空
-    for r in &config.api_resources {
-        if r.base_url.is_empty() {
-            issues.push(json!({"level": "warn", "target": format!("resource:{}", r.id), "message": "empty base_url"}));
+    for resource in &config.api_resources {
+        if resource.base_url.is_empty() {
+            issues.push(ConfigIssueResponse {
+                level: ConfigIssueLevel::Warn,
+                target: format!("resource:{}", resource.id),
+                message: "empty base_url".to_string(),
+            });
         }
     }
 
-    // mcp_server 无 url
-    for s in &config.mcp_servers {
-        if s.url.is_empty() {
-            issues.push(json!({"level": "warn", "target": format!("mcp_server:{}", s.id), "message": "empty url"}));
+    for server in &config.mcp_servers {
+        if server.url.is_empty() {
+            issues.push(ConfigIssueResponse {
+                level: ConfigIssueLevel::Warn,
+                target: format!("mcp_server:{}", server.id),
+                message: "empty url".to_string(),
+            });
         }
     }
 
-    let valid = !issues.iter().any(|i| i["level"] == "error");
-    Json(json!({
-        "valid": valid,
-        "resource_count": config.api_resources.len(),
-        "proxy_key_count": config.proxy_keys.len(),
-        "mcp_server_count": config.mcp_servers.len(),
-        "issues": issues
-    }))
+    let valid = !issues
+        .iter()
+        .any(|issue| issue.level == ConfigIssueLevel::Error);
+    Json(ConfigValidateResponse {
+        valid,
+        resource_count: config.api_resources.len(),
+        proxy_key_count: config.proxy_keys.len(),
+        mcp_server_count: config.mcp_servers.len(),
+        issues,
+    })
 }
 
 // ── helpers ──
 
-fn api_resource_from_input(input: &ResourceInput) -> ApiResource {
+fn api_resource_from_input(input: &ResourceWriteParams) -> ApiResource {
     let (auth, key_pool) = resource_keys::apply_create(input);
     ApiResource {
         id: input.id.clone(),
@@ -336,7 +299,7 @@ fn api_resource_from_input(input: &ResourceInput) -> ApiResource {
     }
 }
 
-fn proxy_key_from_input(input: &ProxyKeyInput) -> ProxyKey {
+fn proxy_key_from_input(input: &ProxyKeyWriteParams) -> ProxyKey {
     ProxyKey {
         id: input.id.clone(),
         display_name: input.display_name.clone(),

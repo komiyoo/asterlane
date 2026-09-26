@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// `UpstreamError(0)` 与 `ConnectionFailed` 均表示传输层失败（未拿到有效响应），
 /// 对应指标中的 `status=0` 哨兵（见 observability.md）。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", content = "code")]
 pub enum RequestStatus {
     /// 上游返回成功响应（2xx）。

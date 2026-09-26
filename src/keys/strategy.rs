@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 /// （`KeyPool`）持有并传入，用于 `RoundRobin` 的游标推进。
 ///
 /// serde 形态为 snake_case 字符串（配置 `key_pool.strategy` 直接反序列化）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum LoadBalanceStrategy {
     /// 轮询：按 cursor 顺序循环选取。

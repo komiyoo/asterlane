@@ -44,7 +44,7 @@ sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "macros", "migr
 governor = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 rmcp = { version = "3.1", default-features = false, features = ["client", "server", "macros", "transport-streamable-http-client-reqwest", "transport-streamable-http-server"] }
-schemars = "1.2"
+schemars = { version = "1.2", features = ["chrono04"] }
 tokio-util = "0.7"
 backon = "1.6"
 openapiv3 = "2.2"

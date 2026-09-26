@@ -13,7 +13,6 @@ use axum::Extension;
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::config::ProxyKey;
@@ -24,6 +23,9 @@ use crate::store::{SqliteRequestEventRepository, ToolDefaultRecord, ToolDefaults
 
 use super::auth::AdminKeyId;
 use super::crud::record_audit;
+use super::types::{
+    DeletedResponse, ToolDefaultResponse, ToolInvokeParams, ToolInvokeResponse, UpdatedResponse,
+};
 
 // ── helpers ──
 
@@ -65,14 +67,8 @@ pub(super) fn parse_object_body(
     }
 }
 
-fn record_to_json(rec: &ToolDefaultRecord) -> Value {
-    json!({
-        "tool_name": rec.tool_name,
-        "args": serde_json::from_str::<Value>(&rec.args_json).unwrap_or_else(|_| json!({})),
-        "source": rec.source,
-        "updated_by": rec.updated_by,
-        "updated_at": rec.updated_at,
-    })
+fn record_to_json(record: &ToolDefaultRecord) -> ToolDefaultResponse {
+    ToolDefaultResponse::from_record(record)
 }
 
 async fn save_default(
@@ -98,26 +94,24 @@ async fn save_default(
 /// `GET /admin/tool-defaults` — 全量列表。
 pub(super) async fn list_defaults(
     State(state): State<AppState>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<Vec<ToolDefaultResponse>>, AsterlaneError> {
     let Some(repo) = &state.event_repo else {
-        return Ok(Json(json!([])));
+        return Ok(Json(Vec::new()));
     };
     let rows = repo.list_tool_defaults().await?;
-    Ok(Json(Value::Array(
-        rows.iter().map(record_to_json).collect(),
-    )))
+    Ok(Json(rows.iter().map(record_to_json).collect()))
 }
 
 /// `GET /admin/tools/{name}/defaults` — 单条；不存在 404 `admin.not_found`。
 pub(super) async fn get_default(
     State(state): State<AppState>,
     Path(name): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<ToolDefaultResponse>, AsterlaneError> {
     let rec = match &state.event_repo {
         Some(repo) => repo.get_tool_default(&name).await?,
         None => None,
     };
-    rec.map(|r| Json(record_to_json(&r)))
+    rec.map(|record| Json(record_to_json(&record)))
         .ok_or_else(|| not_found(&name))
 }
 
@@ -127,12 +121,12 @@ pub(super) async fn put_default(
     Extension(admin): Extension<AdminKeyId>,
     Path(name): Path<String>,
     body: Bytes,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<UpdatedResponse>, AsterlaneError> {
     let args = parse_object_body(&body)?.ok_or_else(invalid_body)?;
     let repo = require_store(&state)?;
     save_default(repo, &name, &Value::Object(args), "manual", &admin.0).await?;
     record_audit(&state, &admin.0, "set", "tool_default", &name).await;
-    Ok(Json(json!({"updated": name})))
+    Ok(Json(UpdatedResponse { updated: name }))
 }
 
 /// `DELETE /admin/tools/{name}/defaults` — 不存在 404 `admin.not_found`。
@@ -140,24 +134,16 @@ pub(super) async fn delete_default(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(name): Path<String>,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<DeletedResponse>, AsterlaneError> {
     let repo = require_store(&state)?;
     if !repo.delete_tool_default(&name).await? {
         return Err(not_found(&name));
     }
     record_audit(&state, &admin.0, "delete", "tool_default", &name).await;
-    Ok(Json(json!({"deleted": name})))
+    Ok(Json(DeletedResponse { deleted: name }))
 }
 
 // ── debug invoke ──
-
-#[derive(Deserialize)]
-pub(super) struct InvokeQuery {
-    /// body 为空时是否合并存储默认参数。
-    use_defaults: Option<bool>,
-    /// 调用成功时把实际使用的 args 存为该工具默认（`source=captured`）。
-    save: Option<bool>,
-}
 
 /// `POST /admin/tools/{name}/invoke?use_defaults=&save=` — 调试调用。
 ///
@@ -168,9 +154,9 @@ pub(super) async fn invoke_tool_debug(
     State(state): State<AppState>,
     Extension(admin): Extension<AdminKeyId>,
     Path(name): Path<String>,
-    Query(q): Query<InvokeQuery>,
+    Query(q): Query<ToolInvokeParams>,
     body: Bytes,
-) -> Result<Json<Value>, AsterlaneError> {
+) -> Result<Json<ToolInvokeResponse>, AsterlaneError> {
     let body_args = parse_object_body(&body)?.filter(|m| !m.is_empty());
     let args = match body_args {
         Some(map) => Value::Object(map),
@@ -219,12 +205,12 @@ pub(super) async fn invoke_tool_debug(
     let result_value = serde_json::from_slice::<Value>(&result.body)
         .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&result.body).into_owned()));
 
-    Ok(Json(json!({
-        "request_id": result.request_id,
-        "status": result.status,
-        "latency_ms": latency_ms,
-        "result": result_value,
-    })))
+    Ok(Json(ToolInvokeResponse {
+        request_id: result.request_id,
+        status: result.status,
+        latency_ms,
+        result: result_value,
+    }))
 }
 
 #[cfg(test)]

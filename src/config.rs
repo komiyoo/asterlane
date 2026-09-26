@@ -456,7 +456,7 @@ pub struct ApiResource {
 }
 
 /// 上游 key 池配置（见 docs/runtime/config-schema.md Key Pool）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct KeyPoolConfig {
     /// LB 策略，缺省 `round_robin`。
     #[serde(default)]
@@ -465,7 +465,7 @@ pub struct KeyPoolConfig {
 }
 
 /// 池内单个 key：secret ref + 权重。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PoolKeyConfig {
     /// secret ref（如 `secret://tavily/key-a`），不存明文。
     #[serde(rename = "ref")]
@@ -520,7 +520,7 @@ impl ApiResource {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UpstreamAuth {
     #[default]
@@ -590,7 +590,7 @@ pub struct McpServerConfig {
 ///
 /// `enabled: false` 时该 server 不参与周期探测（健康状态 `disabled`），
 /// 按需 probe 仍可用；工具快照沿用 stale 缓存。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct HealthCheckConfig {
     #[serde(default = "default_health_check_enabled")]
     pub enabled: bool,
@@ -612,7 +612,7 @@ fn default_health_check_enabled() -> bool {
 ///
 /// 数值必须 > 0，构建限流器时校验（`config.*` 错误 fail fast）；
 /// 语义见 docs/runtime/mcp-governance-and-key-limits.md §3。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct UpstreamLimits {
     /// 每秒请求数（GCRA）。
     #[serde(default)]
@@ -648,7 +648,7 @@ fn default_queue_timeout_secs() -> u64 {
 /// `max_calls` 为累计调用配额：有 store 时从成功次数回填跨重启累计
 /// （`request_count − error_count`），无 store 时仅内存计数
 /// （见 docs/runtime/mcp-governance-and-key-limits.md §3）。
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct KeyLimits {
     /// 每秒请求数。
     #[serde(default)]
@@ -733,7 +733,7 @@ fn default_tool_page_size() -> usize {
 /// Per-resource 安全配置：integrity 策略、content defense、result shaping 预算。
 ///
 /// 统一挂载到 `ApiResource` 与 `McpServerConfig`，后续 subagent 在执行路径接入时读取。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SecurityConfig {
     /// Integrity drift 策略（见 `src/integrity.rs` `IntegrityPolicy`）。
     #[serde(default)]
@@ -759,7 +759,7 @@ impl Default for SecurityConfig {
 /// Content defense 配置。
 ///
 /// 默认 disabled（保守，需显式开启）。
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct DefenseConfig {
     /// 是否启用 content defense 扫描。
     #[serde(default)]
