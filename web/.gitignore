@@ -4,5 +4,6 @@ dist-ssr
 .vite
 *.local
 playwright-report
+src/api/generated/admin.draft.d.ts
 test-results
 blob-report
