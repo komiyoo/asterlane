@@ -37,7 +37,12 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "dev-gateway.test.ts"],
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "dev-gateway.test.ts",
+      "scripts/**/*.test.ts",
+    ],
     exclude: ["e2e/**", "node_modules/**", "dist/**"],
   },
 });
