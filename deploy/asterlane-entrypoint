@@ -1,0 +1,8 @@
+#!/bin/sh
+# 容器以 root 启动，只为把数据卷交给服务用户，随后进程降到 uid 10001。
+set -eu
+
+mkdir -p /data
+chown -R asterlane:asterlane /data
+exec setpriv --reuid=asterlane --regid=asterlane --init-groups --inh-caps=-all \
+  /usr/local/bin/asterlane "$@"

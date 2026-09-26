@@ -1,11 +1,10 @@
 //! Admin API 路由：运维与管理端点（不面向代理）。
 //!
-//! 提供健康检查、资源/key/工具目录概览、事件查询、基础统计与
-//! Web 控制台页面（见 docs/admin/admin-console.md）。
-//! 所有响应脱敏，不暴露密钥或 auth 配置。
+//! 提供健康检查、资源/key/工具目录概览、事件查询与基础统计
+//! （见 docs/admin/admin-console.md）。所有响应脱敏，不暴露密钥或 auth 配置。
 //!
-//! 数据端点全部经 [`auth::require_admin`] Bearer 校验；
-//! `/ui` 外壳与 `/ui/*` 前端静态资源本身无数据，公开返回（登录引导页）。
+//! 数据端点全部经 [`auth::require_admin`] Bearer 校验。
+//! 控制台页面由独立静态站提供，网关不再内嵌 `/admin/ui`。
 
 pub mod auth;
 mod crud;
@@ -21,19 +20,16 @@ pub(crate) mod types;
 pub use auth::{AdminAuth, AdminKeyId};
 
 use axum::Router;
-use axum::extract::Path;
-use axum::http::{StatusCode, header};
-use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post, put};
 
 use crate::http::AppState;
 
-/// 构建 admin 子路由（数据端点 + 控制台页面）。
+/// 构建 admin 子路由。
 ///
 /// 调用方负责在 `state.admin_auth` 存在时 `.nest("/admin", admin::router(&state))`；
 /// 未配置 admin key 时不挂载（见 docs/admin/admin-console.md C0）。
 pub fn router(state: &AppState) -> Router<AppState> {
-    let api = Router::new()
+    Router::new()
         .route("/health", get(read::health))
         .route(
             "/resources",
@@ -93,48 +89,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::require_admin,
-        ));
-    Router::new()
-        .route("/ui", get(console))
-        .route("/ui/{*path}", get(ui_asset))
-        .merge(api)
-}
-
-/// `GET /admin/ui` — 控制台外壳页面（编译期嵌入，公开）。
-async fn console() -> Html<&'static str> {
-    Html(include_str!("ui/console.html"))
-}
-
-/// `GET /admin/ui/{*path}` — 控制台前端静态资源（编译期嵌入，公开）。
-async fn ui_asset(Path(path): Path<String>) -> Response {
-    const JS: &str = "text/javascript; charset=utf-8";
-    const CSS: &str = "text/css; charset=utf-8";
-    const ASSETS: &[(&str, &str, &str)] = &[
-        ("styles.css", CSS, include_str!("ui/styles.css")),
-        ("core.js", JS, include_str!("ui/core.js")),
-        ("app.js", JS, include_str!("ui/app.js")),
-        ("tabs/overview.js", JS, include_str!("ui/tabs/overview.js")),
-        ("tabs/usage.js", JS, include_str!("ui/tabs/usage.js")),
-        (
-            "tabs/resources.js",
-            JS,
-            include_str!("ui/tabs/resources.js"),
-        ),
-        ("tabs/tools.js", JS, include_str!("ui/tabs/tools.js")),
-        ("tabs/mcp.js", JS, include_str!("ui/tabs/mcp.js")),
-        ("tabs/keys.js", JS, include_str!("ui/tabs/keys.js")),
-        ("tabs/keypools.js", JS, include_str!("ui/tabs/keypools.js")),
-        ("tabs/events.js", JS, include_str!("ui/tabs/events.js")),
-        ("tabs/security.js", JS, include_str!("ui/tabs/security.js")),
-        ("tabs/audit.js", JS, include_str!("ui/tabs/audit.js")),
-        ("tabs/config.js", JS, include_str!("ui/tabs/config.js")),
-    ];
-    match ASSETS.iter().find(|(asset_path, _, _)| *asset_path == path) {
-        Some((_, content_type, body)) => {
-            ([(header::CONTENT_TYPE, *content_type)], *body).into_response()
-        }
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
+        ))
 }
 
 #[cfg(test)]

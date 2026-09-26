@@ -48,7 +48,7 @@ admin:
 admin key 用于 `/admin/*` API 与 Web 控制台的 Bearer 认证（见 [Admin Console](../admin/admin-console.md)）：
 
 - `token_ref` 是 secret ref，启动时解析一次并 fail fast；内存只保留 token 摘要，不留明文。
-- `keys` 为空或缺省时，`/admin/*`（含 `/admin/ui`）整体不挂载，探活使用公开 `/healthz`。
+- `keys` 为空或缺省时，`/admin/*` 整体不挂载，探活使用公开 `/healthz`。控制台页面不由网关提供。
 - admin key 与 `proxy_keys` 物理分离：认证失败返回 `admin.unauthorized`（401），与 gateway key 的 `auth.*` 错误码互不混用。
 
 ## Semantic Search

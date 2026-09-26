@@ -1,0 +1,9 @@
+#!/bin/sh
+# 先补上一版 hash 资源，再交给官方 Nginx 入口做模板替换和启动。
+set -eu
+
+if [ -d /previous-dist/assets ]; then
+  /usr/local/bin/retain-hashed-assets /previous-dist /usr/share/nginx/html
+fi
+
+exec /docker-entrypoint.sh "$@"

@@ -74,10 +74,7 @@ pub fn build_app_with_ct(
         .route("/v1/tools", get(routes::list_tools))
         .route("/v1/tools/{name}/invoke", post(routes::invoke_tool));
     if state.admin_auth.is_some() {
-        api = api.nest("/admin", crate::admin::router(&state)).route(
-            "/",
-            get(|| async { axum::response::Redirect::permanent("/admin/ui") }),
-        );
+        api = api.nest("/admin", crate::admin::router(&state));
     }
     api = boundary::with_request_timeout(api, http_cfg.request_timeout_secs);
 
@@ -1357,28 +1354,72 @@ mod tests {
     #[tokio::test]
     async fn admin_ui_page_public_and_html() {
         let app = build_app(admin_state());
-        let response = app
+        for uri in ["/admin/ui", "/admin/ui/", "/admin/ui/core.js", "/"] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+            let location = response.headers().get(axum::http::header::LOCATION);
+            assert!(location.is_none(), "{uri} should not redirect");
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let text = String::from_utf8_lossy(&body);
+            assert!(!text.contains("Asterlane 控制台"), "{uri}");
+            assert!(!text.contains("test-admin-token"), "{uri}");
+        }
+
+        let healthz = app
+            .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/admin/ui")
+                    .uri("/healthz")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_default()
-            .to_string();
-        assert!(content_type.starts_with("text/html"));
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let html = String::from_utf8_lossy(&body);
-        assert!(html.contains("Asterlane 控制台"));
-        // 页面本身不内嵌任何数据或密钥，只有取数脚本
-        assert!(!html.contains("test-admin-token"));
+        assert_eq!(healthz.status(), StatusCode::OK);
+        let healthz_json = body_to_json(healthz.into_body()).await;
+        assert_eq!(healthz_json["status"], "ok");
+
+        let version = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/versionz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(version.status(), StatusCode::OK);
+
+        let tools = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/tools")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_ne!(tools.status(), StatusCode::NOT_FOUND);
+
+        let admin = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin/health")
+                    .header("authorization", "Bearer test-admin-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(admin.status(), StatusCode::OK);
+        let admin_json = body_to_json(admin.into_body()).await;
+        assert_eq!(admin_json["status"], "ok");
     }
 
     // ── admin usage / stats / events（C2，见 docs/admin/admin-console.md）──

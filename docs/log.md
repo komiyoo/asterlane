@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-09-27（控制台独立部署与入口切换）
+
+- **入口**：控制台由 `web/` 的 Nginx 静态镜像提供。`/admin/*` 原样转到内部网关，浏览器不能指定上游。`/admin/ui` 与 `/admin/ui/` 精确回到 `/`。网关不再内嵌页面，也不再把 `/` 转到旧控制台；启动提示改为 Admin API。网关端口上的旧页面返回 404。
+- **发布**：`web/Dockerfile` 固定 Node 22.23.1、Bun 1.4.2、`vp` 1.0.0-rc.0，最终镜像只有静态文件和 Nginx 1.28.1。根 Rust 镜像不读取 `web/`。Compose 增加 `web`，控制台默认 `127.0.0.1:3722`，网关仍是 `127.0.0.1:3721`。上一版带 hash 的资源通过 `/previous-dist` 保留一个发布周期，不用 service worker。
+- **验收**：11 个页面、资源、代理密钥、MCP、工具调试和审计都在 Nginx 入口通过。未登录、无效 token、刷新后退、未知静态资源、API 401/404、网关断连时的 503 JSON、token 清理和浏览器不访问其他源也已覆盖。
+- **文档**：[控制台与网关分离架构](architecture/console-separation.md#生产入口)、[迁移与发布](architecture/console-separation.md#迁移与发布)、[Admin Console](admin/admin-console.md#形态决策)。
+- **验证**：`just check` 通过（库测试 775 项通过；集成测试中 2 项真实上游被忽略；OKF、契约检查、前端 46 项测试和构建通过）。`PLAYWRIGHT_CHANNEL=chrome just web-e2e` 31 项通过。`just web-deploy-smoke` 通过，并分别构建了根 Rust 镜像和 `web` 镜像。
+
 ## 2026-09-27（控制台资源、密钥、MCP 与工具页）
 
 - **资源与代理密钥**：开发入口可以创建和删除资源。认证类型、Header 名、`secret://` 引用和密钥池只提交用户填写的内容。代理密钥可以创建、编辑和删除，保留范围、页大小、限额和用量。签发或轮换得到的明文 gateway token 只留在弹窗里；关闭、退出或离开页面后，DOM 和浏览器存储里都没有这枚 token。

@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+.vite
+playwright-report
+test-results
+blob-report
+e2e
+coverage
+README.md
+**/*.test.ts
+**/*.test.tsx

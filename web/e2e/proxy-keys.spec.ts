@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { DEV_PORT, E2E_ADMIN_TOKEN } from "./fixture.ts";
+import { E2E_ADMIN_TOKEN, PREVIEW_PORT, gatewayPortFile } from "./fixture.ts";
 
 async function login(page: Page, token = E2E_ADMIN_TOKEN) {
   await page.addInitScript(() => {
@@ -35,7 +36,15 @@ async function openProxyKeys(page: Page) {
 }
 
 function gatewayOrigin(): string {
-  const listing = execFileSync("lsof", ["-nP", `-iTCP:${DEV_PORT}`, "-sTCP:LISTEN", "-Fp"], {
+  try {
+    const text = readFileSync(gatewayPortFile(), "utf8").trim();
+    if (/^[1-9]\d{0,4}$/.test(text)) {
+      return `http://127.0.0.1:${text}`;
+    }
+  } catch {
+    // 端口文件还没写好时，继续从监听进程找。
+  }
+  const listing = execFileSync("lsof", ["-nP", `-iTCP:${PREVIEW_PORT}`, "-sTCP:LISTEN", "-Fp"], {
     encoding: "utf8",
   });
   const listeners = [...listing.matchAll(/^p(\d+)$/gm)]

@@ -71,9 +71,13 @@ web-test:
 web-build:
     cd web && vp build
 
-# 浏览器回归。不进 just check。
+# 浏览器回归。不进 just check。入口是 Nginx 静态站，不是 vp dev。
 web-e2e:
     cd web && vp exec playwright test
+
+# 独立 Compose 项目演练静态站启动、升级和回滚。不进 just check。
+web-deploy-smoke:
+    bash scripts/web_deploy_smoke.sh
 
 # 提交前的完整本地验证（Worktree 默认也走这条）。端到端用 just web-e2e。
 check: worktree-doctor fmt-check lint test docs-check api-types-check web-check web-test web-build

@@ -79,8 +79,7 @@ cargo run -- admin stats
 | `/mcp` | MCP Streamable HTTP（`tools/list` / `tools/call`） |
 | `/v1/tools`、`/v1/tools/{name}/invoke` | REST 工具发现与调用 |
 | `/admin/*` | 管理 API（Bearer admin key 认证） |
-| `/admin/ui` | Web 管理控制台 |
-| `/healthz`、`/versionz`、`/metrics`、`/config` | 运维端点 |
+| `/healthz`、`/versionz`、`/metrics`、`/config` | 运维端点，走网关端口 |
 
 ## 构建与测试
 
@@ -99,7 +98,7 @@ python3 scripts/check_okf_docs.py          # 文档校验
 cargo deny check              # 供应链审计
 ```
 
-控制台开发入口在 `web/`。`vp dev` 把 `/admin` 代理到 `127.0.0.1:$ASTERLANE_DEV_GATEWAY_PORT`（默认 3000）。生产构建不写入管理员凭据或任意 API 地址。旧控制台仍由网关的 `/admin/ui` 提供，本阶段不切换生产入口。前端命令见 [web/README.md](web/README.md)。
+控制台在 `web/`，生产入口是独立静态站。`vp dev` 把 `/admin` 代理到 `127.0.0.1:$ASTERLANE_DEV_GATEWAY_PORT`（默认 3000），只用于开发。生产构建不写入管理员凭据或任意 API 地址。浏览器打开 Compose 的 `127.0.0.1:3722`；历史地址 `/admin/ui` 和 `/admin/ui/` 在这个入口上回到 `/`。网关端口 `127.0.0.1:3721` 只提供 API，旧页面返回 404。前端命令见 [web/README.md](web/README.md)。
 
 Git / Cursor Worktree：进入新树后先 `just worktree-init`，在**该目录**本机跑 `just check`。做完合回 `main`，再 `just worktree-prune` 清残留。从 [AGENTS.md](AGENTS.md) 的发现路径进入 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
 
@@ -112,19 +111,32 @@ cargo build --features otlp   # 启用 OTLP 遥测导出
 
 ## Docker
 
-镜像以非 root 用户 `asterlane`（uid 10001）运行，并对 `GET /healthz` 做 `HEALTHCHECK`。配置仍须自行挂载（镜像不打包 `examples/`）。
+网关和静态控制台分成两个镜像。网关镜像不读取 `web/`，进程在启动后降到 `asterlane`（uid 10001），并对 `GET /healthz` 做 `HEALTHCHECK`。数据目录 `/data` 会在启动时交给这个用户。配置仍须自行挂载（镜像不打包 `examples/`）。
+
+控制台镜像只含 Nginx 和静态文件。它把 `/admin/*` 转到 Compose 网络里的 `gateway:3000`，不接收 admin token。页面在 `127.0.0.1:3722`，网关仍在 `127.0.0.1:3721`。端口可以用 `ASTERLANE_WEB_PORT` 和 `ASTERLANE_GATEWAY_PORT` 覆盖。
 
 ```bash
 docker build -t asterlane .
+docker build -f web/Dockerfile -t asterlane-web web
+docker compose up --build
+```
+
+单独运行网关：
+
+```bash
 docker run --rm -p 3000:3000 \
   -e ASTERLANE_CONFIG=/config/gateway.yaml \
   -v "$PWD/examples/gateway.yaml:/config/gateway.yaml:ro" \
   asterlane
 ```
 
+升级控制台时，把上一版镜像的 `/usr/share/nginx/html` 只读挂到新容器的 `/previous-dist`，至少一个发布周期后再去掉。这样旧页面仍能加载上一版带 hash 的脚本和样式。回滚只切回已经验证过的镜像标签，不删除数据库卷。说明写在镜像内的 `/usr/local/share/asterlane-web/retain.md`。
+
+`just web-deploy-smoke` 用独立项目、测试配置和测试卷演练启动、升级、前端回滚和组合回滚，不会使用正在运行的项目或现有数据卷。
+
 ## CI
 
-GitHub Actions 在 push main 和 PR 时运行 `.github/workflows/ci.yml` 与 `.github/workflows/web.yml`。两个工作流都不部署。
+GitHub Actions 在 push main 和 PR 时运行 `.github/workflows/ci.yml`、`.github/workflows/web.yml` 和 `.github/workflows/deploy-smoke.yml`。这些工作流都不部署，也不推镜像。
 
 | Job | 内容 |
 |-----|------|
@@ -133,7 +145,9 @@ GitHub Actions 在 push main 和 PR 时运行 `.github/workflows/ci.yml` 与 `.g
 | `test` | `cargo test`，并比较 `schemas/admin.json` |
 | `docs` | OKF 文档 frontmatter/type 校验 |
 | `deny` | `cargo-deny` 供应链审计 |
-| `web` | 固定 `vp` 1.0.0-rc.0 / Node 22.23.1 / Bun 1.4.2，冻结安装后检查生成类型、`vp check`、`vp test --run`、`vp build`，上传 `web/dist` |
+| `web` | 固定 `vp` 1.0.0-rc.0 / Node 22.23.1 / Bun 1.4.2，冻结安装后检查生成类型、`vp check`、`vp test --run`、`vp build`，上传带提交号的 `web/dist` |
+| `rust-image` / `web-image` | 分别构建网关镜像和静态站镜像，产物写明提交和工具版本 |
+| `smoke` | 加载网关镜像后跑 `just web-deploy-smoke` 里不需要图形界面的部分 |
 
 ## 配置
 
@@ -163,7 +177,7 @@ src/
 ├── error.rs         # 错误码与边界映射
 ├── gateway_auth.rs  # 网关认证
 ├── presets.rs       # 内置 MCP preset
-├── admin/           # 管理 API + Web 控制台
+├── admin/           # 管理 API。页面在 web/
 ├── cli/             # CLI 子命令
 ├── http/            # Axum 路由与中间件
 ├── mcp/             # MCP 协议适配

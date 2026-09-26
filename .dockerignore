@@ -6,11 +6,5 @@ examples/
 scripts/
 *.md
 
-# Frontend outputs stay out of the Rust image context
-web/node_modules
-web/dist
-web/dist-ssr
-web/.vite
-web/playwright-report
-web/test-results
-web/blob-report
+# Rust 镜像不读取前端目录，也不安装 Node / Bun。
+web/

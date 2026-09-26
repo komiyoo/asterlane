@@ -1,3 +1,6 @@
+import path from "node:path";
+import { tmpdir } from "node:os";
+
 export const E2E_ADMIN_TOKEN = "e2e-admin-token";
 
 function port(name: string, fallback: number): number {
@@ -17,3 +20,7 @@ function port(name: string, fallback: number): number {
 
 export const PREVIEW_PORT = port("ASTERLANE_E2E_PREVIEW_PORT", 4173);
 export const DEV_PORT = port("ASTERLANE_E2E_DEV_PORT", 4174);
+
+export function gatewayPortFile(previewPort = PREVIEW_PORT): string {
+  return path.join(tmpdir(), `asterlane-e2e-${previewPort}.port`);
+}

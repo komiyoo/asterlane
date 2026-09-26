@@ -13,7 +13,7 @@ timestamp: 2026-08-19T00:00:00Z
 
 控制台是 admin API 的**纯消费者**：所有数据经 `/admin/*` JSON 端点获取，不开私有数据通道。凡控制台需要而 admin API 没有的数据，先补端点再画页面——API 缺口清单见下文。
 
-2026-09-26 已确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：React + TypeScript + Kumo，Vite+ 工具链与 Bun 包管理，前后端独立构建部署、同源访问。当前代码仍为内嵌 vanilla UI；下文页面能力和 C0–C6 是已交付基线，形态决策表描述新目标，实施进度见 [执行计划](../plans/README.md)。
+2026-09-26 确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：React + TypeScript + Kumo，Vite+ 工具链与 Bun 包管理，前后端独立构建部署、同源访问。2026-09-27 起页面由 `web/` 的静态站提供，网关不再内嵌 `src/admin/ui/`。下文页面能力是已交付行为；C0–C6 记录这些能力第一次落地时的实现。
 
 # 非目标
 
@@ -26,13 +26,13 @@ timestamp: 2026-08-19T00:00:00Z
 
 | 决策 | 结论 | 依据 |
 | --- | --- | --- |
-| 部署形态 | 目标为独立静态站与 Rust 网关，由控制台入口同源代理 `/admin/*` | 独立构建、发布和回滚；迁移前仍由 `GET /admin/ui` 返回旧页面 |
+| 部署形态 | 独立静态站与 Rust 网关，由控制台入口同源代理 `/admin/*` | 网关端口不再提供页面。静态站把 `/admin/ui` 与 `/admin/ui/` 重定向到 `/` |
 | 认证 | 独立 admin key（Bearer），与 proxy key 物理分离 | 架构护栏：admin key 与 proxy key 不得混用（NyaProxy 混用是反模式） |
 | C1 技术栈 | 目标为 `web/` 下 React + TypeScript + Kumo，Vite+ 管研发工具链，Bun 管依赖 | 原免构建决策由 [前端工具链](../architecture/console-separation.md#前端工具链) 替代；Rust 编译不依赖前端 |
 | C3 演进方式 | 按业务模块迁移既有页面；API DTO 生成 schema 与 TS 类型，共用基础组件 | 见 [API 契约与类型](../architecture/console-separation.md#api-契约与类型) 与 [迁移与发布](../architecture/console-separation.md#迁移与发布) |
 | token 传递 | 浏览器端 admin key 手输、存 sessionStorage、随 fetch 走 `Authorization: Bearer` | 不写 cookie，同源 + Bearer 天然免 CSRF |
 
-登录引导页本身不含敏感数据，可公开返回；所有数据请求必须带 admin key。旧 `/admin/ui` 的退役与入口重定向见 [迁移与发布](../architecture/console-separation.md#迁移与发布)。
+登录引导页本身不含敏感数据，可公开返回；所有数据请求必须带 admin key。旧地址怎么回到新入口，见 [迁移与发布](../architecture/console-separation.md#迁移与发布)。
 
 # 前置依赖：admin 认证（C0，已交付 2026-07-05）
 
@@ -79,7 +79,7 @@ admin:
 # 分阶段路线
 
 - **C0 admin 认证（已交付 2026-07-05）**：如上节。无认证不上任何 UI。
-- **C1 只读控制台（已交付 2026-07-05；源码 2026-07-06 拆为 `src/admin/ui/` 免构建 ES module）**：`GET /admin/ui`（`include_str!` 嵌入），页面 = Overview / Resources / Tools / Proxy Keys / Events / Security Events。表格 + 过滤输入框，无图表，零新依赖。Key Pools 页推迟至 C2（见上表）。
+- **C1 只读控制台（已交付 2026-07-05；源码 2026-07-06 曾拆为 `src/admin/ui/` 免构建 ES module，2026-09-27 起由 `web/` 提供）**：页面 = Overview / Resources / Tools / Proxy Keys / Events / Security Events。表格 + 过滤输入框，无图表。Key Pools 页推迟至 C2（见上表）。
 - **C2 用量聚合（已交付 2026-07-05）**：`/admin/usage` 暴露 `store::AggregationRepository::summarize_by`（五个维度）；`/admin/events` 补 `from`/`to` 时间过滤与时间游标分页；`/admin/stats` 升级为 SQL 聚合（`overall_stats`，返回字段扩展为含 `unique_resources`/`avg_latency_ms`/`total_rate_limit_hits`）；控制台新增「用量」页（CSS 条形图 + 表格，错误占比着色）；key pool 接入请求路径后补齐 `/admin/key-pools` 与 Key Pools 页。时间桶趋势随 `usage_buckets` 写入路径接通交付：`group_by=bucket` 返回 hour 粒度升序序列（默认 168 桶/一周，上限 744），用量页「按小时（趋势）」维度渲染。
 - **C3 配置管理（已交付 2026-07-05）**：resources / proxy keys CRUD（`POST/PUT/DELETE`）、`/admin/config/validate` 配置校验报告、热更新（`Arc<RwLock<Arc<GatewayConfig>>>` 原子替换 + catalog 重建）。所有写操作落审计事件（`SecurityEventKind::AdminAudit`）。admin middleware 注入 `AdminKeyId`，audit 记录含 admin_key_id/action/target。控制台「配置管理」页含 Create/Delete + 校验按钮，单文件仍可承受。
 - **C4 调试调用与默认参数（已交付 2026-07-05）**：设计契约见 [Tool Debugging And CLI](tool-debugging-and-cli.md) 第 3 节。五个新端点（`src/admin/defaults.rs`，store 层 `ToolDefaultsRepository` 于 `src/store/tool_defaults.rs`，表 `tool_defaults`）：

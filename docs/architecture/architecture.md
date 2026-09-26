@@ -51,13 +51,13 @@ The original product requirements are preserved in [Product Requirements](../pro
 | `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 3.1 + `2026-07-28` 双栈） |
 | `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 已实现（metrics + store + Prometheus） |
 | `store` | 数据库抽象、迁移、仓库。 | 已实现（SQLite） |
-| `admin` | admin API 与管理 UI。 | 已实现（资源/key/MCP server CRUD + Bearer 认证 + Web 控制台） |
+| `admin` | admin API。页面在 `web/`。 | 已实现（资源/key/MCP server CRUD + Bearer 认证） |
 
 模块编排关系：proxy 执行层编排 keys/limits/routing/transform/secrets，不反向依赖；observability 横切所有层；catalog 是 config→MCP/HTTP 的投影层。借鉴 NyaProxy 的 TrafficManager 三合一（key 池+限流+LB）反模式，Asterlane 保持 keys/limits/routing 边界独立。
 
 # Control Plane
 
-控制台与网关的目标边界、工具链、API 类型生成和部署方式集中在 [控制台与网关分离架构](console-separation.md#系统结构)。管理 HTTP 的 Rust DTO 与 Draft 7 schema 已从 `src/admin/types/` 导出；当前 `admin` 模块仍含旧内嵌页面。迁移完成后由 `web/` 消费 `/admin/*`，Rust 继续拥有校验、审计、持久化和工具执行，agent 数据流保持下节所述边界。
+控制台与网关的边界、工具链、API 类型生成和部署方式集中在 [控制台与网关分离架构](console-separation.md#系统结构)。管理 HTTP 的 Rust DTO 与 Draft 7 schema 从 `src/admin/types/` 导出。`web/` 消费 `/admin/*`，Rust 继续拥有校验、审计、持久化和工具执行，agent 数据流保持下节所述边界。
 
 # Data Flow
 

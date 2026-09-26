@@ -40,7 +40,8 @@ CI 的 `docs` job（`.github/workflows/ci.yml`）运行 `check_okf_docs.py`。�
 | `just api-types` | 生成 schema，再生成 `web/src/api/generated/admin.d.ts` |
 | `just api-types-check` | 只比较 schema 和 `admin.d.ts`，不覆盖 |
 | `just web-check` / `just web-test` / `just web-build` | `web/` 里的 `vp check`、`vp test --run`、`vp build` |
-| `just web-e2e` | Playwright。用隔离配置和 SQLite 起本机网关，不进 `just check` |
+| `just web-e2e` | Playwright。用 Nginx 镜像、隔离配置和 SQLite 起本机网关，不进 `just check` |
+| `just web-deploy-smoke` | [web_deploy_smoke.sh](web_deploy_smoke.sh)。独立 Compose 项目演练启动、升级和回滚，只清理本次新建的资源 |
 | `just fmt` / `just fmt-check` | 格式化 / 格式检查 |
 | `just lint` | clippy，警告视为错误 |
 | `just test` | `cargo test` |

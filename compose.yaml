@@ -1,9 +1,10 @@
 services:
   gateway:
     build: .
+    image: asterlane:local
     restart: always
     ports:
-      - "127.0.0.1:3721:3000"
+      - "127.0.0.1:${ASTERLANE_GATEWAY_PORT:-3721}:3000"
     volumes:
       - ./run.yaml:/etc/asterlane/config.yaml:ro
       - gateway-data:/data
@@ -14,6 +15,29 @@ services:
       - --config=/etc/asterlane/config.yaml
       - --database-url=sqlite:/data/asterlane.db?mode=rwc
       - --bind=0.0.0.0:3000
+    networks:
+      - asterlane
+
+  web:
+    build:
+      context: web
+      dockerfile: Dockerfile
+      args:
+        GIT_COMMIT: ${ASTERLANE_GIT_COMMIT:-unknown}
+    image: asterlane-web:local
+    restart: always
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ASTERLANE_WEB_PORT:-3722}:8080"
+    environment:
+      ASTERLANE_GATEWAY_UPSTREAM: gateway:3000
+    networks:
+      - asterlane
+
+networks:
+  asterlane:
 
 volumes:
   gateway-data:

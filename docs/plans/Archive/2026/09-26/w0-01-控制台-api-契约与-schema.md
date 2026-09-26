@@ -2,10 +2,10 @@
 type: Plan
 title: 控制台 API 契约与 Schema
 description: 将现有管理 HTTP 契约集中为 Rust DTO，导出可重复生成的 schema，并验证旧客户端兼容。
-resource: docs/plans/2026/09-26/w0-01-控制台-api-契约与-schema.md
+resource: docs/plans/Archive/2026/09-26/w0-01-控制台-api-契约与-schema.md
 tags: [计划, admin, contracts, schema]
 generated: { by: plan-docs/v2, at: "2026-09-26T23:50:01+08:00" }
-status: draft
+status: stable
 sources:
   - id: arch
     resource: docs/architecture/console-separation.md
@@ -17,7 +17,7 @@ sources:
 
 # 控制台 API 契约与 Schema
 
-契约原则见 [单一真实源](../../../architecture/console-separation.md#单一真实源) 与 [迁移兼容性](../../../architecture/console-separation.md#迁移兼容性)；错误结构见 [HTTP 边界](../../../architecture/error-model.md#http-边界)。[^arch] [^errors]
+契约原则见 [单一真实源](../../../../architecture/console-separation.md#单一真实源) 与 [迁移兼容性](../../../../architecture/console-separation.md#迁移兼容性)；错误结构见 [HTTP 边界](../../../../architecture/error-model.md#http-边界)。[^arch] [^errors]
 
 ## Context
 
@@ -30,10 +30,10 @@ sources:
 ## Files
 
 - `src/admin/types/{mod,shared,resources,proxy_keys,mcp,tools,observability,config}.rs` — 新增管理域 DTO 入口，按实际内聚结构组织。
-- [`src/admin/mod.rs`](../../../../src/admin/mod.rs)、`crud.rs`、`mcp.rs`、`tokens.rs`、`defaults.rs`、`metadata.rs` — 用真实 DTO 接收和返回，替换临时拼装。
+- [`src/admin/mod.rs`](../../../../../src/admin/mod.rs)、`crud.rs`、`mcp.rs`、`tokens.rs`、`defaults.rs`、`metadata.rs` — 用真实 DTO 接收和返回，替换临时拼装。
 - `src/admin/schema.rs`、`examples/export_admin_schema.rs`、`schemas/admin.json`、`schemas/README.md` — 导出入口和生成产物说明。
-- [`src/error.rs`](../../../../src/error.rs) 及现有 HTTP 错误适配位置 — 复用低层错误结构；必要的可序列化 wire 结构就近定义。
-- [`justfile`](../../../../justfile)、`Cargo.toml`、`tests/admin_contracts.rs` — schema 命令、必要的既有依赖 feature 与兼容验证。
+- [`src/error.rs`](../../../../../src/error.rs) 及现有 HTTP 错误适配位置 — 复用低层错误结构；必要的可序列化 wire 结构就近定义。
+- [`justfile`](../../../../../justfile)、`Cargo.toml`、`tests/admin_contracts.rs` — schema 命令、必要的既有依赖 feature 与兼容验证。
 
 ## Reuse
 
@@ -70,5 +70,5 @@ sources:
 
 重点人工核对签发响应中唯一允许出现 token 的位置，以及普通列表、错误和 schema 示例不含凭据。此计划无需前端依赖，也不以浏览器重写掩盖后端响应变化。
 
-[^arch]: [控制台与网关分离架构 · API 契约与类型](../../../architecture/console-separation.md#api-契约与类型)。
-[^errors]: [错误模型 · HTTP 边界](../../../architecture/error-model.md#http-边界)。
+[^arch]: [控制台与网关分离架构 · API 契约与类型](../../../../architecture/console-separation.md#api-契约与类型)。
+[^errors]: [错误模型 · HTTP 边界](../../../../architecture/error-model.md#http-边界)。

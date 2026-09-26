@@ -1,0 +1,30 @@
+#!/bin/sh
+# 把上一版 dist 里带内容 hash 的文件补进当前静态目录，不覆盖已有文件，不复制 HTML。
+# 挂载点约定是 /previous-dist。不使用 service worker。
+set -eu
+
+previous=${1:?previous dist}
+current=${2:?current html root}
+
+if [ ! -d "$previous/assets" ]; then
+  printf '%s\n' "retain: no previous assets"
+  exit 0
+fi
+
+mkdir -p "$current/assets"
+find "$previous/assets" -type f | while IFS= read -r file; do
+  base=$(basename "$file")
+  case "$base" in
+    *.html | *.map) continue ;;
+  esac
+  printf '%s\n' "$base" | grep -Eq -- '-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$' || continue
+  relative=${file#"$previous/"}
+  target="$current/$relative"
+  if [ -e "$target" ]; then
+    continue
+  fi
+  mkdir -p "$(dirname "$target")"
+  cp "$file" "$target"
+  chmod 644 "$target"
+  printf '%s\n' "retain: $relative"
+done

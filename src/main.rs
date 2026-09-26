@@ -441,7 +441,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
     println!("  REST API: http://{}/v1/tools", args.bind);
     println!("  MCP endpoint: http://{}/mcp", args.bind);
     if state.admin_auth.is_some() {
-        println!("  Admin console: http://{}/admin/ui", args.bind);
+        println!("  Admin API: http://{}/admin", args.bind);
     }
     axum::serve(
         listener,

@@ -1,5 +1,5 @@
 import { defineConfig } from "@playwright/test";
-import { DEV_PORT, PREVIEW_PORT } from "./e2e/fixture.ts";
+import { PREVIEW_PORT } from "./e2e/fixture.ts";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,20 +16,15 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "preview",
-      testMatch: /preview\.spec\.ts/,
+      name: "nginx",
+      testMatch: /.*\.spec\.ts/,
       use: { baseURL: `http://127.0.0.1:${PREVIEW_PORT}` },
-    },
-    {
-      name: "gateway",
-      testMatch: /(?:console|resources|proxy-keys|mcp|tools)\.spec\.ts/,
-      use: { baseURL: `http://127.0.0.1:${DEV_PORT}` },
     },
   ],
   webServer: {
-    command: "bun e2e/dev-with-gateway.ts",
-    url: `http://127.0.0.1:${DEV_PORT}`,
+    command: "bun e2e/nginx-gateway.ts",
+    url: `http://127.0.0.1:${PREVIEW_PORT}/`,
     reuseExistingServer: false,
-    timeout: 600_000,
+    timeout: 900_000,
   },
 });

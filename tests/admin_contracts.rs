@@ -1,4 +1,4 @@
-//! 管理 HTTP 契约：锁住旧 UI / admin CLI 依赖的 method、path、状态码和 JSON/YAML 形状。
+//! 管理 HTTP 契约：锁住 admin API / CLI 依赖的 method、path、状态码和 JSON/YAML 形状。
 //!
 //! 测试值只用假凭据与 `secret://` 引用。一次性 token 只允许出现在签发响应里。
 #![allow(clippy::expect_used)]
@@ -306,28 +306,27 @@ async fn route_inventory_covers_status_and_wrapping() {
     assert_eq!(report["mcp_server_count"], 0);
     assert!(report["issues"].is_array());
 
-    let ui = call(&state, "GET", "/admin/ui", None, false).await;
-    assert_eq!(ui.status, StatusCode::OK);
-    assert!(
-        ui.content_type
-            .as_deref()
-            .is_some_and(|ct| ct.starts_with("text/html"))
-    );
-    assert!(!ui.body.is_empty());
-    assert!(serde_json::from_slice::<Value>(&ui.body).is_err());
+    for path in [
+        "/admin/ui",
+        "/admin/ui/",
+        "/admin/ui/core.js",
+        "/admin/ui/missing.js",
+    ] {
+        let old_ui = call(&state, "GET", path, None, false).await;
+        assert_eq!(old_ui.status, StatusCode::NOT_FOUND, "{path}");
+        assert!(
+            old_ui
+                .content_type
+                .as_deref()
+                .is_none_or(|content_type| !content_type.starts_with("text/html")),
+            "{path}"
+        );
+        assert!(!old_ui.text().contains("Asterlane 控制台"), "{path}");
+    }
 
-    let js = call(&state, "GET", "/admin/ui/core.js", None, false).await;
-    assert_eq!(js.status, StatusCode::OK);
-    assert!(
-        js.content_type
-            .as_deref()
-            .is_some_and(|ct| ct.starts_with("text/javascript"))
-    );
-    assert!(!js.body.is_empty());
-
-    let missing = call(&state, "GET", "/admin/ui/missing.js", None, false).await;
-    assert_eq!(missing.status, StatusCode::NOT_FOUND);
-    assert!(missing.body.is_empty());
+    let healthz = call(&state, "GET", "/healthz", None, false).await;
+    assert_eq!(healthz.status, StatusCode::OK);
+    assert_eq!(healthz.json()["status"], "ok");
 
     let denied = call(&state, "GET", "/admin/health", None, false).await;
     assert_error(&denied, StatusCode::UNAUTHORIZED, "admin.unauthorized");

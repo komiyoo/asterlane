@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@cloudflare/kumo/styles/standalone";
 import { App } from "./app/app.tsx";
+import "./build-label.ts";
 import "./styles.css";
 
 const colorMode = window.matchMedia("(prefers-color-scheme: dark)");

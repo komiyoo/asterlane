@@ -2,10 +2,10 @@
 type: Plan
 title: 控制台 MCP 管理与工具调试
 description: 迁移 MCP preset 和服务管理，实现供工具、MCP 详情与事件页面复用的调试和默认参数交互。
-resource: docs/plans/2026/09-26/w2-05-控制台-mcp-管理与工具调试.md
+resource: docs/plans/Archive/2026/09-26/w2-05-控制台-mcp-管理与工具调试.md
 tags: [计划, frontend, mcp, debugging]
 generated: { by: plan-docs/v2, at: "2026-09-26T23:54:37+08:00" }
-status: draft
+status: stable
 sources:
   - id: arch
     resource: docs/architecture/console-separation.md
@@ -17,12 +17,12 @@ sources:
     resource: docs/admin/tool-debugging-and-cli.md
     title: 工具调试与默认参数契约
 depends_on:
-  - docs/plans/2026/09-26/w1-03-控制台应用外壳与只读页面.md
+  - docs/plans/Archive/2026/09-26/w1-03-控制台应用外壳与只读页面.md
 ---
 
 # 控制台 MCP 管理与工具调试
 
-职责见 [页面范围](../../../architecture/console-separation.md#页面范围) 与 [请求与交互](../../../architecture/console-separation.md#请求与交互)，MCP security 和调试行为遵守 [页面地图](../../../admin/admin-console.md#页面地图与-api-缺口)。[^arch] [^console]
+职责见 [页面范围](../../../../architecture/console-separation.md#页面范围) 与 [请求与交互](../../../../architecture/console-separation.md#请求与交互)，MCP security 和调试行为遵守 [页面地图](../../../../admin/admin-console.md#页面地图与-api-缺口)。[^arch] [^console]
 
 ## Context
 
@@ -68,6 +68,6 @@ depends_on:
 
 文件归属为 mcp/tools、事件默认参数接线及其 API/测试；资源/key 由另一计划负责。现有 router 入口直接替换 feature 内容，不另建并行导航体系。
 
-[^arch]: [控制台与网关分离架构 · 页面范围](../../../architecture/console-separation.md#页面范围)。
-[^console]: [Admin Console · 页面地图与 API 缺口](../../../admin/admin-console.md#页面地图与-api-缺口)。
-[^debug]: [工具调试与 CLI · 工具默认调用参数](../../../admin/tool-debugging-and-cli.md#3-工具默认调用参数)。
+[^arch]: [控制台与网关分离架构 · 页面范围](../../../../architecture/console-separation.md#页面范围)。
+[^console]: [Admin Console · 页面地图与 API 缺口](../../../../admin/admin-console.md#页面地图与-api-缺口)。
+[^debug]: [工具调试与 CLI · 工具默认调用参数](../../../../admin/tool-debugging-and-cli.md#3-工具默认调用参数)。

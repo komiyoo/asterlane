@@ -72,7 +72,7 @@ just worktree-env
 just check
 ```
 
-等价于 `just worktree-doctor` + fmt + clippy（`--all-targets -D warnings`）+ `cargo test` + `python3 scripts/check_okf_docs.py` + `just api-types-check` + `just web-check` + `just web-test` + `just web-build`。Rust 与 OKF 部分对齐 CI；前端静态检查、测试、构建和类型差异检查也在这条命令里。`just web-e2e` 与 `cargo deny` 都不是默认必跑项。
+等价于 `just worktree-doctor` + fmt + clippy（`--all-targets -D warnings`）+ `cargo test` + `python3 scripts/check_okf_docs.py` + `just api-types-check` + `just web-check` + `just web-test` + `just web-build`。Rust 与 OKF 部分对齐 CI；前端静态检查、测试、构建和类型差异检查也在这条命令里。`just web-e2e`、`just web-deploy-smoke` 与 `cargo deny` 都不是默认必跑项。浏览器回归打到 Nginx 静态入口；部署冒烟使用独立 Compose 项目，不读取本机正在运行的数据卷。
 
 PR 上的 Linux 形状由 GitHub Actions 把关。本机是 `aarch64-apple-darwin` 时，本地全绿仍要等 CI。
 
