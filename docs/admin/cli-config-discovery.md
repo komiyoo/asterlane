@@ -131,4 +131,4 @@ asterlane list-tools [--config PATH] --key ID [FILTERS]
 [4] [Compatibility Policy](../architecture/compatibility-policy.md)
 [5] [Tool Debugging & CLI](tool-debugging-and-cli.md)
 [6] [Engineering Conventions](../engineering/engineering-conventions.md)
-[7] [OKF v0.1 draft specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+[7] [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)

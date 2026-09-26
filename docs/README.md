@@ -1,6 +1,6 @@
 # Asterlane Docs
 
-本文档包按 [OKF v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) 组织。先打开分类索引，再加载对应概念文档。
+本文档包按 [OKF v0.2](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md) 组织。先打开分类索引，再加载对应概念文档。
 
 ## 分类
 

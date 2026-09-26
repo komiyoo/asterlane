@@ -971,4 +971,4 @@ git commit -m "docs: document gateway tools CLI"
 [2] [Engineering Conventions](../docs/engineering/engineering-conventions.md)
 [3] [Response Rendering](../docs/runtime/response-rendering.md)
 [4] [Error Model](../docs/architecture/error-model.md)
-[5] [OKF v0.1 draft specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+[5] [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)

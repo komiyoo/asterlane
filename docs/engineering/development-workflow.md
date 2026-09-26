@@ -217,5 +217,5 @@ PR 描述用 `.github/PULL_REQUEST_TEMPLATE.md`：验证表格要求填实际结
 [7] [API Discovery](../runtime/api-discovery.md)
 [8] [Compatibility Policy](../architecture/compatibility-policy.md)
 [9] [NyaProxy local reference](file:///Users/ticoag/Documents/myws/NyaProxy)
-[10] [OKF v0.1 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+[10] [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)
 [11] [Worktree Workflow](worktree-workflow.md)

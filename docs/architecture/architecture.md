@@ -127,7 +127,7 @@ Phase 1–6（核心模型、HTTP 网关、MCP server、API 自动发现、凭�
 
 # Citations
 
-- [1] [OKF v0.1 specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+- [1] [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)
 - [2] [Product Requirements](../product/product-requirements.md)
 - [3] [Naming Convention](naming-convention.md)
 - [4] [Crate Selection](crate-selection.md)
