@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-ssr
+.vite
+*.local
+playwright-report
+test-results
+blob-report
