@@ -176,7 +176,7 @@ impl SemanticIndex {
                     .map(|cached| (cosine(&query_vector, &cached.vector), wire.as_str()))
             })
             .collect();
-        scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+        scored.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.1.cmp(b.1)));
         scored.truncate(limit);
         Ok(scored
             .into_iter()

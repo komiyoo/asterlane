@@ -417,6 +417,35 @@ async fn handle_meta_tool_with_proxy(
 ) -> Result<MetaToolInvokeResult, AsterlaneError> {
     let config = state.config_snapshot().await;
     match name {
+        "asterlane__get_tools" => {
+            let catalog = state.catalog.read().await;
+            let response =
+                crate::mcp::call::get_tools(args, &catalog, proxy_key, &state.result_cache)
+                    .map_err(|e| AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e))?;
+            let body = serde_json::to_string(&response).map_err(|e| {
+                AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e.to_string())
+            })?;
+            Ok(MetaToolInvokeResult {
+                result: ToolCallResult::text_ok(body),
+                content_defense_flag: false,
+                shaped: false,
+                rendered_format: None,
+            })
+        }
+        "asterlane__call_tools" => {
+            let response = crate::mcp::call::call_tools(args, state, proxy_key, format)
+                .await
+                .map_err(|e| AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e))?;
+            let body = serde_json::to_string(&response).map_err(|e| {
+                AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e.to_string())
+            })?;
+            Ok(MetaToolInvokeResult {
+                result: ToolCallResult::text_ok(body),
+                content_defense_flag: false,
+                shaped: false,
+                rendered_format: None,
+            })
+        }
         "asterlane__call_tool" => {
             let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
                 AsterlaneError::internal(

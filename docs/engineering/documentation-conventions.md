@@ -23,6 +23,8 @@ timestamp: 2026-08-19T00:00:00Z
 
 知识放置判据：随代码每次改动而变的内容不进文档（代码是唯一事实源）；跨会话仍需被引用的决策、schema、协议约束进 L2；L0 只收纲领与发现索引。
 
+`docs/plans/` 存执行计划，不替代 L2 概念文；日期目录、编号与索引由 `plan-docs` 脚本维护，计划用 `type: Plan` 并引用概念文的具体章节。OKF 校验要求 `plans/` 和年份目录有索引，日期目录直接由年份索引链接计划，不建当天 README。
+
 # 分类
 
 按检索需要归类，不按 `src/` 目录机械镜像。新概念先归入下表；确无归属再新增分类目录。
@@ -42,7 +44,7 @@ timestamp: 2026-08-19T00:00:00Z
 - **新建**：新知识先找最相关的既有 L2 文档就地扩展，确无归属才新建。新建必须同 commit 完成：frontmatter、所属分类 `README.md` 加一行、`log.md` 记一条。新增分类时还要建目录、写分类 `README.md`，并在 `docs/README.md` 加一行。
 - **拆分**：概念文档超过约 400 行，或出现可被独立引用的第二主题时拆分。拆分 = 新文件放入所属分类 + 原文档在原位置留一行链接 + 分类 README 与 `log.md` 同步。
 - **更正与退役**：内容被 supersede 时就地更正并在 log.md 记录，不得追加矛盾段落共存（现行范例：`architecture.md` 的 Significant Decisions 表）。整篇失效则删除文件 + 分类 README 去行 + log 记录，历史留给 git。
-- **type 登记**：现用值 `Architecture` / `Architecture Decision` / `Convention` / `Design` / `Development Workflow` / `Guide` / `Product Requirements` / `Roadmap` / `Schema`。优先复用；确需新值时在本节追加，避免同义分裂。
+- **type 登记**：现用值 `Architecture` / `Architecture Decision` / `Convention` / `Design` / `Development Workflow` / `Guide` / `Plan` / `Product Requirements` / `Roadmap` / `Schema`。优先复用；确需新值时在本节追加，避免同义分裂。
 
 # 引用规则
 

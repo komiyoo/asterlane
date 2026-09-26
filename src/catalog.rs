@@ -248,8 +248,9 @@ impl ToolCatalog {
         });
 
         // 3. 分页，并为页内工具填充最短无歧义暴露名
-        let page = filtered
-            .skip(cursor)
+        let mut remaining = filtered.skip(cursor);
+        let page = remaining
+            .by_ref()
             .take(limit)
             .map(|tool| {
                 let mut entry = tool.clone();
@@ -257,11 +258,7 @@ impl ToolCatalog {
                 entry
             })
             .collect::<Vec<_>>();
-        let next_cursor = if page.len() == limit {
-            Some(cursor + limit)
-        } else {
-            None
-        };
+        let next_cursor = remaining.next().map(|_| cursor.saturating_add(page.len()));
 
         Ok(ToolPage {
             tools: page,
@@ -421,10 +418,9 @@ impl ToolCatalog {
                     continue;
                 }
                 results.push(tool);
-                if results.len() >= limit {
-                    break;
-                }
             }
+            results.sort_by_key(|tool| tool.name.to_wire_name());
+            results.truncate(limit);
             return Ok(results);
         }
         let query_lower = query.to_lowercase();
@@ -447,7 +443,10 @@ impl ToolCatalog {
             };
             scored.push((tool, score));
         }
-        scored.sort_by_key(|s| std::cmp::Reverse(s.1));
+        scored.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| a.0.name.to_wire_name().cmp(&b.0.name.to_wire_name()))
+        });
         scored.truncate(limit);
         Ok(scored.into_iter().map(|(t, _)| t).collect())
     }
@@ -719,7 +718,7 @@ mod tests {
             page.tools[0].name.to_wire_name(),
             "search__tavily__web_search"
         );
-        assert_eq!(page.next_cursor, Some(1));
+        assert_eq!(page.next_cursor, None);
     }
 
     #[test]

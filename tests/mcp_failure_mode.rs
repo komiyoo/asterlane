@@ -469,7 +469,13 @@ async fn mcp_list_fail_closed_ok_when_all_upstreams_ok() {
     let (client, server_task) = serve_pair(state_from(config, registry).await).await;
 
     let result = client.list_tools(None).await.expect("list_tools");
-    assert!(result.tools.iter().any(|t| t.name.contains("ping")));
+    assert!(!result.tools.is_empty());
+    assert!(
+        result
+            .tools
+            .iter()
+            .all(|tool| tool.name.starts_with("asterlane__"))
+    );
 
     let _ = client.cancel().await;
     server_task.abort();

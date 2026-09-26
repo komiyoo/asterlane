@@ -41,10 +41,30 @@ pub enum ToolsCommand {
     },
     Search {
         query: String,
+        #[arg(long)]
+        include_schema: bool,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=50))]
+        limit: Option<u8>,
+        #[arg(long)]
+        cursor: Option<usize>,
+    },
+    Get {
+        #[arg(required = true, num_args = 1..=10)]
+        names: Vec<String>,
     },
     Call {
         name: String,
         #[arg(long, conflicts_with = "args_file")]
+        args: Option<String>,
+        #[arg(long)]
+        args_file: Option<PathBuf>,
+    },
+    CallBatch {
+        #[arg(
+            long,
+            conflicts_with = "args_file",
+            required_unless_present = "args_file"
+        )]
         args: Option<String>,
         #[arg(long)]
         args_file: Option<PathBuf>,
@@ -84,15 +104,37 @@ async fn execute(args: ToolsArgs) -> Result<Value, CliError> {
                 )
                 .await
         }
-        ToolsCommand::Search { query } => {
+        ToolsCommand::Search {
+            query,
+            include_schema,
+            limit,
+            cursor,
+        } => {
+            let mut args = json!({"query": query, "include_schema": include_schema});
+            if let Some(limit) = limit {
+                args["limit"] = json!(limit);
+            }
+            if let Some(cursor) = cursor {
+                args["cursor"] = json!(cursor);
+            }
             let body = client
                 .post_json(
                     "/v1/tools/asterlane__search_tools/invoke",
                     &[("format", "json".to_string())],
-                    &json!({"query": query}),
+                    &args,
                 )
                 .await?;
             Ok(normalize_search_result(body)?)
+        }
+        ToolsCommand::Get { names } => {
+            let body = client
+                .post_json(
+                    "/v1/tools/asterlane__get_tools/invoke",
+                    &[("format", "json".to_string())],
+                    &json!({"names": names}),
+                )
+                .await?;
+            Ok(normalize_meta_result(body, "results")?)
         }
         ToolsCommand::Call {
             name,
@@ -107,6 +149,18 @@ async fn execute(args: ToolsArgs) -> Result<Value, CliError> {
                     &body,
                 )
                 .await
+        }
+        ToolsCommand::CallBatch { args, args_file } => {
+            let body = load_json_object(args, args_file)?
+                .ok_or_else(|| anyhow!("call-batch requires --args or --args-file"))?;
+            let response = client
+                .post_json(
+                    "/v1/tools/asterlane__call_tools/invoke",
+                    &[("format", "json".to_string())],
+                    &body,
+                )
+                .await?;
+            Ok(normalize_meta_result(response, "results")?)
         }
     }
 }
@@ -142,17 +196,26 @@ fn list_query(
 }
 
 fn normalize_search_result(body: Value) -> Result<Value> {
+    normalize_meta_result(body, "tools")
+}
+
+fn normalize_meta_result(body: Value, array_field: &str) -> Result<Value> {
     let text = body
         .pointer("/content/0/Text")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("unexpected search response: missing content[0].Text"))?;
     if body.get("is_error").and_then(Value::as_bool) == Some(true) {
-        bail!("tool search failed: {text}");
+        bail!("meta-tool call failed: {text}");
     }
     let value: Value = serde_json::from_str(text)
         .map_err(|error| anyhow!("unexpected search response JSON: {error}"))?;
-    if !value.is_array() {
-        bail!("unexpected search response: result is not an array");
+    if !value.get(array_field).is_some_and(Value::is_array)
+        || (array_field == "tools"
+            && !value
+                .get("next_cursor")
+                .is_some_and(|cursor| cursor.is_null() || cursor.is_u64()))
+    {
+        bail!("unexpected meta-tool response: expected {array_field} array");
     }
     Ok(value)
 }
@@ -188,11 +251,42 @@ mod tests {
         ));
         assert!(matches!(
             parse(&["search", "web search"]).command,
-            ToolsCommand::Search { .. }
+            ToolsCommand::Search {
+                include_schema: false,
+                ..
+            }
         ));
+        assert!(matches!(
+            parse(&["search", "web search", "--include-schema"]).command,
+            ToolsCommand::Search {
+                include_schema: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(&["search", "web search", "--limit", "5", "--cursor", "10"]).command,
+            ToolsCommand::Search {
+                limit: Some(5),
+                cursor: Some(10),
+                ..
+            }
+        ));
+        parse_err(&["search", "web search", "--limit", "0"]);
+        parse_err(&["search", "web search", "--limit", "51"]);
         let args = parse(&["call", "search", "--args", "{}", "-f", "yaml"]);
         assert_eq!(args.format.as_deref(), Some("yaml"));
         assert!(matches!(args.command, ToolsCommand::Call { .. }));
+
+        assert!(matches!(
+            parse(&["get", "search__mock__search", "docs__mock__lookup"]).command,
+            ToolsCommand::Get { names } if names.len() == 2
+        ));
+        assert!(matches!(
+            parse(&["call-batch", "--args", "{\"calls\":[]}"]).command,
+            ToolsCommand::CallBatch { .. }
+        ));
+        parse_err(&["get"]);
+        parse_err(&["call-batch"]);
 
         let args = parse(&[
             "list",
@@ -233,10 +327,10 @@ mod tests {
 
     #[test]
     fn search_result_extracts_meta_tool_json() {
-        let body = json!({"content": [{"Text": "[{\"name\":\"search\"}]"}], "is_error": false});
+        let body = json!({"content": [{"Text": "{\"tools\":[{\"name\":\"search\"}],\"next_cursor\":null}"}], "is_error": false});
         assert_eq!(
             normalize_search_result(body).unwrap(),
-            json!([{"name": "search"}])
+            json!({"tools": [{"name": "search"}], "next_cursor": null})
         );
     }
 
@@ -244,7 +338,7 @@ mod tests {
     fn search_result_rejects_invalid_gateway_responses() {
         let error = normalize_search_result(json!({"content": [{"Text": "[]"}], "is_error": true}))
             .unwrap_err();
-        assert!(error.to_string().contains("tool search failed"));
+        assert!(error.to_string().contains("meta-tool call failed"));
 
         for body in [
             json!({"content": [{}], "is_error": false}),
@@ -254,5 +348,14 @@ mod tests {
         ] {
             assert!(normalize_search_result(body).is_err());
         }
+    }
+
+    #[test]
+    fn batch_result_extracts_meta_tool_json() {
+        let body = json!({"content": [{"Text": "{\"results\":[{\"name\":\"search\"}]}"}], "is_error": false});
+        assert_eq!(
+            normalize_meta_result(body, "results").unwrap(),
+            json!({"results": [{"name": "search"}]})
+        );
     }
 }

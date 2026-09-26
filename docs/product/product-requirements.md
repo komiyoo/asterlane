@@ -276,7 +276,7 @@ Toolport（原 Conduit）是一个本地桌面 MCP 网关（Tauri + React + Rust
 
 **来源**：`toolport-gateway.rs`，lazy mode 下只暴露 4 个 meta-tool（`toolport_status`、`toolport_search_tools`、`toolport_call_tool`、`toolport_fetch_result`），agent 按需搜索和调用，benchmark 实测省 90%+ token。
 
-**映射到 Asterlane**：Asterlane 已有 progressive disclosure（regex filter + cursor 分页）。补充 lazy discovery 作为**可选模式**：当 proxy key 配置 `discovery_mode: lazy` 时，`tools/list` 仅返回少量 meta-tool；agent 通过 `asterlane__search_tools` 按意图搜索，再通过 `asterlane__call_tool` 间接调用。
+**映射到 Asterlane**：Asterlane 已有 progressive disclosure（regex filter + cursor 分页）。最初借鉴为可选 lazy 模式；当前默认 lazy，`tools/list` 返回六个 meta-tool。agent 可以搜索、批量取得详情，再单项或批量调用；完整行为见 [API Discovery · 大目录代理入口](../runtime/api-discovery.md#大目录代理入口)。
 
 好处：
 - 对接不支持 `_meta` 扩展的客户端时仍能实现渐进式发现。
@@ -288,8 +288,10 @@ Meta-tool 设计（Asterlane 版）：
 | Meta-tool | 描述 |
 | --- | --- |
 | `asterlane__status` | 报告网关状态：已配置 provider 数、tool 总数、当前 key scope 覆盖范围 |
-| `asterlane__search_tools` | 按自然语言意图或正则搜索可用 tool，返回 name + description + inputSchema 摘要 |
+| `asterlane__search_tools` | 按关键词搜索可用 tool，默认返回名称、描述与参数摘要；`include_schema: true` 按需返回完整 inputSchema |
+| `asterlane__get_tools` | 按 key 范围批量获取完整描述与 inputSchema |
 | `asterlane__call_tool` | 间接调用任意已发现 tool（走正常 proxy 路径：凭据注入 + 限流 + 审计） |
+| `asterlane__call_tools` | 一次提交最多 10 个独立调用，逐项返回执行结果 |
 | `asterlane__fetch_result` | 分页获取超长结果的后续片段（result shaping） |
 
 ### 2. Tool Integrity / Rug-Pull 检测

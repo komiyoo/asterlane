@@ -4,7 +4,7 @@
 
 ## 脚本
 
-- [check_okf_docs.py](check_okf_docs.py) - 校验 `docs/` OKF frontmatter、分类索引覆盖，以及含概念文件的子目录是否有 `README.md`。
+- [check_okf_docs.py](check_okf_docs.py) - 校验 `docs/` OKF frontmatter、索引覆盖和子目录导航；`docs/plans/` 的日期目录由年份索引导航。
 - [setup_worktree.py](setup_worktree.py) - Worktree / 本机工具链检查、`cargo fetch`、打印本树环境变量。约定见 [Worktree Workflow](../docs/engineering/worktree-workflow.md)。
 
 ## 用法

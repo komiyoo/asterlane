@@ -344,10 +344,13 @@ proxy_keys:
     # token_digest: "e3b0c442..."         # 方式二：签发路径写入的 SHA-256 hex（互斥）
     expires_at: 2027-01-01T00:00:00Z      # token 过期时间（可选，UTC）
     default_tool_page_size: 5
+    # discovery_mode: full          # 缺省 lazy；需要旧版完整 tools/list 时显式设置 full
     response_format: yaml           # REST invoke 的 key 级默认，缺省继承 defaults.response_format
 ```
 
 凭据语义（见 [Proxy Key 凭据化与配置持久化](key-credentials-and-persistence.md) K1）：配置了 token 的 key 必须以 `Authorization: Bearer alk_*` 认证，`?key=<id>` 仅对无 token 的 key 保留（legacy/dev 模式）；`token_ref` 与 `token_digest` 互斥，摘要必须 64 位小写 hex，非法配置启动 fail fast。
+
+`discovery_mode` 省略时为 `lazy`，MCP `tools/list` 与 REST `GET /v1/tools` 仅返回六个网关 meta-tool；显式 `full` 才列出当前 key 获准的 catalog 工具。非法值启动时报配置错误。已省略此字段且依赖完整列表的旧配置，需要加上 `discovery_mode: full`。搜索、详情和批量调用仍严格按当前 key scope 判权，详见 [API Discovery · 大目录代理入口](api-discovery.md#大目录代理入口)。
 
 Rules use Rust regex syntax. 配置中的正则可使用冒号形式（`^search:tavily:`）或 wire name 形式（`^search__tavily__`），policy 层统一翻译为 wire name 匹配。`denied_tools` override `allowed_tools`。
 

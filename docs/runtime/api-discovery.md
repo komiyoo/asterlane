@@ -114,13 +114,29 @@ api_resources:
 - 标准分页：opaque cursor，服务端决定 page size，客户端不假设固定大小。
 - 过滤参数走 `_meta` 扩展通道的**扁平键**（`domain_regex` / `provider_regex` / `tool_regex` / `include` / `exclude`），因为 MCP 规范未定义 `tools/list` 的自定义参数，通用客户端不会传。实现读 `meta_str(..., "domain_regex")` 这类顶层键，不是嵌套的 `asterlane.dev/filter`。
 - 服务端按 proxy key scope 预收窄默认视图（规范支持：tools MAY vary by authorization）。
-- 可选提供 `asterlane__search_tools` meta-tool（受 SEP-1923 summary/get 两段式启发），让只支持标准 `tools/list` 的客户端也能按正则搜索工具。
+- 提供 `asterlane__search_tools` 与 `asterlane__get_tools`，让客户端按需搜索并获取完整工具定义。
 - **MCP `tools/list` 按该 key 的 `discovery_mode` 分支**（与 REST `GET /v1/tools` 对齐，**不是全局开关**）：
-  - `lazy`：只返回四个 meta-tool（`asterlane__status`、`asterlane__search_tools`、`asterlane__call_tool`、`asterlane__fetch_result`），不得出现 catalog 名；`next_cursor` 为 `None`；请求级 `_meta` 过滤键被忽略。`ttlMs` / `cacheScope=private` 与 Full 相同。
-  - Full（缺省、`None`、或无法识别的值）：catalog 按 key scope 分页；**最后一页**把 meta-tool descriptor 追加到 `tools` 数组（不占 catalog 分页游标空间）。
-- lazy 只收窄 **list**，不收窄 **call**：`tools/call` 与 `asterlane__search_tools` / `asterlane__call_tool` 仍走既有 key scope。
-- 开放模式（无 token，走 `mcp_default_key`，`discovery_mode: None`）始终是 Full；配置里存在 lazy key 不会改变未绑定请求的列表。
+  - `lazy`（缺省）：只返回六个 meta-tool（`asterlane__status`、`asterlane__search_tools`、`asterlane__get_tools`、`asterlane__call_tool`、`asterlane__call_tools`、`asterlane__fetch_result`），不得出现 catalog 名；`next_cursor` 为 `None`；请求级 `_meta` 过滤键被忽略。`ttlMs` / `cacheScope=private` 与 Full 相同。
+  - `full`（显式配置）：catalog 按 key scope 分页；**最后一页**把 meta-tool descriptor 追加到 `tools` 数组（不占 catalog 分页游标空间）。非法模式值启动时报配置错误。
+- lazy 只收窄 **list**，不收窄 **call**：直接 `tools/call` 与 meta-tool 调用均按既有 key scope 判权。
+- 开放模式（无 token，走 `mcp_default_key`，`discovery_mode: None`）也使用 lazy；配置里某条 key 的模式不会改变未绑定请求的列表。
 - HTTP `GET /v1/tools` Full 模式响应携带独立 `meta_tools` 字段（meta-tool 是扁平名，与结构化 `WrappedTool` 形状不同，不混入 `tools` 数组）；lazy 模式仅返回 meta-tool。
+
+`asterlane__search_tools` 的 `query` 按名称和描述做不区分大小写的关键词匹配，返回 `{tools, next_cursor}`；`limit` 为 1–50，缺省 10，`cursor` 是上一页返回的非负偏移。默认每条返回 `name`、`description`、参数名 `parameters` 与必填项 `required`；调用时传 `include_schema: true` 可取得完整的 `input_schema`。关键词和语义排序使用相同的分页格式；静态 catalog 上按名称稳定处理同分结果。CLI 对应 `asterlane tools search QUERY --limit 10 --cursor 0`。
+
+## 大目录代理入口
+
+面向大量 HTTP API 和上游 MCP 工具时，下游 `tools/list` 默认只列出六个网关工具。`discovery_mode` 省略时取 `lazy`，显式 `full` 才分页暴露 catalog 工具；无 token 的开放 MCP 模式也取 `lazy`。需要保留旧列表行为的 key 应设置 `discovery_mode: full`。`lazy` 只改变列表，不收窄当前 key 的调用权限。
+
+代理使用以下按需流程，现有单工具调用继续可用：
+
+1. `asterlane__search_tools` 返回 key 可见的简短候选；`limit` 和 `cursor` 支持关键词与语义排序翻页，响应为 `{tools, next_cursor}`。
+2. `asterlane__get_tools` 接受 `{names: [规范名, ...]}`（1–10 个），返回同顺序的 `{results: [...]}`；每项的 `tool` 包含名称、描述和完整 `input_schema`，不可见与不存在都返回 `error: "not_found"`。过大的单项定义以 `cursor` 续取。
+3. `asterlane__call_tools` 接受 `{calls: [{name, arguments}, ...]}`（1–10 项独立调用），返回同顺序的 `{results: [...]}`；每项包含 `result`、`input_required` 或 `error`，成功执行项另有 `request_id`。它沿用 `asterlane__call_tool` 的别名解析，每项分别进入 `ProxyExecutor::invoke_call`，执行权限、限额、凭据注入、隔离检查、审计和结果裁剪。调用顺序执行；一项失败不撤销或跳过其他项，批量本身不提供事务语义。
+
+批量入口拒绝空数组与超过上限的数组；授权失败、上游失败和 MCP `input_required` 保留在对应结果项中，调用方可只重试该项。批量结果有总字节预算；超出的工具输出使用现有按 key 绑定的 `ResultCache` 与 `asterlane__fetch_result` 续取，不丢弃完整结果。单次请求只允许调用 catalog 中当前 key 获准的工具，不提供任意代码执行或任意上游 URL 请求。
+
+MCP 与 REST `/v1/tools` 保持相同的 key 范围与默认发现模式；新增 meta-tool 在两条入口提供相同的逐项语义。工具描述可独立引导“搜索 → 获取详情 → 调用”。网关自身还提供 MCP prompt `asterlane_tool_workflow` 作为可选示例；[MCP prompts](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts) 由客户端或用户选择，不能假设客户端会自动载入。这里不代理上游 MCP server 的 prompts。
 
 ## `asterlane__call_tool` 参数
 
@@ -157,7 +173,7 @@ meta-tool `asterlane__call_tool` 间接调用已发现工具，参数：
 
 - **Provider 形态**：OpenAI-compatible `/embeddings` 端点（`base_url` + `model` + 可选 `api_key_ref`），兼容 OpenAI / Zhipu / Ollama / vLLM 等；形态借鉴 smart-search CLI 的可配置 provider 模式。不引入本地 embedding 模型（fastembed/ort 需捆绑 ONNX runtime，体积与构建复杂度不符合网关定位）。
 - **索引**：进程内向量缓存，按需填充（首次搜索批量嵌入 key 可见工具，单请求 ≤128 条）；embedding 文本为 `{wire_name}: {description}`，以文本哈希做失效——MCP refresh 后描述变更的工具自动重嵌。
-- **排序**：查询向量与工具向量余弦相似度降序取前 10；空查询与端点故障回退关键词路径，发现能力不因 embedding 依赖不可用（回退带 `warn!` 日志）。
+- **排序**：查询向量与工具向量按余弦相似度降序排列，再按 `limit`/`cursor` 分页；空查询与端点故障回退关键词路径，发现能力不因 embedding 依赖不可用（回退带 `warn!` 日志）。
 - **数据出境**：工具名称/描述与代理搜索 query 会发送到配置端点；内网部署可指向本地 Ollama/vLLM。API key 走 secret ref，启动期解析、失败 fail fast。
 
 # 自动发现的边界

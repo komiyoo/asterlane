@@ -1,14 +1,16 @@
 //! Lazy discovery meta-tool 机制。
 //!
-//! 在 `Lazy` 模式下，网关仅暴露 4 个 meta-tool，代理通过它们按需发现和调用
+//! 在 `Lazy` 模式下，网关仅暴露固定的 meta-tool，代理通过它们按需发现和调用
 //! 真实工具，避免一次性下发大量 tool descriptor。
 //!
 //! 设计依据见 `docs/runtime/api-discovery.md` 和 `docs/product/product-requirements.md`。
 
-use crate::catalog::ToolCatalog;
+use crate::catalog::{ToolCatalog, WrappedTool};
 use crate::config::{GatewayConfig, ProxyKey};
 use crate::error::{AsterlaneError, ErrorCode};
-use crate::mcp::model::{ToolCallResult, ToolDescriptor};
+use crate::mcp::model::{
+    BatchCallToolsRequest, BatchGetToolsRequest, ToolCallResult, ToolDescriptor,
+};
 use crate::semantic::SemanticIndex;
 use serde_json::{Value, json};
 use tracing::warn;
@@ -17,10 +19,19 @@ use tracing::warn;
 
 const STATUS: &str = "asterlane__status";
 const SEARCH_TOOLS: &str = "asterlane__search_tools";
+const GET_TOOLS: &str = "asterlane__get_tools";
 const CALL_TOOL: &str = "asterlane__call_tool";
+const CALL_TOOLS: &str = "asterlane__call_tools";
 const FETCH_RESULT: &str = "asterlane__fetch_result";
 
-const META_TOOLS: [&str; 4] = [STATUS, SEARCH_TOOLS, CALL_TOOL, FETCH_RESULT];
+const META_TOOLS: [&str; 6] = [
+    STATUS,
+    SEARCH_TOOLS,
+    GET_TOOLS,
+    CALL_TOOL,
+    CALL_TOOLS,
+    FETCH_RESULT,
+];
 
 // ── Discovery mode ──
 
@@ -28,18 +39,18 @@ const META_TOOLS: [&str; 4] = [STATUS, SEARCH_TOOLS, CALL_TOOL, FETCH_RESULT];
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DiscoveryMode {
     /// 暴露全部 tool descriptor（传统模式）。
-    #[default]
     Full,
     /// 仅暴露 meta-tool，代理按需发现。
+    #[default]
     Lazy,
 }
 
 impl DiscoveryMode {
-    /// 从配置字符串解析；`None` 或无法识别的值均回退 `Full`。
+    /// 配置值在启动时校验；省略时按需发现。
     pub fn from_config_str(s: Option<&str>) -> Self {
         match s {
-            Some("lazy") => Self::Lazy,
-            _ => Self::Full,
+            Some("full") => Self::Full,
+            _ => Self::Lazy,
         }
     }
 }
@@ -67,16 +78,32 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: SEARCH_TOOLS.to_string(),
-            description: "Search available tools by intent, keyword, or regex pattern. \
-                          Returns matching tool names, descriptions, and input schema summaries. \
-                          Use this to discover tools before calling them."
+            description: "Search tools available to this key by name or description. \
+                          Returns brief summaries in pages; pass next_cursor to continue. \
+                          Use asterlane__get_tools with returned canonical names to read \
+                          complete input schemas before calling."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keyword or regex to match against tool names and descriptions."
+                        "description": "Keyword to match against tool names and descriptions."
+                    },
+                    "include_schema": {
+                        "type": "boolean",
+                        "description": "Include complete input schemas for matching tools. Default false."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 50,
+                        "description": "Results per page. Default 10."
+                    },
+                    "cursor": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Offset returned as next_cursor by the previous page."
                     }
                 },
                 "required": ["query"],
@@ -84,8 +111,17 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
             }),
         },
         ToolDescriptor {
+            name: GET_TOOLS.to_string(),
+            description: "Get complete descriptions and input schemas for up to 10 canonical \
+                          tool names returned by asterlane__search_tools. Results follow input \
+                          order; unavailable names return not_found."
+                .to_string(),
+            input_schema: BatchGetToolsRequest::input_schema(),
+        },
+        ToolDescriptor {
             name: CALL_TOOL.to_string(),
-            description: "Call a previously discovered tool by name. The name accepts \
+            description: "Call one tool after reading its input schema with asterlane__get_tools. \
+                          The name accepts \
                           the canonical wire name (domain__provider__tool), a \
                           provider__tool pair, or a bare tool name when unambiguous. \
                           Pass the tool name and its arguments as JSON."
@@ -115,6 +151,15 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
             }),
         },
         ToolDescriptor {
+            name: CALL_TOOLS.to_string(),
+            description: "Call up to 10 independent tools in one request after reading their \
+                          input schemas with asterlane__get_tools. Calls run in input order, \
+                          each result is returned separately, and a failed item does not stop \
+                          later items. Retry failed items individually when appropriate."
+                .to_string(),
+            input_schema: BatchCallToolsRequest::input_schema(),
+        },
+        ToolDescriptor {
             name: FETCH_RESULT.to_string(),
             description: "Fetch subsequent chunks of a large tool result using a cursor \
                           returned from a previous call."
@@ -140,9 +185,8 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
 
 /// 处理 `asterlane__status` / `asterlane__search_tools`。
 ///
-/// 调用方须先用 `is_meta_tool` 判定。`asterlane__call_tool` 与
-/// `asterlane__fetch_result` 依赖执行管线（`ProxyExecutor`、result cache），
-/// 由 `http::routes` 与 `mcp::server` 在进入本函数之前分流。直接传入这两个
+/// 调用方须先用 `is_meta_tool` 判定。详情、调用、续取依赖 catalog、
+/// `ProxyExecutor` 或 result cache，由 `http::routes` 与 `mcp::server` 分流。直接传入这些
 /// 名字返回 `mcp.invalid_tool_call`，而不是占位「尚未接线」。
 pub fn handle_meta_tool_call(
     name: &str,
@@ -154,7 +198,7 @@ pub fn handle_meta_tool_call(
     match name {
         STATUS => handle_status(catalog, config, proxy_key),
         SEARCH_TOOLS => handle_search(args, catalog, proxy_key),
-        CALL_TOOL | FETCH_RESULT => Err(AsterlaneError::internal(
+        GET_TOOLS | CALL_TOOL | CALL_TOOLS | FETCH_RESULT => Err(AsterlaneError::internal(
             ErrorCode::McpInvalidToolCall,
             format!(
                 "{name} is dispatched by the HTTP/MCP invoke pipeline; this helper only serves asterlane__status and asterlane__search_tools"
@@ -192,28 +236,98 @@ fn handle_search(
     catalog: &ToolCatalog,
     proxy_key: &ProxyKey,
 ) -> Result<ToolCallResult, AsterlaneError> {
+    let options = SearchOptions::parse(&args)?;
     let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+    let results = catalog.search_for_key(query, proxy_key, usize::MAX)?;
+    search_response(results, options)
+}
 
-    let results = catalog.search_for_key(query, proxy_key, 10)?;
+#[derive(Clone, Copy)]
+struct SearchOptions {
+    limit: usize,
+    cursor: usize,
+    include_schema: bool,
+}
 
-    let items: Vec<Value> = results
-        .into_iter()
-        .map(|t| {
-            json!({
-                "name": t.name.to_wire_name(),
-                "description": t.description,
-            })
+impl SearchOptions {
+    fn parse(args: &Value) -> Result<Self, AsterlaneError> {
+        let invalid = || {
+            AsterlaneError::internal(
+                ErrorCode::CatalogInvalidPagination,
+                "search limit must be 1..=50 and cursor must be a nonnegative integer",
+            )
+        };
+        let limit = match args.get("limit") {
+            None => 10,
+            Some(value) => value
+                .as_u64()
+                .filter(|n| (1..=50).contains(n))
+                .ok_or_else(invalid)? as usize,
+        };
+        let cursor = match args.get("cursor") {
+            None => 0,
+            Some(value) => value
+                .as_u64()
+                .and_then(|n| n.try_into().ok())
+                .ok_or_else(invalid)?,
+        };
+        Ok(Self {
+            limit,
+            cursor,
+            include_schema: args
+                .get("include_schema")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         })
-        .collect();
+    }
+}
 
+fn search_response(
+    results: Vec<&WrappedTool>,
+    options: SearchOptions,
+) -> Result<ToolCallResult, AsterlaneError> {
+    if options.cursor > results.len() {
+        return Err(AsterlaneError::internal(
+            ErrorCode::CatalogInvalidPagination,
+            "search cursor is outside the visible results",
+        ));
+    }
+    let end = options
+        .cursor
+        .saturating_add(options.limit)
+        .min(results.len());
+    let tools: Vec<Value> = results[options.cursor..end]
+        .iter()
+        .map(|tool| search_item(tool, options.include_schema))
+        .collect();
+    let next_cursor = (end < results.len()).then_some(end);
     Ok(ToolCallResult::text_ok(
-        serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string()),
+        json!({"tools": tools, "next_cursor": next_cursor}).to_string(),
     ))
+}
+
+fn search_item(tool: &WrappedTool, include_schema: bool) -> Value {
+    let parameters: Vec<&str> = tool
+        .input_schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|properties| properties.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+    let mut item = json!({
+        "name": tool.name.to_wire_name(),
+        "description": tool.description,
+        "parameters": parameters,
+        "required": tool.input_schema.get("required").cloned().unwrap_or_else(|| json!([])),
+    });
+    if include_schema {
+        item["input_schema"] = tool.input_schema.clone();
+    }
+    item
 }
 
 /// `asterlane__search_tools` 的语义排序路径（配置 `semantic_search` 时）。
 ///
-/// 候选 = key 可见工具全集；按查询余弦相似度取前 10。
+/// 候选 = key 可见工具全集；按查询余弦相似度分页。
 /// 空查询无语义可言、端点故障均回退关键词路径（`handle_search`），
 /// 发现能力不因 embedding 依赖不可用。
 pub async fn handle_search_semantic(
@@ -222,6 +336,7 @@ pub async fn handle_search_semantic(
     proxy_key: &ProxyKey,
     semantic: &SemanticIndex,
 ) -> Result<ToolCallResult, AsterlaneError> {
+    let options = SearchOptions::parse(&args)?;
     let query = args
         .get("query")
         .and_then(|v| v.as_str())
@@ -237,21 +352,13 @@ pub async fn handle_search_semantic(
         .map(|t| (t.name.to_wire_name(), t.description.clone()))
         .collect();
 
-    match semantic.rank(&query, &candidates, 10).await {
+    match semantic.rank(&query, &candidates, usize::MAX).await {
         Ok(ranked) => {
-            let items: Vec<Value> = ranked
+            let results = ranked
                 .iter()
                 .filter_map(|wire| catalog.find_by_wire_name(wire))
-                .map(|t| {
-                    json!({
-                        "name": t.name.to_wire_name(),
-                        "description": t.description,
-                    })
-                })
                 .collect();
-            Ok(ToolCallResult::text_ok(
-                serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string()),
-            ))
+            search_response(results, options)
         }
         Err(e) => {
             warn!(error = %e, "semantic search failed; falling back to keyword search");
@@ -263,7 +370,9 @@ pub async fn handle_search_semantic(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::WrappedTool;
     use crate::config::{ApiResource, HttpMethod, SecurityConfig, ToolEndpoint, UpstreamAuth};
+    use crate::naming::ToolName;
 
     fn test_config() -> GatewayConfig {
         GatewayConfig {
@@ -338,13 +447,15 @@ mod tests {
     }
 
     #[test]
-    fn meta_tool_descriptors_returns_four() {
+    fn meta_tool_descriptors_returns_six() {
         let descs = meta_tool_descriptors();
-        assert_eq!(descs.len(), 4);
+        assert_eq!(descs.len(), 6);
         let names: Vec<&str> = descs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&STATUS));
         assert!(names.contains(&SEARCH_TOOLS));
+        assert!(names.contains(&GET_TOOLS));
         assert!(names.contains(&CALL_TOOL));
+        assert!(names.contains(&CALL_TOOLS));
         assert!(names.contains(&FETCH_RESULT));
     }
 
@@ -366,7 +477,9 @@ mod tests {
     fn is_meta_tool_recognizes_meta_tools() {
         assert!(is_meta_tool("asterlane__status"));
         assert!(is_meta_tool("asterlane__search_tools"));
+        assert!(is_meta_tool("asterlane__get_tools"));
         assert!(is_meta_tool("asterlane__call_tool"));
+        assert!(is_meta_tool("asterlane__call_tools"));
         assert!(is_meta_tool("asterlane__fetch_result"));
     }
 
@@ -415,9 +528,62 @@ mod tests {
         let text = match &result.content[0] {
             crate::mcp::model::ToolContent::Text(t) => t.clone(),
         };
-        let items: Vec<Value> = serde_json::from_str(&text).unwrap();
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["name"], "search__tavily__web_search");
+        let page: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(page["tools"].as_array().unwrap().len(), 1);
+        assert_eq!(page["tools"][0]["name"], "search__tavily__web_search");
+        assert!(page["next_cursor"].is_null());
+    }
+
+    #[test]
+    fn handle_search_exposes_schema_only_when_requested() {
+        let config = test_config();
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "body": {"type": "object", "properties": {"limit": {"type": "integer"}}}
+            },
+            "required": ["query"]
+        });
+        catalog.extend_with_mcp_tools([WrappedTool {
+            name: ToolName::new("search", "tavily", "typed_search").unwrap(),
+            resource_id: "tavily".to_string(),
+            description: "Typed search".to_string(),
+            upstream_path: "typed_search".to_string(),
+            http_method: HttpMethod::Post,
+            input_schema: schema.clone(),
+            param_locations: None,
+            exposed_name: None,
+        }]);
+        let key = config.proxy_key("agent-1").unwrap();
+
+        let summary = handle_meta_tool_call(
+            SEARCH_TOOLS,
+            json!({"query": "typed_search"}),
+            &catalog,
+            &config,
+            key,
+        )
+        .unwrap();
+        let ToolCallResult { content, .. } = summary;
+        let crate::mcp::model::ToolContent::Text(text) = &content[0];
+        let page: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(page["tools"][0]["required"], json!(["query"]));
+        assert_eq!(page["tools"][0]["parameters"], json!(["body", "query"]));
+        assert!(page["tools"][0].get("input_schema").is_none());
+
+        let detail = handle_meta_tool_call(
+            SEARCH_TOOLS,
+            json!({"query": "typed_search", "include_schema": true}),
+            &catalog,
+            &config,
+            key,
+        )
+        .unwrap();
+        let crate::mcp::model::ToolContent::Text(text) = &detail.content[0];
+        let page: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(page["tools"][0]["input_schema"], schema);
     }
 
     #[test]
@@ -437,8 +603,8 @@ mod tests {
         let text = match &result.content[0] {
             crate::mcp::model::ToolContent::Text(t) => t.clone(),
         };
-        let items: Vec<Value> = serde_json::from_str(&text).unwrap();
-        assert_eq!(items.len(), 1);
+        let page: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(page["tools"].as_array().unwrap().len(), 1);
     }
 
     #[test]
@@ -453,9 +619,52 @@ mod tests {
         let text = match &result.content[0] {
             crate::mcp::model::ToolContent::Text(t) => t.clone(),
         };
-        let items: Vec<Value> = serde_json::from_str(&text).unwrap();
+        let page: Value = serde_json::from_str(&text).unwrap();
         // Empty query matches everything visible (only tavily for this key)
-        assert_eq!(items.len(), 1);
+        assert_eq!(page["tools"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn search_pages_scoped_results_and_rejects_invalid_pagination() {
+        let config = test_config();
+        let mut catalog = ToolCatalog::from_config(&config).unwrap();
+        for i in (0..12).rev() {
+            catalog.extend_with_mcp_tools([WrappedTool {
+                name: ToolName::new("search", "tavily", format!("item_{i:02}")).unwrap(),
+                resource_id: "tavily".into(),
+                description: "Common result".into(),
+                upstream_path: format!("item_{i:02}"),
+                http_method: HttpMethod::Post,
+                input_schema: json!({"type": "object"}),
+                param_locations: None,
+                exposed_name: None,
+            }]);
+        }
+        let key = config.proxy_key("agent-1").unwrap();
+        let page = |args| {
+            let result = handle_meta_tool_call(SEARCH_TOOLS, args, &catalog, &config, key).unwrap();
+            let crate::mcp::model::ToolContent::Text(text) = &result.content[0];
+            serde_json::from_str::<Value>(text).unwrap()
+        };
+        let first = page(json!({"query": "item_", "limit": 10}));
+        assert_eq!(first["tools"].as_array().unwrap().len(), 10);
+        assert_eq!(first["tools"][0]["name"], "search__tavily__item_00");
+        assert_eq!(first["next_cursor"], 10);
+        let second = page(json!({"query": "item_", "limit": 10, "cursor": 10}));
+        assert_eq!(second["tools"].as_array().unwrap().len(), 2);
+        assert_eq!(second["tools"][0]["name"], "search__tavily__item_10");
+        assert!(second["next_cursor"].is_null());
+        for args in [
+            json!({"query": "item_", "limit": 0}),
+            json!({"query": "item_", "limit": 51}),
+            json!({"query": "item_", "cursor": -1}),
+            json!({"query": "item_", "cursor": "1"}),
+            json!({"query": "item_", "cursor": 100}),
+        ] {
+            let error = handle_meta_tool_call(SEARCH_TOOLS, args, &catalog, &config, key)
+                .expect_err("invalid pagination");
+            assert_eq!(error.error_code(), ErrorCode::CatalogInvalidPagination);
+        }
     }
 
     #[test]
@@ -485,10 +694,10 @@ mod tests {
             DiscoveryMode::from_config_str(Some("full")),
             DiscoveryMode::Full
         );
-        assert_eq!(DiscoveryMode::from_config_str(None), DiscoveryMode::Full);
+        assert_eq!(DiscoveryMode::from_config_str(None), DiscoveryMode::Lazy);
         assert_eq!(
             DiscoveryMode::from_config_str(Some("unknown")),
-            DiscoveryMode::Full
+            DiscoveryMode::Lazy
         );
     }
 }

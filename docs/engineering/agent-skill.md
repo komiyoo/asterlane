@@ -24,7 +24,7 @@ timestamp: 2026-07-23T00:00:00+08:00
 
 - `serve` 与离线 `list-tools` 按 `--config PATH` > 非空 `ASTERLANE_CONFIG` > OS 用户配置路径读取单一 YAML。
 - 默认路径分别为 Linux `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`、macOS `$HOME/Library/Application Support/asterlane/config.yaml`、Windows `%APPDATA%\asterlane\config.yaml`。
-- CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置；`list-tools --key ID` 用于离线 scope 预览，在线查询使用 `tools list`。
+- CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置；`list-tools --key ID` 用于离线 scope 预览，在线按需查询使用 `tools search`。默认 lazy 时，`tools list` 只列出六个网关 meta-tool。
 - 在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。
 
 # 凭据边界
@@ -43,15 +43,16 @@ export ASTERLANE_KEY="$(
   cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
     jq -r '.token'
 )"
-cargo run -- tools list --domain search
 cargo run -- tools search "web search"
+cargo run -- tools get search__exa__neural_search
 cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
-cargo run -- tools list --format json | jq '.tools[].name'
+cargo run -- tools call-batch --args '{"calls":[{"name":"search__exa__neural_search","arguments":{"query":"rust mcp"}}]}'
+cargo run -- tools search "web search" --format json | jq '.tools[].name'
 ```
 
 `search__exa__neural_search` 的真实上游调用要求网关进程启动时可读取 `EXA_DEFAULT`；该变量来自示例配置的 `secret://exa/default`，不得把真实值写入文档或仓库。
 
-成功输出格式优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认：交互式终端默认 markdown，pipe 默认 JSON。`tools search` 与 `tools call` 在传输层显式请求 REST JSON，再只在客户端渲染；它们不修改服务端 REST 默认，也不改变 MCP `tools/call` 固定 JSON 的边界。完整架构见 [统一 CLI 客户端架构](../admin/cli-client-architecture.md)。
+成功输出格式优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认：交互式终端默认 markdown，pipe 默认 JSON。`tools search` 返回 `{tools,next_cursor}`，可用 `--limit`/`--cursor` 翻页；`tools get` 和 `tools call-batch` 返回有序 `results`。这些命令在传输层请求 REST JSON，再只在客户端渲染；它们不修改服务端 REST 默认，也不改变 MCP `tools/call` 固定 JSON 的边界。完整架构见 [统一 CLI 客户端架构](../admin/cli-client-architecture.md)。
 
 # CLI 操作段
 

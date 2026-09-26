@@ -4,7 +4,7 @@
 保留文件 README.md、log.md、index.md 不需要 frontmatter。
 其余 .md 必须有可解析的 YAML frontmatter 且包含非空 type。
 每个概念文件必须能从 docs/README.md 出发、经由保留导航文件中的相对链接到达。
-含有概念文件的子目录必须有 README.md。
+含有概念文件的子目录必须有 README.md；计划的日期目录由年份索引导航。
 """
 
 from __future__ import annotations
@@ -97,8 +97,11 @@ def walk_index(root_readme: Path) -> tuple[set[Path], list[str]]:
 def check_subdir_indexes(concepts: dict[Path, Path]) -> list[str]:
     errors: list[str] = []
     dirs_with_concepts = {path.parent.resolve() for path in concepts}
+    plans_root = (DOCS / "plans").resolve()
     for directory in sorted(dirs_with_concepts):
         if directory == DOCS.resolve():
+            continue
+        if directory.parent.parent in {plans_root, plans_root / "Archive"} and re.fullmatch(r"\d{2}-\d{2}", directory.name):
             continue
         if not (directory / "README.md").is_file():
             rel = directory.relative_to(Path.cwd())

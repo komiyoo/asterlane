@@ -1,5 +1,25 @@
 # Documentation Update Log
 
+## 2026-09-26（默认 lazy 与批量工具操作）
+
+- **行为**：未配置 `discovery_mode` 的 key 与开放 MCP 模式默认 lazy；显式 `full` 保留完整列表。`search_tools` 返回可翻页的 `{tools,next_cursor}`。新增按当前 key scope 批量取详情的 `get_tools` 和顺序执行独立调用的 `call_tools`，逐项返回结果，超预算内容通过 key 绑定游标续取。MCP 还提供可选的 `asterlane_tool_workflow` prompt。
+- **兼容**：旧配置需要完整列表时显式设 `discovery_mode: full`；旧搜索消费者改读 `tools` 与 `next_cursor`。在线 CLI 增 `tools get`、`tools call-batch`，并适配搜索分页。
+- **文档**：[API Discovery](runtime/api-discovery.md#大目录代理入口)、[Configuration Schema](runtime/config-schema.md)、[Compatibility Policy](architecture/compatibility-policy.md)、[CLI 架构](admin/cli-client-architecture.md)、[Agent Skill 指南](engineering/agent-skill.md)、[Roadmap](product/roadmap.md)、根 `README.md`；实施记录见 [计划](plans/Archive/2026/09-26/00-mcp-默认-lazy-与批量工具操作.md)。
+- **验证**：`just check`、计划索引检查和 `git diff --check` 通过。
+- **回归补强**：显式 `full` 在 catalog 数量恰好整除页大小时不再返回空白尾页，六个 meta-tool 随最后一个 catalog 页返回；测试覆盖 MCP 跨页 scope、批量 `input_required` 续调字段，以及 MCP/REST 对非法批次的拒绝。
+
+## 2026-09-26（大目录代理入口实施设计）
+
+- **设计**：确定默认 lazy、按 key 批量获取工具详情和逐项执行独立调用；批量调用沿用现有授权与执行管线，并为支持 prompts 的客户端提供可选流程提示。不执行代理提交的代码，不转发任意上游 URL。
+- **文档**：[API Discovery · 大目录代理入口](runtime/api-discovery.md#大目录代理入口)。本条记录当时的设计目标，实施结果见上条。
+- **计划**：[MCP 默认 lazy 与批量工具操作](plans/Archive/2026/09-26/00-mcp-默认-lazy-与批量工具操作.md)。
+
+## 2026-09-26（lazy 搜索按需返回工具参数）
+
+- **行为**：`asterlane__search_tools` 默认返回参数名和必填项；传 `include_schema: true` 返回完整 `input_schema`。关键词与语义搜索保持同一格式，并继续按 gateway key scope 过滤。`asterlane tools search` 新增 `--include-schema`。
+- **文档**：[API Discovery](runtime/api-discovery.md)；[Product Requirements](product/product-requirements.md)；根 `README.md`。
+- **验证**：`just check`。
+
 ## 2026-08-20（订阅上游 tools/list_changed）
 
 - **行为**：握手后 best-effort `subscriptions/listen`（`toolsListChanged=true`）；legacy session 走 `ClientHandler::on_tool_list_changed`。通知与周期 refresh 共用拉目录 / catalog / drift / 下游推送。上游不支持 listen 时安静降级。`mcp.refresh_interval_secs: 0` 不 tick，仍收 notify。对照配置：`examples/gateway-mcp.yaml`（Exa，keyless）、`examples/gateway-rollinggo.yaml`（RollingGo Hotel，需 `ROLLINGGO_API_KEY`）。多数托管 MCP 工具集很少变，本机集成测试用进程内 Streamable HTTP 模拟推送。

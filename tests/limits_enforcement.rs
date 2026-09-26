@@ -322,6 +322,7 @@ api_resources:
 proxy_keys:
   - id: key-servers
     allowed_servers: [mock]
+    discovery_mode: full
   - id: key-names
     allowed_tool_names: [search__other__search]
 "#
@@ -439,4 +440,101 @@ async fn limited_rejection_records_request_event() {
     assert!(limited[0].rate_limited, "被拒事件带 rate_limited 标记");
     assert_eq!(limited[0].proxy_key_id, "agent");
     assert_eq!(limited[0].resource_id, "mock");
+}
+
+#[tokio::test]
+async fn batch_calls_count_each_success_and_continue_after_failure() {
+    use asterlane::observability::RequestStatus;
+    use asterlane::store::{
+        RequestEventFilter, RequestEventRepository, SqliteRequestEventRepository,
+    };
+
+    let addr = start_mock_upstream(Duration::ZERO).await;
+    let yaml = base_yaml(
+        addr,
+        "",
+        r#"
+  - id: agent
+    allowed_tools: ['^search:.*']
+    limits: { max_calls: 2 }
+"#,
+    );
+    let config = parse_config(&yaml);
+    let catalog = ToolCatalog::from_config(&config).expect("catalog");
+    let registry = LimitRegistry::from_config(&config).expect("limits");
+    let pool = sqlx::sqlite::SqlitePool::connect("sqlite::memory:")
+        .await
+        .expect("pool");
+    asterlane::store::run_migrations(&pool)
+        .await
+        .expect("migrations");
+    let repo = Arc::new(SqliteRequestEventRepository::new(pool));
+    let mut state = AppState::new(config, catalog)
+        .with_limit_registry(Arc::new(registry))
+        .with_event_repository(repo.clone());
+    state.http_client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("client");
+    let app = build_app(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/tools/asterlane__call_tools/invoke?key=agent")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"calls": [
+                        {"name": "search__mock__search", "arguments": {}},
+                        {"name": "missing__mock__search", "arguments": {}},
+                        {"name": "search__mock__search", "arguments": {}},
+                        {"name": "search__mock__search", "arguments": {}}
+                    ]})
+                    .to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("batch response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response.into_body()).await;
+    let batch: serde_json::Value =
+        serde_json::from_str(body["content"][0]["Text"].as_str().expect("batch text"))
+            .expect("batch json");
+    let results = batch["results"].as_array().expect("results");
+    assert_eq!(results.len(), 4);
+    assert!(results[0]["result"].is_object(), "first call: {batch}");
+    assert_eq!(results[1]["error"], "unknown tool");
+    assert!(
+        results[2]["result"].is_object(),
+        "call after failure: {batch}"
+    );
+    assert!(
+        results[3]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("quota exhausted")),
+        "third real call must exhaust the two-call quota: {batch}"
+    );
+
+    let events = repo
+        .list_events(&RequestEventFilter::default(), 10)
+        .await
+        .expect("events");
+    assert_eq!(events.len(), 3, "unknown tool must not enter the executor");
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.status == RequestStatus::Success)
+            .count(),
+        2
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.status == RequestStatus::Limited)
+            .count(),
+        1
+    );
+    assert!(events.iter().all(|event| event.proxy_key_id == "agent"));
 }

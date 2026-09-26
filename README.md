@@ -14,7 +14,7 @@
 - **Key 凭据化** — proxy key 真实 token（`alk_*`）签发/轮换/吊销/过期，SHA-256 摘要存储
 - **细粒度限额** — per-key rps/rpm/累计/日配额 + per-上游 rps/rpm/并发上限
 - **MCP 治理** — 供应商 CRUD、健康状态机、降级启动、自动重连、工具介绍 override
-- **渐进式发现** — Full key 的 `tools/list` 支持 domain/provider/tool 正则过滤 + 分页；`discovery_mode: lazy` 的 key 只列出四个 `asterlane__*` meta-tool
+- **渐进式发现** — 默认 lazy，只列出六个网关工具；按 key 范围搜索、批量取详情和批量调用，显式 `discovery_mode: full` 保留完整列表
 - **执行管线** — key pool 负载均衡、限流队列、失败重试、content defense、结果裁剪（请求变换模块尚未接入执行路径）
 - **MCP 代理安全** — 上游工具指纹 baseline 与 drift 检测（warn/quarantine/block）
 - **观测** — 请求事件落 SQLite，负载捕获（参数/响应预览/耗时，截断+脱敏），Prometheus `/metrics`，OTLP 导出（feature `otlp`）
@@ -58,16 +58,18 @@ export ASTERLANE_KEY="$(
   cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
     jq -r '.token'
 )"
-cargo run -- tools list --domain search
+cargo run -- tools list
 cargo run -- tools search "web search"
+cargo run -- tools get search__exa__neural_search
 cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
-cargo run -- tools list --format json | jq '.tools[].name'
+cargo run -- tools call-batch --args '{"calls":[{"name":"search__exa__neural_search","arguments":{"query":"rust mcp"}}]}'
+cargo run -- tools search "web search" --format json | jq '.tools[].name'
 
 # 管理 CLI 使用独立的 ASTERLANE_ADMIN_TOKEN
 cargo run -- admin stats
 ```
 
-在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。代理侧把网关当作 MCP server 接入：`http://127.0.0.1:3000/mcp`（Streamable HTTP）。
+在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。`tools search` 输出 `{tools,next_cursor}`，可用 `--limit` 和 `--cursor` 翻页；省略 `discovery_mode` 的 key 现在默认 lazy，旧客户端需要完整列表时为该 key 配 `discovery_mode: full`。代理侧把网关当作 MCP server 接入：`http://127.0.0.1:3000/mcp`（Streamable HTTP），可主动获取 `asterlane_tool_workflow` prompt。
 
 ## 端点
 

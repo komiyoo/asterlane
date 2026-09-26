@@ -78,7 +78,7 @@ Do not print resolved secrets in CLI output, logs, errors, tests, or docs.
 
 `asterlane serve` 与离线 `asterlane list-tools` 按 `--config PATH`、非空 `ASTERLANE_CONFIG`、OS 用户配置路径的顺序读取单一 YAML。Linux 使用 `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml`，macOS 使用 `$HOME/Library/Application Support/asterlane/config.yaml`，Windows 使用 `%APPDATA%\asterlane\config.yaml`。CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。
 
-`list-tools --key ID` 是启动前的离线 catalog/scope 预览；运行中网关的在线查询使用 `asterlane tools list`。
+`list-tools --key ID` 是启动前的离线 catalog/scope 预览；运行中网关默认通过 `asterlane tools search` 按需查询。`tools list` 在默认 lazy 模式下只列六个网关 meta-tool，显式 `discovery_mode: full` 的 key 才列 catalog。
 
 ## Use The Gateway Tools CLI
 
@@ -90,13 +90,14 @@ export ASTERLANE_KEY="$(
   cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
     jq -r '.token'
 )"
-cargo run -- tools list --domain search
 cargo run -- tools search "web search"
+cargo run -- tools get search__exa__neural_search
 cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
-cargo run -- tools list --format json | jq '.tools[].name'
+cargo run -- tools call-batch --args '{"calls":[{"name":"search__exa__neural_search","arguments":{"query":"rust mcp"}}]}'
+cargo run -- tools search "web search" --format json | jq '.tools[].name'
 ```
 
-成功输出支持 `json|yaml|markdown`，优先级为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。`tools search` 与 `tools call` 始终向 REST 端点请求 JSON，再只在客户端渲染，因此不会改变服务端 REST 默认，也不会影响固定 JSON 的 MCP `tools/call`。
+成功输出支持 `json|yaml|markdown`，优先级为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。`tools search` 返回 `{tools,next_cursor}`，支持 `--limit`/`--cursor` 翻页；`tools get` 与 `tools call-batch` 返回有序 `results`。这些在线命令向 REST 端点请求 JSON，再只在客户端渲染，不改变 MCP `tools/call` 固定 JSON 的边界。
 
 ## Operate The Gateway With The CLI
 

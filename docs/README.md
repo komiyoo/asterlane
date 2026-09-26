@@ -9,6 +9,7 @@
 - [配置与运行时](runtime/) - YAML schema、发现、渲染、MCP 治理与 key 凭据。
 - [管理面与 CLI](admin/) - Web 控制台、调试调用、tools/admin 客户端与配置发现。
 - [工程与文档](engineering/) - 工作流、Worktree、工程纲领、文档约定、agent skill 与仓库脚本。
+- [实施计划](plans/) - 按日期编号的执行步骤与验收项。
 
 ## 时间线
 

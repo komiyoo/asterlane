@@ -332,6 +332,14 @@ impl GatewayConfig {
 
     pub fn validate_key_credentials(&self) -> Result<(), AsterlaneError> {
         for key in &self.proxy_keys {
+            if let Some(mode) = key.discovery_mode.as_deref()
+                && !matches!(mode, "lazy" | "full")
+            {
+                return Err(AsterlaneError::internal(
+                    ErrorCode::ConfigInvalidYaml,
+                    format!("proxy key {}: discovery_mode must be lazy or full", key.id),
+                ));
+            }
             if key.token_ref.is_some() && key.token_digest.is_some() {
                 return Err(AsterlaneError::internal(
                     ErrorCode::ConfigInvalidYaml,
@@ -710,7 +718,7 @@ pub struct ProxyKey {
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default = "default_tool_page_size")]
     pub default_tool_page_size: usize,
-    /// Discovery mode: `"lazy"` exposes only meta-tools, `"full"` (or absent) exposes all.
+    /// Discovery mode: absent/`"lazy"` exposes only meta-tools; `"full"` exposes all.
     #[serde(default)]
     pub discovery_mode: Option<String>,
     /// 渠道级默认响应格式；缺省继承 `defaults.response_format`。
@@ -909,6 +917,16 @@ proxy_keys:
         assert!(key.token_digest.is_none());
         assert!(key.expires_at.is_none());
         assert!(config.validate_key_credentials().is_ok());
+    }
+
+    #[test]
+    fn discovery_mode_rejects_unknown_values() {
+        let config = parse("proxy_keys:\n  - id: agent-a\n    discovery_mode: unknown\n");
+        let error = config
+            .validate_key_credentials()
+            .expect_err("invalid discovery mode");
+        assert_eq!(error.error_code(), ErrorCode::ConfigInvalidYaml);
+        assert!(error.to_string().contains("discovery_mode"));
     }
 
     #[test]

@@ -28,7 +28,7 @@
 //! 4. **生产调用路径**：`AsterlaneToolServer` 与 HTTP invoke 经
 //!    `ProxyExecutor` / `McpServerRegistry`，没有独立 adapter 层。
 
-mod call;
+pub(crate) mod call;
 pub mod error;
 pub mod health;
 pub mod model;
@@ -37,6 +37,7 @@ pub mod registry;
 mod result;
 pub mod server;
 pub mod upstream_notify;
+mod workflow_prompt;
 
 use crate::config::McpFailureMode;
 

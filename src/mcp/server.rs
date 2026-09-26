@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
-    DiscoverResult, ErrorData, Implementation, ListToolsResult, PaginatedRequestParams,
-    RequestMetaObject, ServerCapabilities, ServerInfo, SubscriptionFilter, Tool,
+    DiscoverResult, ErrorData, GetPromptRequestParams, GetPromptResponse, Implementation,
+    ListPromptsResult, ListToolsResult, PaginatedRequestParams, RequestMetaObject,
+    ServerCapabilities, ServerInfo, SubscriptionFilter, Tool,
 };
 use rmcp::service::{RequestContext, SubscriptionContext};
 use rmcp::{RoleServer, ServerHandler};
@@ -18,13 +19,15 @@ use crate::discovery::DiscoveryMode;
 use crate::gateway_auth::GatewayKeyId;
 use crate::http::AppState;
 use crate::mcp::call::{
-    descriptor_to_mcp_tool, fetch_result_meta_tool, invoke_meta_call_tool, wrapped_to_mcp_tool,
+    call_tools, descriptor_to_mcp_tool, fetch_result_meta_tool, get_tools, invoke_meta_call_tool,
+    wrapped_to_mcp_tool,
 };
 use crate::mcp::model::ToolCallExtras;
 use crate::mcp::notify::{
     accepted_tools_list_changed_filter, is_legacy_protocol, listen_tools_list_changed,
     register_legacy_peer,
 };
+use crate::mcp::workflow_prompt::{get_workflow_prompt, list_workflow_prompts};
 use crate::proxy::ProxyExecutor;
 use crate::render::ResponseFormat;
 use crate::shaping::ShapingConfig;
@@ -32,7 +35,7 @@ use crate::shaping::ShapingConfig;
 /// 默认分页大小。
 const DEFAULT_PAGE_SIZE: usize = 50;
 
-// 开放模式（无任何 key 配置 token）的全放行 key，维持历史行为；
+// 开放模式（无任何 key 配置 token）的全放行 key；列表仍按默认 lazy 发现。
 // required 模式下由认证 middleware 绑定真实 ProxyKey（见 resolve_proxy_key）。
 fn mcp_default_key() -> ProxyKey {
     ProxyKey {
@@ -71,8 +74,8 @@ impl AsterlaneToolServer {
     /// （rmcp 3.x `streamable_http_server/tower.rs`「inject request part to
     /// extensions」），此处逐层读出并按 id 取真实 ProxyKey（scope/限额生效）。
     ///
-    /// 开放模式（无 key 配置 token）无绑定 → 返回全放行 mcp_default_key，
-    /// 维持向后兼容；required 模式下缺绑定为防御分支（middleware 必已拦截）。
+    /// 开放模式（无 key 配置 token）无绑定 → 返回全放行 mcp_default_key；
+    /// required 模式下缺绑定为防御分支（middleware 必已拦截）。
     async fn resolve_proxy_key(
         &self,
         config: &GatewayConfig,
@@ -179,6 +182,7 @@ impl ServerHandler for AsterlaneToolServer {
             ServerCapabilities::builder()
                 .enable_tools()
                 .enable_tool_list_changed()
+                .enable_prompts()
                 .build(),
         )
         .with_server_info(Implementation::new(
@@ -213,6 +217,30 @@ impl ServerHandler for AsterlaneToolServer {
     async fn listen(&self, context: SubscriptionContext) -> Result<(), ErrorData> {
         listen_tools_list_changed(&self.state.tool_list_changed_peers, context).await;
         Ok(())
+    }
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, ErrorData> {
+        Ok(list_workflow_prompts())
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, ErrorData> {
+        get_workflow_prompt(&request.name)
+            .map(Into::into)
+            .ok_or_else(|| {
+                ErrorData::new(
+                    rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+                    "unknown prompt",
+                    None,
+                )
+            })
     }
 
     #[instrument(skip_all)]
@@ -322,6 +350,33 @@ impl ServerHandler for AsterlaneToolServer {
 
         // Meta-tool 路径
         if crate::discovery::is_meta_tool(wire_name) {
+            if wire_name == "asterlane__get_tools" {
+                let catalog = self.state.catalog.read().await;
+                return Ok(
+                    match get_tools(arguments, &catalog, &key, &self.state.result_cache) {
+                        Ok(response) => {
+                            let text = serde_json::to_string(&response)
+                                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+                            tool_call_result_to_mcp(crate::mcp::ToolCallResult::text_ok(text))
+                                .into()
+                        }
+                        Err(e) => CallToolResult::error(vec![ContentBlock::text(e)]).into(),
+                    },
+                );
+            }
+            if wire_name == "asterlane__call_tools" {
+                return Ok(
+                    match call_tools(arguments, &self.state, &key, format).await {
+                        Ok(response) => {
+                            let text = serde_json::to_string(&response)
+                                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+                            tool_call_result_to_mcp(crate::mcp::ToolCallResult::text_ok(text))
+                                .into()
+                        }
+                        Err(e) => CallToolResult::error(vec![ContentBlock::text(e)]).into(),
+                    },
+                );
+            }
             if wire_name == "asterlane__call_tool" {
                 return match invoke_meta_call_tool(arguments, extras, &self.state, &key, format)
                     .await
@@ -389,7 +444,7 @@ fn fail_closed_list_error_data() -> ErrorData {
     ErrorData::internal_error("one or more MCP upstreams are unreachable", None)
 }
 
-/// `discovery_mode: lazy` 的 `tools/list`：四个 meta-tool，无 catalog、无游标。
+/// `discovery_mode: lazy` 的 `tools/list`：仅 meta-tool，无 catalog、无游标。
 fn lazy_meta_tool_list(ttl_ms: Option<u64>) -> ListToolsResult {
     ListToolsResult {
         meta: None,
@@ -562,7 +617,7 @@ mod tests {
                 search_mcp_config("tavily", "tavily"),
                 search_mcp_config("exa", "exa"),
             ],
-            // 配置里有 lazy key 但无 token：开放模式仍走 mcp_default_key（Full），
+            // 配置里有 lazy key 但无 token：开放模式仍走 mcp_default_key，
             // 不得把某条 key 的 discovery_mode 当成全局开关。
             proxy_keys: vec![{
                 let mut key = mcp_default_key();
@@ -622,32 +677,110 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tools_list_exposes_shortest_unambiguous_names() {
+    async fn tools_list_defaults_to_meta_tools() {
         let (state, _tavily, _exa) = ambiguous_search_state().await;
         let (client, server_task) = serve_pair(state).await;
 
         let result = client.list_tools(None).await.expect("list_tools");
-        let (mut meta, mut names): (Vec<String>, Vec<String>) = result
-            .tools
-            .iter()
-            .map(|t| t.name.to_string())
-            .partition(|n| n.starts_with("asterlane__"));
-        names.sort();
+        let names: Vec<String> = result.tools.iter().map(|t| t.name.to_string()).collect();
+        assert!(names.iter().all(|name| name.starts_with("asterlane__")));
+        assert!(names.contains(&"asterlane__search_tools".to_string()));
+        assert!(result.next_cursor.is_none());
+
+        let _ = client.cancel().await;
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn workflow_prompt_is_available_over_mcp() {
+        let (state, _tavily, _exa) = ambiguous_search_state().await;
+        let (client, server_task) = serve_pair(state).await;
+
+        let list = client.list_prompts(None).await.expect("list_prompts");
+        assert_eq!(list.prompts.len(), 1);
+        let prompt = client
+            .get_prompt(GetPromptRequestParams::new("asterlane_tool_workflow"))
+            .await
+            .expect("get_prompt");
+        assert_eq!(prompt.messages.len(), 1);
+
+        let _ = client.cancel().await;
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn batch_meta_tools_work_over_mcp() {
+        let (state, tavily, exa) = ambiguous_search_state().await;
+        let (client, server_task) = serve_pair(state).await;
+
+        let details = client
+            .call_tool(
+                CallToolRequestParams::new("asterlane__get_tools").with_arguments(
+                    json!({"names": ["search__exa__neural_search", "missing__tool__name"]})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await
+            .expect("get_tools");
+        let details: serde_json::Value =
+            serde_json::from_str(&details.content[0].as_text().expect("text result").text).unwrap();
         assert_eq!(
-            names,
-            ["exa__web_search", "neural_search", "tavily__web_search"]
+            details["results"][0]["tool"]["name"],
+            "search__exa__neural_search"
         );
-        // meta-tool 始终出现在最后一页
-        meta.sort();
-        assert_eq!(
-            meta,
-            [
-                "asterlane__call_tool",
-                "asterlane__fetch_result",
-                "asterlane__search_tools",
-                "asterlane__status"
-            ]
-        );
+        assert_eq!(details["results"][1]["error"], "not_found");
+
+        let calls = client
+            .call_tool(
+                CallToolRequestParams::new("asterlane__call_tools").with_arguments(
+                    json!({"calls": [
+                        {"name": "search__exa__neural_search", "arguments": {}},
+                        {"name": "missing__tool__name", "arguments": {}},
+                        {"name": "search__tavily__web_search", "arguments": {}}
+                    ]})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                ),
+            )
+            .await
+            .expect("call_tools");
+        let calls: serde_json::Value =
+            serde_json::from_str(&calls.content[0].as_text().expect("text result").text).unwrap();
+        assert_eq!(calls["results"][0]["result"]["isError"], false);
+        assert_eq!(calls["results"][1]["error"], "unknown tool");
+        assert_eq!(calls["results"][2]["result"]["isError"], false);
+        assert_eq!(exa.calls.lock().unwrap().len(), 1);
+        assert_eq!(tavily.calls.lock().unwrap().len(), 1);
+
+        let _ = client.cancel().await;
+        server_task.abort();
+    }
+
+    #[tokio::test]
+    async fn invalid_batches_do_not_call_upstream() {
+        let (state, tavily, exa) = ambiguous_search_state().await;
+        let (client, server_task) = serve_pair(state).await;
+        for (name, arguments) in [
+            ("asterlane__get_tools", json!({"names": []})),
+            (
+                "asterlane__call_tools",
+                json!({"calls": vec![json!({"name": "search__exa__neural_search", "arguments": {}}); 11]}),
+            ),
+        ] {
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new(name)
+                        .with_arguments(arguments.as_object().unwrap().clone()),
+                )
+                .await
+                .expect("invalid batch returns tool error");
+            assert_eq!(result.is_error, Some(true), "{name}");
+        }
+        assert!(exa.calls.lock().unwrap().is_empty());
+        assert!(tavily.calls.lock().unwrap().is_empty());
 
         let _ = client.cancel().await;
         server_task.abort();

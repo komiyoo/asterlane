@@ -145,6 +145,7 @@ api_resources:
 proxy_keys:
   - id: agent
     allowed_tools: [".*"]
+    discovery_mode: full
 "#;
 
     fn plain_state() -> AppState {

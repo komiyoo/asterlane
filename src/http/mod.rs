@@ -203,7 +203,7 @@ mod tests {
                 allowed_tools: vec![r"^search:.*".to_string()],
                 denied_tools: vec![],
                 default_tool_page_size: 10,
-                discovery_mode: None,
+                discovery_mode: Some("full".to_string()),
                 response_format: None,
                 allowed_servers: Vec::new(),
                 allowed_tool_names: Vec::new(),
@@ -665,6 +665,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tools_default_key_lists_only_meta_tools() {
+        let mut config = test_config();
+        config.proxy_keys[0].discovery_mode = None;
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let app = build_app(AppState::new(config, catalog));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/tools?key=agent-search")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let json = body_to_json(response.into_body()).await;
+        assert_eq!(json["discovery_mode"], "lazy");
+        let tools = json["tools"].as_array().unwrap();
+        assert!(tools.iter().all(|tool| {
+            tool["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("asterlane__"))
+        }));
+        assert!(!tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn batch_get_tools_hides_out_of_scope_details() {
+        let mut config = test_config();
+        config.proxy_keys[0].allowed_tools = vec![r"^search__tavily__.*".to_string()];
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let app = build_app(AppState::new(config, catalog));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/asterlane__get_tools/invoke?key=agent-search")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"names":["search__exa__neural_search","search__tavily__web_search","missing__tool__name"]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let outer = body_to_json(response.into_body()).await;
+        let result: Value =
+            serde_json::from_str(outer["content"][0]["Text"].as_str().unwrap()).unwrap();
+        let items = result["results"].as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0]["error"], "not_found");
+        assert_eq!(items[2]["error"], "not_found");
+        assert_eq!(items[1]["tool"]["name"], "search__tavily__web_search");
+        assert!(result.to_string().contains("Search web with Tavily"));
+        assert!(!result.to_string().contains("Search web with Exa"));
+    }
+
+    #[tokio::test]
+    async fn invalid_batch_arguments_return_400() {
+        let app = build_app(test_state());
+        for (name, arguments) in [
+            ("asterlane__get_tools", serde_json::json!({"names": []})),
+            (
+                "asterlane__call_tools",
+                serde_json::json!({"calls": [{"name": "search__tavily__web_search", "arguments": []}]}),
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(format!("/v1/tools/{name}/invoke?key=agent-search"))
+                        .header(CONTENT_TYPE, "application/json")
+                        .body(Body::from(arguments.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{name}");
+            let body = body_to_json(response.into_body()).await;
+            assert_eq!(body["error"]["code"], "mcp.invalid_tool_call");
+        }
+    }
+
+    #[tokio::test]
     async fn tools_with_provider_filter() {
         let app = build_app(test_state());
         let response = app
@@ -739,6 +827,94 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_to_json(response.into_body()).await;
         assert_eq!(json["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn batch_call_tools_returns_each_result_after_an_error() {
+        let app = build_app(invoke_state().await);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/asterlane__call_tools/invoke?key=agent-test")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"calls":[{"name":"search__mock__search","arguments":{"query":"first"}},{"name":"unknown__tool__name","arguments":{}},{"name":"search__mock__search","arguments":{"query":"last"}}]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let outer = body_to_json(response.into_body()).await;
+        let result: Value =
+            serde_json::from_str(outer["content"][0]["Text"].as_str().unwrap()).unwrap();
+        let items = result["results"].as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0]["result"]["isError"], false);
+        assert!(items[0]["request_id"].as_str().is_some());
+        assert_eq!(items[1]["name"], "unknown__tool__name");
+        assert!(items[1]["error"].as_str().is_some());
+        assert_eq!(items[2]["result"]["isError"], false);
+        assert!(items[2]["request_id"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn batch_call_tools_large_result_can_be_fetched() {
+        let upstream_body =
+            serde_json::json!({"data": format!("batch-result-{}", "x".repeat(32_000))})
+                .to_string()
+                .into_bytes();
+        let addr = start_mock_upstream(200, upstream_body).await;
+        let app = build_app(invoke_state_with_body(addr, SecurityConfig::default()).await);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/asterlane__call_tools/invoke?key=agent-test")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"calls":[{"name":"search__mock__search","arguments":{}},{"name":"search__mock__search","arguments":{}}]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let outer = body_to_json(response.into_body()).await;
+        let batch: Value =
+            serde_json::from_str(outer["content"][0]["Text"].as_str().unwrap()).unwrap();
+        let cursor = batch["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|item| item["cursor"].as_str())
+            .expect("long item has cursor");
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/asterlane__fetch_result/invoke?key=agent-test")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"cursor": cursor}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let fetched = body_to_json(response.into_body()).await;
+        assert_eq!(fetched["is_error"], false);
+        assert!(
+            fetched["content"][0]["Text"]
+                .as_str()
+                .unwrap()
+                .contains("batch-result-")
+        );
     }
 
     #[tokio::test]
@@ -1047,6 +1223,36 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_to_json(response.into_body()).await;
         assert_eq!(json["is_error"], true);
+    }
+
+    #[tokio::test]
+    async fn batch_call_tools_preserves_remote_mcp_error_and_defense_flag() {
+        let app = build_app(remote_mcp_state().await);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/tools/asterlane__call_tools/invoke?key=agent-test")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"calls":[{"name":"tools__remote__failingtool","arguments":{}}]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let outer = body_to_json(response.into_body()).await;
+        let batch: Value =
+            serde_json::from_str(outer["content"][0]["Text"].as_str().unwrap()).unwrap();
+        assert_eq!(batch["results"][0]["result"]["isError"], true);
+        assert!(
+            batch["results"][0]["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("[Asterlane content_defense_flag=true]")
+        );
     }
 
     // ── error response shape ──

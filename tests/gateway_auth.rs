@@ -117,14 +117,19 @@ fn mcp_initialize(bearer: Option<&str>) -> Request<Body> {
 // ── /v1/tools：Bearer 认证 ──
 
 #[tokio::test]
-async fn bearer_token_lists_tools() {
+async fn bearer_token_defaults_to_lazy_tools() {
     let app = app_for(parse_config(&mixed_yaml()));
     let response = app.oneshot(get_bearer("/v1/tools", TOKEN)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let json = body_json(response.into_body()).await;
     let tools = json["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 1, "scope 应只放行 search domain");
-    assert_eq!(tools[0]["name"]["domain"], "search");
+    assert_eq!(tools.len(), 6);
+    assert_eq!(json["discovery_mode"], "lazy");
+    assert!(
+        tools
+            .iter()
+            .all(|tool| tool["name"].as_str().unwrap().starts_with("asterlane__"))
+    );
 }
 
 #[tokio::test]
@@ -284,13 +289,9 @@ async fn mcp_required_mode_binds_key_and_filters_scope() {
     let client = ().serve(transport).await.expect("mcp handshake");
 
     let tools = client.peer().list_all_tools().await.expect("list tools");
-    let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
-    // tools/list 暴露 key 可见集内最短无歧义名（docs/architecture/naming-convention.md）：
-    // scope 内唯一裸名 "search" 可见；scope 外 docs 工具任何形式不得泄漏
-    assert!(names.contains(&"search"), "scope 内工具应可见: {names:?}");
-    assert!(
-        !names.iter().any(|n| n.contains("lookup")),
-        "scope 外工具不得泄漏: {names:?}"
+    assert_eq!(
+        tool_names(&tools),
+        expected_meta_tool_names().map(str::to_string)
     );
 
     let _ = client.cancel().await;
@@ -299,7 +300,7 @@ async fn mcp_required_mode_binds_key_and_filters_scope() {
 /// 第二条测试 token，与 `TOKEN` 摘要不同；同配置下 Full key 对照用。
 const TOKEN_FULL: &str = "alk_e2e_full_token_0123456789abcdefghijklm";
 
-/// 同配置：一条 lazy token key + 一条缺省（Full）token key。
+/// 同配置：一条 lazy token key + 一条显式 Full token key。
 fn full_and_lazy_yaml() -> String {
     yaml_with_keys(&format!(
         r#"
@@ -310,6 +311,7 @@ fn full_and_lazy_yaml() -> String {
   - id: agent-full
     allowed_tools: ['^search:.*']
     token_digest: "{}"
+    discovery_mode: full
 "#,
         digest_hex(TOKEN),
         digest_hex(TOKEN_FULL)
@@ -329,10 +331,12 @@ fn open_mode_with_lazy_key_yaml() -> String {
     )
 }
 
-fn expected_meta_tool_names() -> [&'static str; 4] {
+fn expected_meta_tool_names() -> [&'static str; 6] {
     [
         "asterlane__call_tool",
+        "asterlane__call_tools",
         "asterlane__fetch_result",
+        "asterlane__get_tools",
         "asterlane__search_tools",
         "asterlane__status",
     ]
@@ -393,7 +397,7 @@ async fn mcp_lazy_mode_narrows_list_not_call() {
     assert_eq!(
         names,
         expected_meta_tool_names().map(str::to_string),
-        "lazy list 只能是四个 meta-tool: {names:?}"
+        "lazy list 只能是六个 meta-tool: {names:?}"
     );
 
     let page = lazy
@@ -457,6 +461,9 @@ async fn mcp_lazy_mode_narrows_list_not_call() {
         search_text.contains("search__mock__search"),
         "search_tools 仍按 key scope 发现 catalog 工具: {search_text}"
     );
+    let search_page: serde_json::Value = serde_json::from_str(search_text).unwrap();
+    assert_eq!(search_page["tools"][0]["parameters"], json!([]));
+    assert!(search_page["tools"][0].get("input_schema").is_none());
 
     let full_tools = full.peer().list_all_tools().await.expect("full list");
     let full_names: Vec<&str> = full_tools.iter().map(|t| t.name.as_ref()).collect();
@@ -474,19 +481,126 @@ async fn mcp_lazy_mode_narrows_list_not_call() {
 }
 
 #[tokio::test]
-async fn mcp_open_mode_stays_full_when_config_has_lazy_key() {
+async fn mcp_full_list_paginates_catalog_before_meta_tools() {
+    use rmcp::model::PaginatedRequestParams;
+
+    let mut config = parse_config(&full_and_lazy_yaml());
+    for tool in ["search_two", "search_three"] {
+        let mut endpoint = config.api_resources[0].endpoints[0].clone();
+        endpoint.tool = tool.to_string();
+        config.api_resources[0].endpoints.push(endpoint);
+    }
+    config.proxy_keys[1].default_tool_page_size = 1;
+    let addr = serve_gateway(config).await;
+    let full = mcp_connect(addr, Some(TOKEN_FULL)).await;
+
+    let mut cursor = None;
+    let mut catalog_names = Vec::new();
+    for offset in 0..3 {
+        let page = full
+            .list_tools(
+                cursor.map(|cursor| PaginatedRequestParams::default().with_cursor(Some(cursor))),
+            )
+            .await
+            .expect("full page");
+        assert_eq!(page.tools.len(), 1 + if offset == 2 { 6 } else { 0 });
+        let name = page.tools[0].name.to_string();
+        assert!(!name.starts_with("asterlane__"));
+        assert!(
+            !name.contains("lookup"),
+            "scope-excluded tool on page {offset}"
+        );
+        catalog_names.push(name);
+        if offset == 2 {
+            assert_eq!(
+                tool_names(&page.tools[1..]),
+                expected_meta_tool_names().map(str::to_string)
+            );
+            assert!(page.next_cursor.is_none());
+        } else {
+            let expected_cursor = (offset + 1).to_string();
+            assert_eq!(page.next_cursor.as_deref(), Some(expected_cursor.as_str()));
+        }
+        cursor = page.next_cursor;
+    }
+    catalog_names.sort();
+    catalog_names.dedup();
+    assert_eq!(catalog_names.len(), 3);
+
+    let _ = full.cancel().await;
+}
+
+#[tokio::test]
+async fn mcp_open_mode_defaults_to_lazy_when_config_has_lazy_key() {
     let addr = serve_gateway(parse_config(&open_mode_with_lazy_key_yaml())).await;
     let client = mcp_connect(addr, None).await;
 
     let tools = client.peer().list_all_tools().await.expect("open list");
-    let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
-    assert!(
-        names.contains(&"search"),
-        "开放模式即使 YAML 含 lazy key 仍是 Full: {names:?}"
+    assert_eq!(
+        tool_names(&tools),
+        expected_meta_tool_names().map(str::to_string)
     );
-    for meta in expected_meta_tool_names() {
-        assert!(names.contains(&meta), "Full 末页应含 {meta}: {names:?}");
-    }
+
+    let _ = client.cancel().await;
+}
+
+#[tokio::test]
+async fn mcp_batch_meta_tools_use_bound_key_scope() {
+    use rmcp::model::CallToolRequestParams;
+    use serde_json::json;
+
+    let addr = serve_gateway(parse_config(&mixed_yaml())).await;
+    let client = mcp_connect(addr, Some(TOKEN)).await;
+
+    let details = client
+        .call_tool(
+            CallToolRequestParams::new("asterlane__get_tools").with_arguments(
+                json!({"names": ["docs__mock__lookup", "search__mock__search"]})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        )
+        .await
+        .expect("get_tools");
+    let details: serde_json::Value =
+        serde_json::from_str(&details.content[0].as_text().unwrap().text).unwrap();
+    assert_eq!(details["results"][0]["error"], "not_found");
+    assert_eq!(
+        details["results"][1]["tool"]["name"],
+        "search__mock__search"
+    );
+    assert!(details["results"][0]["tool"].is_null());
+
+    let calls = client
+        .call_tool(
+            CallToolRequestParams::new("asterlane__call_tools").with_arguments(
+                json!({"calls": [
+                    {"name": "docs__mock__lookup", "arguments": {}},
+                    {"name": "search__mock__search", "arguments": {}}
+                ]})
+                .as_object()
+                .unwrap()
+                .clone(),
+            ),
+        )
+        .await
+        .expect("call_tools");
+    let calls: serde_json::Value =
+        serde_json::from_str(&calls.content[0].as_text().unwrap().text).unwrap();
+    assert!(
+        calls["results"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("not permitted")
+    );
+    assert!(calls["results"][1]["error"].as_str().is_some());
+    assert!(
+        !calls["results"][1]["error"]
+            .as_str()
+            .unwrap()
+            .contains("not permitted")
+    );
 
     let _ = client.cancel().await;
 }

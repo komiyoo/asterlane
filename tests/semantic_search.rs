@@ -119,7 +119,12 @@ fn test_config() -> GatewayConfig {
 
 fn result_items(result: &asterlane::mcp::model::ToolCallResult) -> Vec<Value> {
     match &result.content[0] {
-        ToolContent::Text(text) => serde_json::from_str(text).expect("result is json array"),
+        ToolContent::Text(text) => {
+            serde_json::from_str::<Value>(text).expect("result is json")["tools"]
+                .as_array()
+                .expect("tools array")
+                .clone()
+        }
         other => panic!("expected text content, got {other:?}"),
     }
 }
@@ -153,6 +158,20 @@ async fn semantic_search_ranks_by_cosine_similarity() {
     assert_eq!(items.len(), 2);
     assert_eq!(items[0]["name"], "search__tavily__web_search");
     assert_eq!(items[1]["name"], "search__tavily__send_email");
+    assert_eq!(items[0]["parameters"], json!([]));
+
+    let detail = handle_search_semantic(
+        json!({"query": "find web pages online", "include_schema": true}),
+        &catalog,
+        key,
+        &index,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        result_items(&detail)[0]["input_schema"],
+        json!({"type": "object"})
+    );
 }
 
 #[tokio::test]
@@ -208,4 +227,45 @@ async fn semantic_search_reuses_cached_tool_vectors() {
 
     let second = index.rank("email someone", &candidates, 10).await.unwrap();
     assert_eq!(second[0], "search__tavily__send_email");
+}
+
+#[tokio::test]
+async fn semantic_search_pages_more_than_ten_tied_results() {
+    let mock = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/embeddings"))
+        .respond_with(VectorResponder)
+        .mount(&mock)
+        .await;
+    let index = semantic_index(mock.uri()).await;
+    let mut config = test_config();
+    config.api_resources[0].endpoints = (0..12)
+        .rev()
+        .map(|i| endpoint(&format!("web_{i:02}"), "web result"))
+        .collect();
+    let catalog = ToolCatalog::from_config(&config).unwrap();
+    let key = config.proxy_key("agent-1").unwrap();
+    let first = handle_search_semantic(json!({"query": "web", "limit": 10}), &catalog, key, &index)
+        .await
+        .unwrap();
+    assert_eq!(result_items(&first).len(), 10);
+    let ToolContent::Text(text) = &first.content[0] else {
+        panic!("expected text content")
+    };
+    assert_eq!(
+        serde_json::from_str::<Value>(text).unwrap()["next_cursor"],
+        10
+    );
+    let second = handle_search_semantic(
+        json!({"query": "web", "limit": 10, "cursor": 10}),
+        &catalog,
+        key,
+        &index,
+    )
+    .await
+    .unwrap();
+    let items = result_items(&second);
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["name"], "search__tavily__web_10");
+    assert_eq!(items[1]["name"], "search__tavily__web_11");
 }

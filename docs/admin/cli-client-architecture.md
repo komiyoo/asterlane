@@ -17,7 +17,7 @@ timestamp: 2026-07-23T00:00:00+08:00
 
 # 决策
 
-1. 新增 `asterlane tools list|search|call`，使用 gateway key 调用已有 REST API。
+1. 最初新增 `asterlane tools list|search|call`；现有命令还包括 `get` 与 `call-batch`，均使用 gateway key 调用 REST API。
 2. `asterlane admin` 与 `asterlane tools` 共用具体的 Bearer HTTP 客户端、JSON object 参数读取和输出格式化函数；不引入 command trait、runner trait 或继承式框架。
 3. CLI 成功输出支持 `json|yaml|markdown`；优先级为 `--format`、`ASTERLANE_FORMAT`、TTY 默认。TTY 默认 markdown，非 TTY 默认 JSON；错误仍以稳定 JSON 或安全文本写入 stderr。
 4. MCP `tools/call` 固定以 `ResponseFormat::Json` 执行，不再消费 `_meta["asterlane.dev/format"]`，也不应用 proxy key 或全局 response format。MCP 层不做 YAML/markdown 展示转换；原本就是非 JSON 的上游文本仍按既有边界透传。
@@ -30,8 +30,10 @@ timestamp: 2026-07-23T00:00:00+08:00
 asterlane tools [--server URL] [--token-env NAME] [--format json|yaml|markdown] <command>
   list [--include REGEX] [--exclude REGEX] [--domain REGEX]
        [--provider REGEX] [--tool REGEX] [--limit N] [--cursor N]
-  search <query>
+  search <query> [--include-schema] [--limit 1..50] [--cursor N]
+  get <name>...
   call <name> [--args JSON | --args-file PATH]
+  call-batch (--args JSON | --args-file PATH)
 ```
 
 - `--server`：flag > `ASTERLANE_SERVER` > `http://127.0.0.1:3000`。
@@ -85,8 +87,10 @@ src/mcp/result.rs          # 内部/执行结果到 MCP CallToolResult 的转换
 | 命令 | 请求 | 本地处理 |
 | --- | --- | --- |
 | `list` | `GET /v1/tools` + 已有过滤/分页 query | 直接交给输出层 |
-| `search` | `POST /v1/tools/asterlane__search_tools/invoke?format=json`，body 为 `{ "query": ... }` | 从 `content[0].Text` 解析 JSON 数组；响应形状不符时返回本地错误 |
+| `search` | `POST /v1/tools/asterlane__search_tools/invoke?format=json`，body 含 `query` 与可选分页参数 | 从 `content[0].Text` 解析 `{tools,next_cursor}`；响应形状不符时返回本地错误 |
+| `get` | `POST /v1/tools/asterlane__get_tools/invoke?format=json`，body 为 `{ "names": [...] }` | 解析有序 `results`，单次最多 10 个名称 |
 | `call` | `POST /v1/tools/{name}/invoke?format=json`，body 为参数 object | 直接交给输出层 |
+| `call-batch` | `POST /v1/tools/asterlane__call_tools/invoke?format=json`，body 为 `{ "calls": [...] }` | 解析有序 `results`，单次最多 10 个独立调用 |
 
 路径中的工具名必须进行 URL path-segment 编码，不能直接插值未经编码的用户输入。查询参数继续复用 `client.rs` 的 RFC 3986 编码逻辑。
 
@@ -105,7 +109,7 @@ clap args
   -> stdout
 ```
 
-`tools search` 在 HTTP 与输出层之间增加一次窄归一化，把 meta-tool 的 `ToolCallResult` 文本载荷还原为 JSON 数组。它不复制 catalog 搜索算法。
+`tools search`、`tools get` 和 `tools call-batch` 在 HTTP 与输出层之间复用窄归一化，把 meta-tool 的 `ToolCallResult` 文本载荷还原为 JSON 对象。它们不复制 catalog 搜索或调用逻辑。
 
 MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`，但传给 executor 的格式固定为 JSON。普通 REST 消费者仍按 [Response Rendering](../runtime/response-rendering.md) 的既有协商规则运行；CLI 只是利用最高优先级的请求 override 固定自身传输格式，因此不改变服务端契约。
 
@@ -123,6 +127,7 @@ MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`�
 - admin 在交互式终端中的默认成功输出从 pretty JSON 变为 markdown；脚本和 pipe 默认仍为 JSON，也可用 `--format json` 固定。
 - MCP 忽略格式 override 是行为变更；已同步更正 [Response Rendering](../runtime/response-rendering.md)、[Compatibility Policy](../architecture/compatibility-policy.md) 与 [Documentation Log](../log.md)。
 - REST 格式协商不变。本次不删除配置字段，也不改变 `/v1/tools` DTO。
+- 2026-09-26 起，省略 `discovery_mode` 时在线 `tools list` 仅返回 meta-tool；`tools search` 从数组响应改为 `{tools,next_cursor}`。旧配置需要完整列表时显式设置 `discovery_mode: full`，详见 [Compatibility Policy](../architecture/compatibility-policy.md)。
 - 不新增依赖；TTY 检测使用 `std::io::IsTerminal`，格式解析复用 `ResponseFormat::from_str`。
 
 # 验证设计
@@ -133,7 +138,7 @@ MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`�
 2. `input.rs`：inline、文件、非 JSON、非 object、空参数。
 3. `client.rs`：server 优先级、query/path 编码、完整纯文本成功响应、非 JSON 错误预览、退出码映射。
 4. `admin.rs`：既有命令解析不回归，`--format` 可位于子命令前后。
-5. `tools.rs`：三个子命令解析、list query、call 参数、search meta-tool 响应归一化。
+5. `tools.rs`：五个子命令解析、list query、call 参数、meta-tool 响应归一化。
 6. `main.rs`：顶层 `tools` dispatch 解析。
 7. `mcp/server.rs`/`mcp/result.rs`：结果转换测试随职责移动；传入 `_meta["asterlane.dev/format"]` 或配置 response format 时，JSON 上游结果仍不被渲染为 YAML/markdown。
 8. `http/mod.rs`：现有 REST `?format=`/`Accept` 测试保持通过，证明兼容边界未被误删。

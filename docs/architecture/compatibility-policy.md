@@ -37,6 +37,7 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | `http` 节（入站 body 上限与 REST/admin 超时） | 新增（2026-08-19） | `#[serde(default)]`，缺省 1 MiB / 30s；`max_body_bytes: 0` 启动 fail fast；`request_timeout_secs: 0` 关闭 REST/admin 超时；`/mcp` 与探活从不套超时 |
 | `observability.request_event_retention_days` | 新增（2026-08-19） | `#[serde(default)]`，缺省 14；`0` 关闭 `request_events` 后台清理 |
 | `mcp` 节（失败模式、刷新间隔、`tools/list` TTL） | 新增（2026-08-20） | `#[serde(default)]`，缺省 `fail_open` / 60s / 60000ms；`0` 分别表示不启动 refresh、不设 `ttlMs`；非法 `failure_mode` 启动 fail fast |
+| `proxy_keys[].discovery_mode` 缺省值 | 2026-09-26 从 `full` 改为 `lazy` | 旧配置仍可加载，但省略模式的 MCP/REST 列表只返回六个网关工具；需要完整列表时显式配置 `discovery_mode: full`，非法值启动失败 |
 
 ## 配置版本字段
 
@@ -68,6 +69,8 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 
 # 响应格式兼容性
 
+- `asterlane__search_tools` 的文本 JSON 从工具数组改为 `{tools,next_cursor}`，支持 `limit`（1–50，缺省 10）和 `cursor` 翻页。消费方应读取 `tools` 字段并按 `next_cursor` 继续；在线 CLI 已同步更新。
+- 新增 `asterlane__get_tools` 与 `asterlane__call_tools`，分别返回有序的 `{results:[...]}`；单项结果可带按 key 绑定的续取游标。
 - 0.x 中已移除非标准 MCP `_meta["asterlane.dev/format"]` override。MCP `tools/call` 固定 JSON，并忽略 proxy key 与全局 `response_format`；这是已登记的行为变更。
 - REST invoke 保留既有兼容面：`?format=` / `Accept` 请求 override > proxy key `response_format` > `defaults.response_format` > `json`。
 - `defaults.response_format` 与 `proxy_keys[].response_format` 字段不删除，继续作为 REST 默认，避免破坏现有 REST 消费者。
