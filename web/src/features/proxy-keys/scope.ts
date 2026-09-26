@@ -1,9 +1,4 @@
-import {
-  isStaleOrAborted,
-  listMcpServers,
-  listResources,
-  listTools,
-} from "../../api/index.ts";
+import { isStaleOrAborted, listMcpServers, listResources, listTools } from "../../api/index.ts";
 import type { CallInit } from "../../api/index.ts";
 
 export interface ScopeServer {
