@@ -5,3 +5,12 @@ docs/
 examples/
 scripts/
 *.md
+
+# Frontend outputs stay out of the Rust image context
+web/node_modules
+web/dist
+web/dist-ssr
+web/.vite
+web/playwright-report
+web/test-results
+web/blob-report

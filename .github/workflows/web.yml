@@ -1,0 +1,35 @@
+name: Web
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: voidzero-dev/setup-vp@v1.21.1
+        with:
+          version: 1.0.0-rc.0
+          node-version: 22.23.1
+          working-directory: web
+          cache: true
+          cache-dependency-path: web/bun.lock
+          run-install: false
+      - run: vp install --frozen-lockfile
+      - run: vp check
+      - run: vp test --run
+      - run: vp build
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error

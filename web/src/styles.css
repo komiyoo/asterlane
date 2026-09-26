@@ -1,0 +1,148 @@
+/* 密度、亮暗和状态色对齐现有控制台，不复用它的 DOM。 */
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --fg: #1c2128;
+  --muted: #6a737d;
+  --card: #ffffff;
+  --border: #d8dde3;
+  --accent: #3b5bdb;
+  --ok: #2b8a3e;
+  --err: #c92a2a;
+  --warn: #d9480f;
+  --ok-weak: rgba(43, 138, 62, 0.13);
+  --danger-weak: rgba(201, 42, 42, 0.09);
+  --warn-weak: rgba(217, 72, 15, 0.12);
+  --accent-weak: rgba(59, 91, 219, 0.08);
+}
+
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #14171b;
+  --fg: #dbe1e8;
+  --muted: #8b949e;
+  --card: #1d2126;
+  --border: #30363d;
+  --accent: #748ffc;
+  --ok: #69b979;
+  --err: #f08080;
+  --warn: #ffa94d;
+  --ok-weak: rgba(105, 185, 121, 0.16);
+  --danger-weak: rgba(240, 128, 128, 0.15);
+  --warn-weak: rgba(255, 169, 77, 0.16);
+  --accent-weak: rgba(116, 143, 252, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    13px/1.4 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.shell {
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.topbar h1 span {
+  color: var(--accent);
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.panel {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+  margin: 12px 16px;
+  padding: 8px 12px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.panel h2 {
+  margin: 2px 0 4px;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.note-preview {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.status-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.status {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.status.ok {
+  color: var(--ok);
+  background: var(--ok-weak);
+}
+
+.status.warn {
+  color: var(--warn);
+  background: var(--warn-weak);
+}
+
+.status.err {
+  color: var(--err);
+  background: var(--danger-weak);
+}
+
+.smoke-dialog {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smoke-dialog {
+    transition: none;
+  }
+}
