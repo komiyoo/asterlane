@@ -22,7 +22,7 @@ export default defineConfig({
     },
     {
       name: "gateway",
-      testMatch: /console\.spec\.ts/,
+      testMatch: /(?:console|resources|proxy-keys|mcp|tools)\.spec\.ts/,
       use: { baseURL: `http://127.0.0.1:${DEV_PORT}` },
     },
   ],
