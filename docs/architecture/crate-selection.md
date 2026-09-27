@@ -101,7 +101,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 
 # 控制台构建依赖
 
-2026-09-27 起，`web/` 已按 [前端工具链](console-separation.md#前端工具链) 安装并锁定开发工具链。下表版本以 `web/package.json`、`web/bun.lock` 和 `web/.node-version` 为准。类型生成和 `just web-*` 已接入仓库检查；端到端不进默认 `just check`。
+2026-09-27 起，`web/` 已按 [前端工具链](console-separation.md#前端工具链) 安装并锁定开发工具链。下表版本以 `web/package.json`、`web/bun.lock` 和 `web/.node-version` 为准。类型生成和 `just web` 已接入仓库检查；端到端不进默认 `just check`。
 
 | 能力 | 选择 | 版本 | 理由与范围 |
 | --- | --- | --- | --- |
@@ -110,12 +110,12 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | 浏览器路由 | React Router 声明式模式 | `react-router` 8.4.0 | `BrowserRouter`。刷新和后退可用，不引入 SSR。peer 要求 React `>=19.2.7`、Node `>=22.22.0`。见 [官方接入](https://reactrouter.com/start/declarative/installation)。 |
 | 开发、检查、构建与单元测试 | Vite+ | CLI 与 `vite-plus` 均为 1.0.0-rc.0 | 与本机已验证的 CLI 相同。包内 Vite 8.3.0、Rolldown 1.2.9、Vitest 5.0.1、Oxlint 1.85.0、Oxfmt 0.70.0。`overrides.vite` 指向 `@voidzero-dev/vite-plus-core@1.0.0-rc.0`，`overrides.vitest` 钉 5.0.1。`vp check` 打开 `lint.options.typeAware` 和 `typeCheck`。见 [官方指南](https://viteplus.dev/guide/)。 |
 | 运行时与包管理 | Node、Bun | Node 22.23.1；Bun 1.4.2 | Node 写在 `web/.node-version`，满足 `vite-plus` 的 Node 要求：22.18 起的 22、24.11 起的 24，或 26 及以上。`packageManager` 为 `bun@1.4.2`，唯一锁文件是 `bun.lock`。CI 用 `voidzero-dev/setup-vp@v1.21.1` 安装同一版 `vp` 和 Node，不用 `latest`。 |
-| API schema | 复用 `schemars` 1.2，启用 `chrono04` | Rust 生成 `schemas/admin.json`，前端只读这份已提交文件 | `just admin-schema` 覆盖生成，`just admin-schema-check` 只比较。按输入反序列化、输出序列化。不新增把 TypeScript 生成进 Rust 的 crate。 |
-| TS 声明生成 | `json-schema-to-typescript` | 16.0.0，仅 `web/` 开发依赖 | 从已提交的 `schemas/admin.json` 生成 `web/src/api/generated/admin.d.ts`。`just api-types` 串联 Rust schema 与 TS，`just api-types-check` 只比较。`web/` 内生成命令和 `vp build` 都不调用 Cargo。见 [官方仓库](https://github.com/bcherny/json-schema-to-typescript)。 |
-| 浏览器回归 | `@playwright/test` | 1.63.0 | 独立于 Vitest，入口是 `just web-e2e`。浏览器打到 Nginx 镜像和隔离网关，不使用 `vp dev` 代理。不进 `just check`，CI 也不跑它。 |
+| API schema | 复用 `schemars` 1.2，启用 `chrono04` | Rust 生成 `schemas/admin.json`，前端只读这份已提交文件 | `just api schema` 覆盖生成，`just api schema --check` 只比较。按输入反序列化、输出序列化。不新增把 TypeScript 生成进 Rust 的 crate。 |
+| TS 声明生成 | `json-schema-to-typescript` | 16.0.0，仅 `web/` 开发依赖 | 从已提交的 `schemas/admin.json` 生成 `web/src/api/generated/admin.d.ts`。`just api types` 串联 Rust schema 与 TS，`just api types --check` 只比较。`web/` 内生成命令和 `vp build` 都不调用 Cargo。见 [官方仓库](https://github.com/bcherny/json-schema-to-typescript)。 |
+| 浏览器回归 | `@playwright/test` | 1.63.0 | 独立于 Vitest，入口是 `just web e2e`。浏览器打到 Nginx 镜像和隔离网关，不使用 `vp dev` 代理。不进 `just check`，CI 也不跑它。 |
 | 静态站运行 | Nginx 官方镜像 | 1.28.1-alpine | `web/Dockerfile` 的最终阶段。构建阶段固定 Node 22.23.1、Bun 1.4.2 和 `vp` 1.0.0-rc.0。镜像不包含 Node、Bun 或 Cargo。 |
-| 部署演练 | `just web-deploy-smoke` | Compose v5 | 独立项目、测试配置和测试卷。演练启动、升级、前端回滚和上一版组合回滚。不进 `just check`。CI 的 `deploy-smoke.yml` 跑其中不需要图形界面的部分，不推镜像。 |
-| 仓库级接线 | `just web-*`、`just check` | 已接入 | `just web-check`、`web-test`、`web-build` 和 schema / TS 差异检查进入 `just check`。`just web-e2e` 与 `just web-deploy-smoke` 单独运行。 |
+| 部署演练 | `just web deploy-smoke` | Compose v5 | 独立项目、测试配置和测试卷。演练启动、升级、前端回滚和上一版组合回滚。不进 `just check`。CI 的 `deploy-smoke.yml` 跑其中不需要图形界面的部分，不推镜像。 |
+| 仓库级接线 | `just web`、`just check` | 已接入 | `just web check`、`web test`、`web build` 和 schema / TS 差异检查进入 `just check`。`just web e2e` 与 `just web deploy-smoke` 单独运行。 |
 
 # 依赖增减规则
 

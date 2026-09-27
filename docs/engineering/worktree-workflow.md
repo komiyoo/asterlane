@@ -36,19 +36,19 @@ Cursor 不建议把依赖目录 symlink 回主仓。[Cursor Worktrees](https://c
 ```bash
 python3 scripts/setup_worktree.py
 # 或
-just worktree-init
+just worktree init
 ```
 
 只检查：
 
 ```bash
-just worktree-doctor
+just worktree doctor
 ```
 
 打印本树应 export 的变量（二进制**不**自动加载 `.env`）：
 
 ```bash
-just worktree-env
+just worktree env
 # 或：eval "$(python3 scripts/setup_worktree.py --print-env | grep '^export ')"
 ```
 
@@ -72,7 +72,7 @@ just worktree-env
 just check
 ```
 
-等价于 `just worktree-doctor` + fmt + clippy（`--all-targets -D warnings`）+ `cargo test` + `python3 scripts/check_okf_docs.py` + `just api-types-check` + `just web-check` + `just web-test` + `just web-build`。Rust 与 OKF 部分对齐 CI；前端静态检查、测试、构建和类型差异检查也在这条命令里。`just web-e2e`、`just web-deploy-smoke` 与 `cargo deny` 都不是默认必跑项。浏览器回归打到 Nginx 静态入口；部署冒烟使用独立 Compose 项目，不读取本机正在运行的数据卷。
+等价于 `just worktree doctor` + `just fmt --check` + clippy（`--all-targets -D warnings`）+ `cargo test` + `just docs check` + `just api types --check` + `just web check` + `just web test` + `just web build`。Rust 与 OKF 部分对齐 CI；前端静态检查、测试、构建和类型差异检查也在这条命令里。`just web e2e`、`just web deploy-smoke` 与 `just deny` 都不是默认必跑项。浏览器回归打到 Nginx 静态入口；部署冒烟使用独立 Compose 项目，不读取本机正在运行的数据卷。
 
 PR 上的 Linux 形状由 GitHub Actions 把关。本机是 `aarch64-apple-darwin` 时，本地全绿仍要等 CI。
 
@@ -99,8 +99,8 @@ Worktree 是临时工作副本，不是长期分支家。做完必须合进 `mai
 4. **清残留**（必须在主 checkout）：
 
 ```bash
-just worktree-prune
-just worktree-prune-merged
+just worktree prune
+just worktree prune --merged
 ```
 
 `--prune` 会 `git worktree prune`、删除空的 `/.worktrees/`、列出仍登记的功能树和已合进 `main` 的本地分支。`--delete-merged-branches` 只删已合并、且没有 worktree 占用的本地分支，不动 `main` / `master`，也不删远程。

@@ -148,7 +148,7 @@ The management backend should start small:
 - usage summary by key/provider/tool/status
 - config validation report
 
-早期免构建 UI 已覆盖上述管理能力。当前控制台是 `web/` 里的 React/TypeScript 静态站，经 Nginx 同源访问 `/admin/*`。网关不再内嵌页面。管理 API 的 Rust DTO、`schemas/admin.json` 和 `web/src/api/generated/admin.d.ts` 由 `just api-types` 串联生成；`just api-types-check` 只比较。11 个页面和资源、代理密钥、MCP、工具的写操作都在静态入口可用。`just check` 包含前端静态检查、单元测试、构建和契约差异检查。`just web-e2e` 用 Nginx 镜像和隔离网关做浏览器回归，`just web-deploy-smoke` 演练镜像启动与回滚；两者都不在默认检查里。纯 `cargo build` / `cargo test` 仍然不安装 Node 依赖。
+早期免构建 UI 已覆盖上述管理能力。当前控制台是 `web/` 里的 React/TypeScript 静态站，经 Nginx 同源访问 `/admin/*`。网关不再内嵌页面。管理 API 的 Rust DTO、`schemas/admin.json` 和 `web/src/api/generated/admin.d.ts` 由 `just api types` 串联生成；`just api types --check` 只比较。11 个页面和资源、代理密钥、MCP、工具的写操作都在静态入口可用。`just check` 包含前端静态检查、单元测试、构建和契约差异检查。`just web e2e` 用 Nginx 镜像和隔离网关做浏览器回归，`just web deploy-smoke` 演练镜像启动与回滚；两者都不在默认检查里。纯 `cargo build` / `cargo test` 仍然不安装 Node 依赖。
 
 Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](../admin/admin-console.md)。
 
@@ -192,14 +192,14 @@ Or via just:
 
 ```bash
 just check
-just web-e2e           # 可选：Nginx 静态入口上的浏览器回归，不在 just check 里
-just web-deploy-smoke  # 可选：独立 Compose 项目的启动、升级和回滚，不在 just check 里
+just web e2e           # 可选：Nginx 静态入口上的浏览器回归，不在 just check 里
+just web deploy-smoke  # 可选：独立 Compose 项目的启动、升级和回滚，不在 just check 里
 ```
 
 For docs changes:
 
 ```bash
-python3 scripts/check_okf_docs.py
+just docs check
 ```
 
 脚本行为与仓库其他任务入口见 [scripts/README.md](../../scripts/README.md)。

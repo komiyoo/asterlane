@@ -2,9 +2,7 @@
 
 [![CI](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml/badge.svg)](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml)
 
-面向代理原生场景的第三方资源访问网关（Rust）：上游 API 密钥与 MCP 凭据由网关集中持有，AI 代理只拿到有范围限制的 gateway key 和按需收窄的工具视图。
-
-**非目标**：Asterlane 不是 LLM 模型转发网关，不做模型供应商路由。
+面向 Agent naive sense 的第三方资源访问网关: 上游 API 密钥与 MCP 凭据由网关集中持有，AI 代理只拿到有范围限制的 gateway key 和按需收窄的工具视图。
 
 ## 能力概览
 
@@ -88,7 +86,7 @@ cargo run -- admin stats
 just check
 
 # 浏览器回归不在 just check 里。它会起隔离的本机网关。
-just web-e2e
+just web e2e
 
 # 或手动逐步执行后端部分：
 cargo fmt -- --check          # 格式检查
@@ -100,12 +98,12 @@ cargo deny check              # 供应链审计
 
 控制台在 `web/`，生产入口是独立静态站。`vp dev` 把 `/admin` 代理到 `127.0.0.1:$ASTERLANE_DEV_GATEWAY_PORT`（默认 3000），只用于开发。生产构建不写入管理员凭据或任意 API 地址。浏览器打开 Compose 的 `127.0.0.1:3722`；历史地址 `/admin/ui` 和 `/admin/ui/` 在这个入口上回到 `/`。网关端口 `127.0.0.1:3721` 只提供 API，旧页面返回 404。前端命令见 [web/README.md](web/README.md)。
 
-Git / Cursor Worktree：进入新树后先 `just worktree-init`，在**该目录**本机跑 `just check`。做完合回 `main`，再 `just worktree-prune` 清残留。从 [AGENTS.md](AGENTS.md) 的发现路径进入 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
+Git / Cursor Worktree：进入新树后先 `just worktree init`，在**该目录**本机跑 `just check`。做完合回 `main`，再 `just worktree prune` 清残留。从 [AGENTS.md](AGENTS.md) 的发现路径进入 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
 
 其他构建变体：
 
 ```bash
-cargo build --release         # release 构建
+just build --release          # release 构建
 cargo build --features otlp   # 启用 OTLP 遥测导出
 ```
 
@@ -132,7 +130,7 @@ docker run --rm -p 3000:3000 \
 
 升级控制台时，把上一版镜像的 `/usr/share/nginx/html` 只读挂到新容器的 `/previous-dist`，至少一个发布周期后再去掉。这样旧页面仍能加载上一版带 hash 的脚本和样式。回滚只切回已经验证过的镜像标签，不删除数据库卷。说明写在镜像内的 `/usr/local/share/asterlane-web/retain.md`。
 
-`just web-deploy-smoke` 用独立项目、测试配置和测试卷演练启动、升级、前端回滚和组合回滚，不会使用正在运行的项目或现有数据卷。
+`just web deploy-smoke` 用独立项目、测试配置和测试卷演练启动、升级、前端回滚和组合回滚，不会使用正在运行的项目或现有数据卷。
 
 ## CI
 
@@ -147,7 +145,7 @@ GitHub Actions 在 push main 和 PR 时运行 `.github/workflows/ci.yml`、`.git
 | `deny` | `cargo-deny` 供应链审计 |
 | `web` | 固定 `vp` 1.0.0-rc.0 / Node 22.23.1 / Bun 1.4.2，冻结安装后检查生成类型、`vp check`、`vp test --run`、`vp build`，上传带提交号的 `web/dist` |
 | `rust-image` / `web-image` | 分别构建网关镜像和静态站镜像，产物写明提交和工具版本 |
-| `smoke` | 加载网关镜像后跑 `just web-deploy-smoke` 里不需要图形界面的部分 |
+| `smoke` | 加载网关镜像后跑 `just web deploy-smoke` 里不需要图形界面的部分 |
 
 ## 配置
 

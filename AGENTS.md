@@ -86,4 +86,4 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
 just check
 ```
 
-含工具链 doctor、`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 与 OKF 检查，对齐 CI 前四项。Worktree 先 `just worktree-init`，做完合回 `main` 后在主仓 `just worktree-prune`；步骤见 `docs/engineering/worktree-workflow.md`。无法完成时写明未运行或失败的精确命令与原因。
+含工具链 doctor、`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 与 OKF 检查，对齐 CI 前四项。Worktree 先 `just worktree init`，做完合回 `main` 后在主仓 `just worktree prune`；步骤见 `docs/engineering/worktree-workflow.md`。无法完成时写明未运行或失败的精确命令与原因。

@@ -60,7 +60,7 @@ vp install --frozen-lockfile
 | `vp preview`                                        | 预览生产构建                                               |
 | `bun scripts/generate-api-types.ts`                 | 只读已提交 schema，生成 `src/api/generated/admin.d.ts`     |
 | `bun scripts/generate-api-types.ts --check`         | 只比较生成结果，不覆盖                                     |
-| `PLAYWRIGHT_CHANNEL=chrome vp exec playwright test` | Nginx 镜像加隔离网关。仓库入口是 `just web-e2e`            |
+| `PLAYWRIGHT_CHANNEL=chrome vp exec playwright test` | Nginx 镜像加隔离网关。仓库入口是 `just web e2e`            |
 
 Playwright 不会在 `vp test` 里运行。未设置 `PLAYWRIGHT_CHANNEL` 时使用 Playwright 自带的 Chromium，需要先执行 `vp exec playwright install chromium`。
 
@@ -78,7 +78,7 @@ ASTERLANE_DEV_GATEWAY_PORT=3100 vp dev
 
 `.github/workflows/web.yml` 用 `voidzero-dev/setup-vp@v1.21.1` 安装 `vp` `1.0.0-rc.0` 和 Node 22.23.1，再执行冻结安装、生成类型差异检查、`vp check`、`vp test --run` 和 `vp build`，并上传带提交号的 `web/dist`。Rust CI 的 test job 另比较 `schemas/admin.json`。两边都不调用对方的编译器。Playwright 不在这两个工作流里。
 
-`.github/workflows/deploy-smoke.yml` 另构建网关镜像和 `web/Dockerfile`，不推送。冒烟任务加载网关镜像后执行 `just web-deploy-smoke`。
+`.github/workflows/deploy-smoke.yml` 另构建网关镜像和 `web/Dockerfile`，不推送。冒烟任务加载网关镜像后执行 `just web deploy-smoke`。
 
 ## 生产入口
 

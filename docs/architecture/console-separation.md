@@ -46,7 +46,7 @@ sources:
 
 2026-09-26 确定目标：控制台与 Rust 网关留在同一仓库，独立构建、独立部署，经同一个控制台域名访问页面和 admin API。前端采用 React、TypeScript、Kumo 和 Vite+，Bun 作为包管理器。
 
-本文件描述已经落地的分离方式。管理请求、查询和响应 DTO 集中在 `src/admin/types/`，`schemas/admin.json` 由 `just admin-schema` 从这些 DTO 生成，`just admin-schema-check` 只比较不覆盖。`web/src/api/generated/admin.d.ts` 由 `just api-types` 从已提交 schema 生成，`just api-types-check` 只比较。11 个页面在 Nginx 静态入口可用。资源可创建和删除；代理密钥可编辑范围并签发、轮换、吊销，明文 gateway token 只留在签发弹窗。MCP 页包含 preset、探测和 security；工具页包含调试、默认参数和介绍覆盖，事件详情可把参数存成默认。网关不再内嵌页面，也不再把 `/` 重定向到 `/admin/ui`。静态站只对 `/admin/ui` 和 `/admin/ui/` 做精确重定向；直接访问网关端口上的旧页面返回 404。
+本文件描述已经落地的分离方式。管理请求、查询和响应 DTO 集中在 `src/admin/types/`，`schemas/admin.json` 由 `just api schema` 从这些 DTO 生成，`just api schema --check` 只比较不覆盖。`web/src/api/generated/admin.d.ts` 由 `just api types` 从已提交 schema 生成，`just api types --check` 只比较。11 个页面在 Nginx 静态入口可用。资源可创建和删除；代理密钥可编辑范围并签发、轮换、吊销，明文 gateway token 只留在签发弹窗。MCP 页包含 preset、探测和 security；工具页包含调试、默认参数和介绍覆盖，事件详情可把参数存成默认。网关不再内嵌页面，也不再把 `/` 重定向到 `/admin/ui`。静态站只对 `/admin/ui` 和 `/admin/ui/` 做精确重定向；直接访问网关端口上的旧页面返回 404。
 
 本决策替代 [Admin Console](../admin/admin-console.md#形态决策) 中的免构建、逐文件嵌入和控制台随单二进制交付约定。页面业务范围、admin key 与 gateway key 分离、上游凭据留在网关等约束继续适用。[^console]
 
@@ -122,7 +122,7 @@ flowchart LR
 
 生成器使用 JSON Schema Draft 7，按输入反序列化、输出序列化的真实语义导出；读写形状不同就使用不同 DTO，不能用手写 TS 修补差异。重点验证默认值、缺省与 `null`、枚举标记、数字和时间字段。动态工具参数与结果保留 JSON 值类型，不虚构固定业务结构。[^schemars] [^schema-ts]
 
-`schemas/admin.json` 已提交并在文件内标记 generated。用 `just admin-schema` 重生成，用 `just admin-schema-check` 只比较不覆盖；检查失败时命令会提示 `just admin-schema`。`web/src/api/generated/admin.d.ts` 仍由后续前端计划生成。前端落地后从 `web/src/api/index.ts` 获取调用函数和类型，不在页面重复定义 HTTP 契约。schema 与 TS 各有重生成和差异检查入口；前端独立构建只需已提交产物。TS 生成接入后，契约检查同时校验 Rust → schema → TS，发现漂移即失败。
+`schemas/admin.json` 已提交并在文件内标记 generated。用 `just api schema` 重生成，用 `just api schema --check` 只比较不覆盖；检查失败时命令会提示 `just api schema`。`web/src/api/generated/admin.d.ts` 由 `just api types` 从已提交 schema 生成，`just api types --check` 只比较。前端从 `web/src/api/index.ts` 获取调用函数和类型，不在页面重复定义 HTTP 契约。schema 与 TS 各有重生成和差异检查入口；前端独立构建只需已提交产物。契约检查同时校验 Rust → schema → TS，发现漂移即失败。
 
 不另手写一套前端校验 schema。浏览器原生约束处理必填和格式反馈，业务合法性由后端已有校验决定；Rust 正则的合法性不能由 JS `RegExp` 的判断替代。TS 类型不被当作运行时校验或授权。
 
@@ -180,7 +180,7 @@ flowchart LR
 
 Rust 维持根目录 Cargo 工程；`web/` 是独立前端包。`vp dev` 的 `/admin` 代理目标默认本机网关，可通过开发环境变量覆盖端口，避免 Worktree 端口冲突；生产 API 地址固定同源相对路径，不能由页面输入任意后端 URL。
 
-仓库级 `just check` 最终汇总 Rust 检查、OKF、契约漂移检查及前端检查。纯前端命令在 `web/` 执行 `vp check`、`vp test --run`、`vp build`；端到端另有 `just web-e2e`。后端独立 Cargo 构建与测试不隐式安装 JS 依赖。具体命令在实施后同步开发与 Worktree 文档。
+仓库级 `just check` 最终汇总 Rust 检查、OKF、契约漂移检查及前端检查。纯前端命令在 `web/` 执行 `vp check`、`vp test --run`、`vp build`；端到端另有 `just web e2e`。后端独立 Cargo 构建与测试不隐式安装 JS 依赖。具体命令在实施后同步开发与 Worktree 文档。
 
 ## 生产入口
 

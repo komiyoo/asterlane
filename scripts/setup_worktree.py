@@ -190,7 +190,7 @@ def doctor(root: Path) -> tuple[list[str], list[str], list[str]]:
     if node_modules.is_symlink():
         warnings.append("web/node_modules 是符号链接；每棵树应各自 vp install --frozen-lockfile")
     elif not node_modules.exists():
-        warnings.append("未安装 web/node_modules（有 vp 时 just worktree-init 会冻结安装）")
+        warnings.append("未安装 web/node_modules（有 vp 时 just worktree init 会冻结安装）")
     else:
         notes.append("web/node_modules=present")
 
@@ -343,7 +343,7 @@ def prune_remnants(root: Path, *, delete_merged: bool) -> int:
             else:
                 print(f"rm    已合并分支 {name}")
         else:
-            print(f"hint  已合并分支 {name}  # just worktree-prune-merged")
+            print(f"hint  已合并分支 {name}  # just worktree prune --merged")
 
     print("next  不要删主仓 target/ 或 rustup；功能树目录用 git worktree remove / Cursor /delete-worktree")
     return 0
@@ -469,8 +469,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     cargo_fetch(root)
     print("init  cargo fetch ok")
     install_web_deps(root)
-    print("next  在本目录运行 just check（含前端静态检查、测试和构建；端到端另跑 just web-e2e）")
-    print("next  做完合回 main 后，在主仓运行 just worktree-prune")
+    print("next  在本目录运行 just check（含前端静态检查、测试和构建；端到端另跑 just web e2e）")
+    print("next  做完合回 main 后，在主仓运行 just worktree prune")
     return 0
 
 

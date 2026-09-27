@@ -18,8 +18,8 @@ const banner = `/* oxlint-disable */
 /**
  * @generated
  * 由已提交的 schemas/admin.json 生成，不要手改。
- * 重新生成：在仓库根执行 \`just api-types\`
- * 只比较不覆盖：\`just api-types-check\`
+ * 重新生成：在仓库根执行 \`just api types\`
+ * 只比较不覆盖：\`just api types --check\`
  * web/ 内只读 schema：\`bun scripts/generate-api-types.ts\`
  */`;
 
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
       const current = readFileSync(outputPath, "utf8");
       if (current !== formatted) {
         process.stderr.write(
-          `admin.d.ts 与 schemas/admin.json 不一致。运行 just api-types。\n${firstDifference(current, formatted)}\n`,
+          `admin.d.ts 与 schemas/admin.json 不一致。运行 just api types。\n${firstDifference(current, formatted)}\n`,
         );
         process.exitCode = 1;
       }

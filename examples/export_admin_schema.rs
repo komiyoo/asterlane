@@ -1,6 +1,6 @@
 //! 把管理 HTTP 契约写成 `schemas/admin.json`。
 //!
-//! 检查模式只比较，不覆盖。失败时提示 `just admin-schema`。
+//! 检查模式只比较，不覆盖。失败时提示 `just api schema`。
 
 use anyhow::{Context, Result, bail};
 use std::env;
@@ -34,7 +34,7 @@ fn main() -> Result<ExitCode> {
             fs::read_to_string(&output).with_context(|| format!("read {}", output.display()))?;
         if existing != rendered {
             eprintln!(
-                "{} is out of date with the Rust admin DTOs.\nRegenerate with: just admin-schema",
+                "{} is out of date with the Rust admin DTOs.\nRegenerate with: just api schema",
                 output.display()
             );
             return Ok(ExitCode::from(1));

@@ -1,7 +1,7 @@
 //! 从管理 DTO 导出 Draft 7 JSON Schema。
 //!
 //! `inputs` 使用反序列化契约，`outputs` 使用序列化契约。生成文件由
-//! `just admin-schema` 写入，`just admin-schema-check` 只比较。
+//! `just api schema` 写入，`just api schema --check` 只比较。
 
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
@@ -19,7 +19,7 @@ use super::types::{
     ToolMetadataResponse, ToolMetadataWriteParams, UpdatedResponse, UsageListParams, UsageResponse,
 };
 
-const GENERATED_COMMENT: &str = "由 `just admin-schema` 从 Rust 管理 DTO 生成（schemars JSON Schema Draft 7）。不要手改。inputs 按反序列化，outputs 按序列化。检查失败时运行 `just admin-schema`。";
+const GENERATED_COMMENT: &str = "由 `just api schema` 从 Rust 管理 DTO 生成（schemars JSON Schema Draft 7）。不要手改。inputs 按反序列化，outputs 按序列化。检查失败时运行 `just api schema`。";
 
 /// 反序列化输入。字段不是一次请求，而是各端点的请求或查询类型。
 #[derive(JsonSchema)]
@@ -212,7 +212,7 @@ mod tests {
         assert!(
             doc["$comment"]
                 .as_str()
-                .is_some_and(|text| text.contains("just admin-schema"))
+                .is_some_and(|text| text.contains("just api schema"))
         );
         let defs = doc["definitions"].as_object().expect("definitions");
 

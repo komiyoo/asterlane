@@ -1,19 +1,22 @@
 # Asterlane 任务运行器。安装: cargo install just 或 brew install just
-# 脚本说明见 scripts/README.md
+# 分组配方在 just/。说明见 scripts/README.md
 
-# 列出可用任务
+mod api "just/api.just"
+mod docs "just/docs.just"
+mod web "just/web.just"
+mod worktree "just/worktree.just"
+
+# 按分组列出任务
+[private]
 default:
-    @just --list
+    @just --list --list-submodules
 
-# 格式检查
-fmt-check:
-    cargo fmt -- --check
+# 自动格式化。只检查：just fmt --check
+[arg("check", long, value="true")]
+fmt check="false":
+    {{ if check == "true" { "cargo fmt -- --check" } else { "cargo fmt" } }}
 
-# 自动格式化
-fmt:
-    cargo fmt
-
-# clippy,警告视为错误
+# clippy，警告视为错误
 lint:
     cargo clippy --all-targets -- -D warnings
 
@@ -21,79 +24,18 @@ lint:
 test:
     cargo test
 
-# OKF 文档 frontmatter 检查
-docs-check:
-    python3 scripts/check_okf_docs.py
+# 提交前的完整本地验证（Worktree 默认也走这条）。端到端用 just web e2e。
+check: worktree::doctor (fmt "true") lint test docs::check (api::types "true") web::check web::test web::build
 
-# Worktree / 本机工具链检查（不 cargo fetch）
-worktree-doctor:
-    python3 scripts/setup_worktree.py --doctor
+# 构建。release：just build --release
+[arg("release", long, value="true")]
+build release="false":
+    cargo build{{ if release == "true" { " --release" } else { "" } }}
 
-# Worktree 初始化：doctor + rustfmt/clippy 组件 + cargo fetch
-worktree-init:
-    python3 scripts/setup_worktree.py
-
-# 打印本树应 export 的变量（二进制不加载 .env）
-worktree-env:
-    python3 scripts/setup_worktree.py --print-env
-
-# 主 checkout：清理失效 worktree 登记和空的 .worktrees/
-worktree-prune:
-    python3 scripts/setup_worktree.py --prune
-
-# 主 checkout：prune，并删除已合进 main 且无树占用的本地分支
-worktree-prune-merged:
-    python3 scripts/setup_worktree.py --prune --delete-merged-branches
-
-# 从 Rust 管理 DTO 生成 schemas/admin.json（Draft 7）
-admin-schema:
-    cargo run --example export_admin_schema -- --output schemas/admin.json
-
-# 比较已提交的 schema，不覆盖。失败时提示重生成。
-admin-schema-check:
-    cargo run --example export_admin_schema -- --check schemas/admin.json
-
-# 从 Rust DTO 生成 schema，再生成 web/src/api/generated/admin.d.ts
-api-types:
-    just admin-schema
-    cd web && bun scripts/generate-api-types.ts
-
-# 比较已提交 schema 和 admin.d.ts，不覆盖
-api-types-check: admin-schema-check
-    cd web && bun scripts/generate-api-types.ts --check
-
-web-check:
-    cd web && vp check
-
-web-test:
-    cd web && vp test --run
-
-web-build:
-    cd web && vp build
-
-# 浏览器回归。不进 just check。入口是 Nginx 静态站，不是 vp dev。
-web-e2e:
-    cd web && vp exec playwright test
-
-# 独立 Compose 项目演练静态站启动、升级和回滚。不进 just check。
-web-deploy-smoke:
-    bash scripts/web_deploy_smoke.sh
-
-# 提交前的完整本地验证（Worktree 默认也走这条）。端到端用 just web-e2e。
-check: worktree-doctor fmt-check lint test docs-check api-types-check web-check web-test web-build
-
-# 构建(debug)
-build:
-    cargo build
-
-# 构建(release)
-build-release:
-    cargo build --release
-
-# 启动网关(内存 SQLite)
+# 启动网关（内存 SQLite）
 serve config="examples/gateway.yaml" bind="127.0.0.1:3000":
-    cargo run -- serve --config {{config}} --bind {{bind}} --database-url sqlite::memory:
+    cargo run -- serve --config {{ config }} --bind {{ bind }} --database-url sqlite::memory:
 
-# 供应链检查(需要 cargo install cargo-deny)
+# 供应链检查（需要 cargo install cargo-deny）
 deny:
     cargo deny check

@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-09-27（just 任务分组）
+
+- **入口**：根 `justfile` 保留 `check`、`fmt`、`lint`、`test`、`build`、`serve`、`deny`。格式检查是 `just fmt --check`，release 构建是 `just build --release`。领域命令改为 `just api schema` / `just api types`、`just docs check`、`just web …`、`just worktree …`。比较用 `--check`，删除已合并分支用 `just worktree prune --merged`。
+- **文档**：[仓库脚本](../scripts/README.md)、[开发流程](engineering/development-workflow.md)、[Worktree 工作流](engineering/worktree-workflow.md)、[控制台与网关分离架构](architecture/console-separation.md)、[依赖选型](architecture/crate-selection.md#控制台构建依赖)。历史记录和归档计划仍用当时的命令名。
+- **验证**：`just check` 通过（OKF、schema/TS 差异检查、前端 46 项测试和构建通过）。
+
 ## 2026-09-27（控制台独立部署与入口切换）
 
 - **入口**：控制台由 `web/` 的 Nginx 静态镜像提供。`/admin/*` 原样转到内部网关，浏览器不能指定上游。`/admin/ui` 与 `/admin/ui/` 精确回到 `/`。网关不再内嵌页面，也不再把 `/` 转到旧控制台；启动提示改为 Admin API。网关端口上的旧页面返回 404。

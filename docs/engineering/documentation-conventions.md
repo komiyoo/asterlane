@@ -37,7 +37,7 @@ timestamp: 2026-08-19T00:00:00Z
 | [`admin/`](../admin/) | Web 控制台与 CLI 客户端 |
 | [`engineering/`](README.md) | 工作流、Worktree、工程/文档约定、agent skill |
 
-仓库脚本（`scripts/`、根 `justfile`）不是 OKF 概念，索引入口为 [scripts/README.md](../../scripts/README.md)，从 [工程与文档](README.md) 可达。
+仓库脚本（`scripts/`、根 `justfile` 与 `just/` 分组）不是 OKF 概念，索引入口为 [scripts/README.md](../../scripts/README.md)，从 [工程与文档](README.md) 可达。
 
 # 文档生命周期
 
