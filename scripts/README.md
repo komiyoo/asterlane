@@ -35,6 +35,7 @@ CI 的 `docs` job（`.github/workflows/ci.yml`）运行 `check_okf_docs.py`。�
 | `just lint` | clippy，警告视为错误 |
 | `just test` | `cargo test` |
 | `just build` / `just build --release` | debug / release 构建 |
+| `just clean` | `cargo clean`，只删本树 `target/` |
 | `just serve` | 用示例配置启动网关（内存 SQLite） |
 | `just deny` | `cargo deny check` |
 | `just api schema` / `just api schema --check` | 从 Rust 管理 DTO 生成 `schemas/admin.json`，或只比较不覆盖。检查失败时提示 `just api schema` |

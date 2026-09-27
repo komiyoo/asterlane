@@ -4,7 +4,7 @@ title: Worktree 工作流
 description: Git / Cursor Worktree 的环境初始化、本目录验证，以及合回 main 后的残留清理。
 resource: docs/engineering/worktree-workflow.md
 tags: [worktree, development, validation, rust, cursor]
-timestamp: 2026-08-19T14:55:00Z
+timestamp: 2026-09-27T12:00:00Z
 ---
 
 # 背景
@@ -62,7 +62,17 @@ just worktree env
 
 不要做：拷贝主仓 `target/`、拷贝含密钥的 `.env`、共享 `CARGO_TARGET_DIR`、把 `web/node_modules` 指到别的树、在 init 里起网关。`.env.example` 只是变量清单。纯 `cargo build` 不要求 Node。
 
-本机 `just` / `python3` / `rustup` / `vp` 装一次即可，不是每棵树一份。每棵树自己的代价是一份 `target/` 和一份 `web/node_modules`（主仓 debug target 体积很大）；`/best-of-n` 会按模型数倍增。
+本机 `just` / `python3` / `rustup` / `vp` 装一次即可，不是每棵树一份。每棵树自己的代价是一份 `target/` 和一份 `web/node_modules`；`/best-of-n` 会按模型数倍增。
+
+# 构建缓存
+
+`target/` 被 git 忽略，体积异常时在本树执行 `just clean`（`cargo clean`）。不要把 `CARGO_TARGET_DIR` 指到树外共享目录，也不要拷贝或 symlink 别的树的 `target/`。
+
+macOS 上 Cargo 默认 `split-debuginfo = "unpacked"`，debug 构建会把每个 `.o` 留在 `target/debug/deps`。`Cargo.toml` 的 `[profile.dev.package."*"]` 把依赖的 `debug` 设为 `false`：本 crate 仍保留完整调试信息，依赖不带 DWARF。依赖里的 panic 栈可能没有文件行号。
+
+Cargo 不回收旧指纹。同一份 `target/` 若用两个 `rustc` 编过（例如 `stable` 和 `1.94`），或 feature / profile 变过，`deps` 和 `incremental` 会各留一份。只保留当前要用来开发的 toolchain。
+
+`web/node_modules` 按树安装，大约几百 MB。Playwright 浏览器缓存不在仓库里。
 
 # 验证
 

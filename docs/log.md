@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-09-27（debug 构建磁盘）
+
+- **构建**：`[profile.dev.package."*"]` 的 `debug` 设为 `false`。本 crate 仍保留完整调试信息；依赖不带 DWARF，避免 macOS 上 `target/debug/deps` 的 `.o` 膨胀。依赖栈里的 panic 可能没有文件行号。
+- **清理**：`just clean` 执行 `cargo clean`，只删除本树 `target/`。同一 `target/` 不要用两个 `rustc` 编译。
+- **文档**：[Worktree 工作流](engineering/worktree-workflow.md#构建缓存)、[仓库脚本](../scripts/README.md)。
+- **验证**：`python3 scripts/check_okf_docs.py`。未重新跑 `just check`，避免把刚清掉的 `target/` 再编回来。
+
 ## 2026-09-27（just 任务分组）
 
 - **入口**：根 `justfile` 保留 `check`、`fmt`、`lint`、`test`、`build`、`serve`、`deny`。格式检查是 `just fmt --check`，release 构建是 `just build --release`。领域命令改为 `just api schema` / `just api types`、`just docs check`、`just web …`、`just worktree …`。比较用 `--check`，删除已合并分支用 `just worktree prune --merged`。

@@ -32,6 +32,10 @@ check: worktree::doctor (fmt "true") lint test docs::check (api::types "true") w
 build release="false":
     cargo build{{ if release == "true" { " --release" } else { "" } }}
 
+# 删除本树 target/。不碰 ~/.cargo，也不删 web/node_modules。
+clean:
+    cargo clean
+
 # 启动网关（内存 SQLite）
 serve config="examples/gateway.yaml" bind="127.0.0.1:3000":
     cargo run -- serve --config {{ config }} --bind {{ bind }} --database-url sqlite::memory:

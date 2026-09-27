@@ -57,3 +57,9 @@ tracing-opentelemetry = { version = "0.33", optional = true }
 
 [dev-dependencies]
 wiremock = "0.6"
+
+# 依赖不带 DWARF。macOS 默认会把每个 .o 留在 target/debug/deps，
+# 完整调试信息会让一次 debug 构建膨胀到数 GB，旧指纹也不会自动删除。
+# 本 crate 仍用默认 debug = 2。依赖栈里的 panic 可能没有文件行号。
+[profile.dev.package."*"]
+debug = false
