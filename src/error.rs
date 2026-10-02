@@ -82,12 +82,6 @@ pub enum ErrorCode {
     /// FailClosed：至少一个 MCP 上游 `Unreachable`，拒绝把 stale 目录当权威结果。
     McpUpstreamUnavailable,
 
-    // ── transform ──
-    /// 变换规则尝试设置危险 header。
-    TransformDangerousHeader,
-    /// JSON Pointer 路径不合法。
-    TransformInvalidPointer,
-
     // ── admin ──
     /// admin token 缺失或不匹配。
     AdminUnauthorized,
@@ -135,8 +129,6 @@ impl ErrorCode {
             Self::McpInvalidToolCall => "mcp.invalid_tool_call",
             Self::McpUpstreamMcpFailure => "mcp.upstream_mcp_failure",
             Self::McpUpstreamUnavailable => "mcp.upstream_unavailable",
-            Self::TransformDangerousHeader => "transform.dangerous_header",
-            Self::TransformInvalidPointer => "transform.invalid_pointer",
             Self::AdminUnauthorized => "admin.unauthorized",
             Self::AdminInvalidQuery => "admin.invalid_query",
             Self::AdminNotFound => "admin.not_found",
@@ -174,7 +166,6 @@ impl ErrorCode {
             Self::McpInvalidToolCall
             | Self::McpUpstreamMcpFailure
             | Self::McpUpstreamUnavailable => "mcp",
-            Self::TransformDangerousHeader | Self::TransformInvalidPointer => "transform",
             Self::AdminUnauthorized
             | Self::AdminInvalidQuery
             | Self::AdminNotFound
@@ -271,6 +262,8 @@ impl AsterlaneError {
     /// | proxy      | 6      |
     /// | limit      | 7      |
     /// | 其他       | 1      |
+    ///
+    /// 退出码 8 曾分配给已删除的 `transform.*`，已退役，不复用。
     pub fn exit_code(&self) -> i32 {
         match self.error_code().category() {
             "config" => 2,
@@ -279,7 +272,6 @@ impl AsterlaneError {
             "store" => 5,
             "proxy" => 6,
             "limit" => 7,
-            "transform" => 8,
             _ => 1,
         }
     }
@@ -400,7 +392,6 @@ fn http_status_for(code: ErrorCode) -> u16 {
         | ErrorCode::LimitCallsExhausted
         | ErrorCode::LimitDailyCallsExhausted => 429,
         ErrorCode::LimitQueueFull | ErrorCode::LimitQueueTimeout => 503,
-        ErrorCode::TransformDangerousHeader | ErrorCode::TransformInvalidPointer => 500,
         ErrorCode::AdminUnauthorized => 401,
         ErrorCode::AdminInvalidQuery => 400,
         ErrorCode::AdminNotFound => 404,
