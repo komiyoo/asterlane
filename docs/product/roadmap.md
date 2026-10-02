@@ -4,7 +4,7 @@ title: Asterlane 演进规划
 description: 按产品定位的五根支柱评估实现缺口，给出分阶段优先级、准入准出条件与待产品决策项。
 resource: docs/product/roadmap.md
 tags: [roadmap, planning, gaps, product]
-timestamp: 2026-08-20T00:00:00Z
+timestamp: 2026-10-01T00:00:00Z
 ---
 
 # 背景
@@ -126,7 +126,7 @@ timestamp: 2026-08-20T00:00:00Z
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
 - **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）；admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作；`request_events` 可配置保留窗口 + 后台清理；容器非 root + HEALTHCHECK；文档去腐（删除 MCP 占位死代码、回填 PRD/控制台/治理文档、去掉对 gitignore `task.md` 的现行引用）
-- 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
+- 请求变换：2026-10-01 决定删除 `transform` 模块，并同步撤回 [Product Requirements](product-requirements.md) 与 [Architecture](../architecture/architecture.md) 的声明
 
 **准出**：`rg` 全库无「文档承诺但生产路径零引用」的能力；容器以非 root 启动且 healthcheck 通过；连续写入压测下 `request_events` 表体积收敛。
 
@@ -134,11 +134,11 @@ timestamp: 2026-08-20T00:00:00Z
 
 **目标**：让网关能接管需要 OAuth 的第三方 MCP server，这是支柱一的结构性补齐。
 
-- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数。token 落 secret 后端，永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器
-- 动态客户端注册（若目标上游要求；CIMD / DCR 仅作为网关持有 client 的注册手段）
+- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数，基于 rmcp `auth` feature。2026-10-01 定范围：client-credentials + 管理员一次性授权码授权；授权码流程的 token 加密后存入 SQLite（无数据库时只在内存），永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器
+- 动态客户端注册：仅用于授权码流程中未预置 `client_id` 的上游（rmcp 的 DCR 只注册 `authorization_code` 公开客户端）
 - **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
 - **已交付（2026-08-20）**：订阅上游 `tools/list_changed`（`subscriptions/listen` + session 回调）；周期 refresh 保留为兜底，不再是唯一失效路径
-- resources / prompts 代理：先做产品决策（见下节），确定做则扩 `RemoteMcpPeer` 与下游 capabilities
+- resources / prompts 代理（2026-10-01 决定做，仅远程上游）：扩 `RemoteMcpPeer` 与下游 capabilities；key 范围沿用工具 scope 规则
 - 上游形态扩展：multipart / form-urlencoded 请求，流式响应
 
 **准出**：至少一个真实 OAuth 类上游 MCP server 端到端可用，且代理侧只见 gateway key；上游工具变更在一次心跳内反映到下游 `tools/list_changed`。
@@ -147,9 +147,9 @@ timestamp: 2026-08-20T00:00:00Z
 
 **目标**：从「单机能跑」到「可多副本部署与分发」。
 
-- Postgres 存储后端：sqlx feature、迁移双轨、`main.rs` 按 URL scheme 分流
-- 共享状态：限流计数、配额、key pool 冷却与 result cache 迁到共享后端；保留单机模式为默认
-- 发布工程：CHANGELOG、版本策略、镜像与二进制发布流水线、`cargo-semver-checks`
+- Postgres 存储后端：sqlx feature、迁移双轨、`main.rs` 按 URL scheme 分流（2026-10-01：本轮不做，维持 SQLite）
+- 共享状态：限流计数、配额、key pool 冷却与 result cache 迁到共享后端；保留单机模式为默认（2026-10-01：本轮不做）
+- 发布工程：CHANGELOG、版本策略（每次发布默认 patch +0.0.1）、镜像与二进制发布流水线、`cargo-semver-checks`（2026-10-01：本轮做）
 - K8s 部署物（manifest 或 chart）
 
 **准出**：两副本部署下 per-key 配额与限流全局一致；打标签即产出镜像与二进制。
@@ -158,26 +158,29 @@ timestamp: 2026-08-20T00:00:00Z
 
 **目标**：把可观测性从「有数据」推到「能运营」。
 
-- 成本核算：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
+- 成本核算（2026-10-01：暂缓）：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
 - usage 分钟/日桶、上游耗时维度
-- IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（或删除死代码）
+- IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（2026-10-01：先出模块设计，评审后再定接线或保留）
 - **已交付（2026-08-20）**：key pool 热更新；upstream keys 经 resource CRUD 同步进 `upstream_keys`（不新开 `/admin/upstream-keys` REST）
 - circuit breaker、跨 provider failover
 - 告警规则与 Grafana dashboard 示例
 - 覆盖率、基准与负载测试基线
 
-# 待产品决策项
+# 产品决策
 
-以下不是工程排期问题，需要先定方向，否则会做出方向性错误的实现：
+2026-10-01 已对下表前七项定调，执行顺序与验收见 [2026-10 实施计划](../plans/2026/10-01/00-上游-oauth-资源代理与工程债.md)。未定项仍须先定方向再排期，否则会做出方向性错误的实现。
 
-| 决策 | 选项 | 影响 |
+| 决策 | 结论 | 影响 |
 | --- | --- | --- |
-| **请求变换是能力还是债务** | 接线 / 删除 | 决定 Phase 7 首条的工作量与 `README.md` 定位表述 |
-| **是否支持 stdio / 本地进程 MCP server** | 支持 / 明确列为非目标 | 支持则触及进程生命周期管理与安全模型，与 headless server 定位冲突；不支持则应写入非目标，停止暗示。即使支持，也不得默认暴露 filesystem / shell（个人 VPS MCP 反例） |
-| **是否代理 tools 之外的 MCP primitive** | resources+prompts / 仅 tools | 决定项目自称「MCP 网关」还是「MCP 工具网关」，影响对外定位表述 |
-| **上游 OAuth 是否另开用户委托模式** | Phase 8 仅网关持有 client / 另开 per-user 同意流 | 网关持有即可接管「只要 client credentials / 预置 app」的远程 MCP。用户委托（Pomerium 的 per-user GitHub / Linear token）是第二种凭据模式：下游仍必须是 gateway key，不得改成人类登录；实现与密钥隔离都要单独设计。默认建议：Phase 8 只做网关持有 |
-| **多租户与 RBAC 是否进入产品** | 进入 / 长期非目标 | 现有文档列为非目标，但 Postgres 与共享状态一旦落地，补多租户的成本会显著上升，宜在 Phase 9 前定调。进入也不采用 agentgateway 式 `jwt.sub && mcp.tool.name` CEL 作为默认模型；授权主体仍是 gateway key |
-| **成本核算的计量口径** | 按次 / 按 token / 按上游账单维度 | 决定 `request_units` 语义与 usage 表结构，改动有迁移成本 |
+| **请求变换是能力还是债务** | 2026-10-01：删除 | `transform` 模块无生产调用方，按「删除优先」移除；[Product Requirements](product-requirements.md) 同步撤回该承诺。`transform.*` 错误码从未在生产路径发出，随模块删除 |
+| **是否支持 stdio / 本地进程 MCP server** | 2026-10-01：不支持，列为非目标 | 只对接远程（Streamable HTTP）上游，见「不变的非目标」 |
+| **是否代理 tools 之外的 MCP primitive** | 2026-10-01：代理 resources + prompts | 仅远程上游。key 可见范围沿用工具 scope 规则（以 `domain__provider__<上游名称>` 匹配），不新增配置字段；resource URI 由网关加命名空间以便路由 |
+| **上游 OAuth 是否另开用户委托模式** | 2026-10-01：只做网关持有 | 支持 client-credentials，以及管理员发起一次授权码（PKCE，必要时 DCR）后由网关保存并刷新 token。整个网关共用一个上游身份；按用户委托仍不做，下游仍只用 gateway key |
+| **成本核算的计量口径** | 2026-10-01：暂缓 | `request_units` 维持恒为 1，不写代码、不做迁移 |
+| **Postgres 与共享状态** | 2026-10-01：本轮不做 | 存储维持 SQLite；多副本与共享状态不在本轮范围 |
+| **未接线的限流维度（IP / UpstreamKey / GatewayPrincipal）** | 2026-10-01：先出设计，暂不删除 | 设计评审后再决定接线或保留；`X-Forwarded-For` 信任边界列为设计内待决项 |
+| **版本策略** | 2026-10-01：每次发布默认 patch +0.0.1 | 0.x 期间 breaking 仍按 [Compatibility Policy](../architecture/compatibility-policy.md) 在 CHANGELOG 显著标注 |
+| **多租户与 RBAC 是否进入产品** | 未定 | 现有文档列为非目标；Postgres 与共享状态落地前须定调。进入也不采用 agentgateway 式 `jwt.sub && mcp.tool.name` CEL 作为默认模型；授权主体仍是 gateway key |
 
 # 不变的非目标
 
@@ -188,6 +191,7 @@ timestamp: 2026-08-20T00:00:00Z
 - 用 `{target}_{tool}` 前缀拼接或 `prefixMode` 作为 canonical 工具名；canonical 仍是 `domain__provider__tool`，暴露名走既有最短无歧义 alias（[Naming Convention](../architecture/naming-convention.md)）
 - 桌面客户端外壳、AI client 配置自动检测、客户端自更新（[Product Requirements](product-requirements.md) 的 Toolport 不借鉴项）
 - human-in-the-loop 审批队列，优先级持续低于 key scope 与限流
+- stdio / 本地进程 MCP server（2026-10-01 定为非目标）：只对接远程 Streamable HTTP 上游，不管理本地进程生命周期
 
 # Citations
 
