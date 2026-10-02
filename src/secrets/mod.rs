@@ -10,6 +10,7 @@
 //! - [`SecretStore`] trait：异步解析 secret ref
 //! - [`DefaultSecretStore`]：按 backend 分发到 env / file，以及可选的 Vault / Infisical
 //! - [`SecretError`]：模块错误，映射到 `auth.missing_upstream_secret`
+//! - [`TokenEncryptionKey`]：落库 OAuth token 的 ChaCha20-Poly1305 加解密（`seal`）
 
 pub mod assemble;
 pub mod backend;
@@ -17,6 +18,7 @@ pub mod cache;
 pub mod error;
 pub mod infisical;
 pub mod remote;
+pub mod seal;
 pub mod secret_ref;
 pub mod vault;
 
@@ -24,6 +26,7 @@ pub use assemble::secret_store_from_config;
 pub use backend::{DefaultSecretStore, EnvBackend, EnvLookup, FileBackend, StdEnvLookup};
 pub use error::SecretError;
 pub use infisical::{InfisicalBackend, InfisicalConfig};
+pub use seal::{SealError, TokenEncryptionKey};
 pub use secret_ref::SecretRef;
 pub use vault::{VaultBackend, VaultConfig};
 
