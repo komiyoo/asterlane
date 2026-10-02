@@ -115,12 +115,14 @@ flowchart LR
 
 ## S4 拆分 invoke_call 与 serve
 
-- [ ] `ProxyExecutor::invoke_call`（`src/proxy/executor.rs`，约 270 行）按管线阶段拆成私有步骤函数（解析与授权、准入与配额、凭据与上游调用、裁剪与事件），单函数 ≤80 行；`src/proxy/executor.rs` 生产代码 ≤500 行。
-- [ ] `serve`（`src/main.rs`，约 250 行）拆为装配步骤。`main.rs` 只保留 CLI 解析、装配和进程生命周期，后台任务每个 tick 收敛为某个模块公开函数的一次调用（见 [Engineering Conventions · 组合根](../../../engineering/engineering-conventions.md#组合根)）。
-- [ ] 消除 4 处 `#[allow(clippy::too_many_arguments)]`：`src/proxy/retry.rs` 的 `execute_with_retry`、`src/proxy/post.rs`、`src/main.rs` 的两个 refresh task 函数，聚合为参数 struct。
-- [ ] 行为不变：请求事件字段、错误码、tracing span 字段与拆分前一致。
+- [x] `ProxyExecutor::invoke_call`（`src/proxy/executor.rs`，约 270 行）按管线阶段拆成私有步骤函数（解析与授权、准入与配额、凭据与上游调用、裁剪与事件），单函数 ≤80 行；`src/proxy/executor.rs` 生产代码 ≤500 行。
+- [x] `serve`（`src/main.rs`，约 250 行）拆为装配步骤。`main.rs` 只保留 CLI 解析、装配和进程生命周期，后台任务每个 tick 收敛为某个模块公开函数的一次调用（见 [Engineering Conventions · 组合根](../../../engineering/engineering-conventions.md#组合根)）。
+- [x] 消除 4 处 `#[allow(clippy::too_many_arguments)]`：`src/proxy/retry.rs` 的 `execute_with_retry`、`src/proxy/post.rs`、`src/main.rs` 的两个 refresh task 函数，聚合为参数 struct。
+- [x] 行为不变：请求事件字段、错误码、tracing span 字段与拆分前一致。
 
 验收：上述函数 ≤80 行，无 `too_many_arguments` 豁免；`just check` 全绿。
+
+结果（2026-10-01）：`invoke_call` 拆为 `src/proxy/invoke/` 下的私有步骤（`mod.rs` 434 行、`admission.rs` 134 行，最长步骤 36 行），`executor.rs` 生产代码 624 → 269 行。`serve` 拆为 7 个装配函数（`serve` 本体 21 行），`main.rs` 生产代码 577 → 471 行；MCP refresh、描述 override 加载、基线 pin、计数回填迁入 `AppState`（`src/http/lifecycle.rs`）、`integrity`、`limits`，后台 tick 一次调用 `AppState::refresh_mcp_tools`。4 处豁免清零（`EventDraft`、`UpstreamRequest`、`AppState`）。先补 `tests/proxy_events.rs`（19 个）锁定事件、配额与 span 字段，另补 `tests/background_tasks.rs`（9 个）。`just check` 全绿，891 passed、2 ignored（S3 后基线 863 passed、2 ignored）。
 
 ## S5 OAuth：配置、凭据存储、client-credentials
 

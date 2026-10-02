@@ -4,13 +4,16 @@
 mod config_path;
 
 use anyhow::{Context, Result, bail};
+use asterlane::http::AppState;
+use asterlane::secrets::DefaultSecretStore;
 use asterlane::{GatewayConfig, ToolCatalog, ToolListQuery};
 use clap::{Parser, Subcommand};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{info, warn};
+use tokio_util::sync::CancellationToken;
+use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -180,7 +183,7 @@ fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
                     .with(env_filter)
                     .with(fmt_layer)
                     .init();
-                warn!("otlp setup failed, falling back to fmt-only: {e}");
+                tracing::warn!("otlp setup failed, falling back to fmt-only: {e}");
                 None
             }
         };
@@ -197,6 +200,9 @@ fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
     Ok(guard)
 }
 
+/// 持久化 store 的仓库句柄；`--database-url` 缺省时无。
+type EventRepo = Arc<asterlane::store::SqliteRequestEventRepository>;
+
 async fn serve(args: ServeArgs) -> Result<()> {
     let config_path = config_path::resolve_config_path(args.config)?;
     let _otlp_guard = init_tracing()?;
@@ -205,12 +211,31 @@ async fn serve(args: ServeArgs) -> Result<()> {
         .install_recorder()
         .context("failed to install prometheus metrics recorder")?;
 
-    let mut config = parse_config_file(&config_path)?;
+    let (config, event_repo) =
+        load_serve_config(&config_path, args.database_url.as_deref()).await?;
+    let secrets = assemble_secrets(&config).await?;
+    let (state, upstream_notify_rx) =
+        assemble_state(config, event_repo, secrets, prometheus_handle).await?;
+    state.load_description_overrides().await;
+    let state = attach_auth(state).await?;
+    let state = attach_runtime_services(state).await?;
 
-    // 持久化 store 前移到 catalog 装配前：启动合并需要在 preset 展开与
-    // catalog/registry 构建之前把 DB 条目并入配置（K2 闭环——在线添加的
-    // resources/mcp_servers/proxy_keys 重启回读，凭据摘要随行恢复）
-    let event_repo = match &args.database_url {
+    let ct = CancellationToken::new();
+    spawn_background_tasks(&state, upstream_notify_rx, &ct).await;
+    run_server(state, ct, &args.bind, &args.mcp_allowed_hosts).await
+}
+
+/// 读取配置并按需连接 store 合并持久化条目。
+///
+/// 持久化 store 前移到 catalog 装配前：启动合并需要在 preset 展开与
+/// catalog/registry 构建之前把 DB 条目并入配置（K2 闭环——在线添加的
+/// resources/mcp_servers/proxy_keys 重启回读，凭据摘要随行恢复）。
+async fn load_serve_config(
+    config_path: &std::path::Path,
+    database_url: Option<&str>,
+) -> Result<(GatewayConfig, Option<EventRepo>)> {
+    let mut config = parse_config_file(config_path)?;
+    let event_repo = match database_url {
         Some(database_url) => {
             let pool = sqlx::sqlite::SqlitePool::connect(database_url)
                 .await
@@ -224,12 +249,15 @@ async fn serve(args: ServeArgs) -> Result<()> {
         }
         None => None,
     };
-    expand_builtin(&mut config, &config_path)?;
+    expand_builtin(&mut config, config_path)?;
+    Ok((config, event_repo))
+}
 
-    // secret store 在 MCP connect 之前装配，使 secret://vault 与 secret://infisical
-    // 在启动连上游与运行期 invoke 走同一套 backend。
+/// secret store 在 MCP connect 之前装配，使 secret://vault 与 secret://infisical
+/// 在启动连上游与运行期 invoke 走同一套 backend。
+async fn assemble_secrets(config: &GatewayConfig) -> Result<Arc<DefaultSecretStore>> {
     let secrets = Arc::new(
-        asterlane::secrets::secret_store_from_config(&config)
+        asterlane::secrets::secret_store_from_config(config)
             .await
             .context("failed to assemble secret backends")?,
     );
@@ -238,7 +266,16 @@ async fn serve(args: ServeArgs) -> Result<()> {
         infisical = config.secrets.infisical.is_some(),
         "secret backends assembled"
     );
+    Ok(secrets)
+}
 
+/// 构建 catalog 与 MCP registry 并装配 `AppState`；同时返回上游 `list_changed` 通知接收端。
+async fn assemble_state(
+    config: GatewayConfig,
+    event_repo: Option<EventRepo>,
+    secrets: Arc<DefaultSecretStore>,
+    prometheus_handle: metrics_exporter_prometheus::PrometheusHandle,
+) -> Result<(AppState, tokio::sync::mpsc::Receiver<String>)> {
     let mut catalog = ToolCatalog::from_config(&config)?;
     // registry 始终初始化：即便零 MCP 配置也建空 registry，使运行时经 admin API
     // 添加/启用首个 MCP server 无需重启即生效（connect_all(&[]) 即空 registry；
@@ -252,42 +289,20 @@ async fn serve(args: ServeArgs) -> Result<()> {
     .await
     .context("failed to connect remote MCP servers")?;
     catalog.extend_with_mcp_tools(registry.all_wrapped_tools());
-    let mcp_registry = Some(Arc::new(registry));
-    let mut state = asterlane::http::AppState::new(config, catalog)
+    let mut state = AppState::new(config, catalog)
         .with_metrics_handle(prometheus_handle)
-        .with_secrets(secrets);
-    if let Some(registry) = &mcp_registry {
-        state = state.with_mcp_registry(registry.clone());
-    }
+        .with_secrets(secrets)
+        .with_mcp_registry(Arc::new(registry));
     if let Some(repo) = event_repo {
         state = state.with_event_repository(repo);
     }
+    Ok((state, upstream_notify_rx))
+}
 
-    // 工具介绍 override：启动时从 store 全量加载进 catalog overlay
-    // （agent 可见描述 = override ?? 上游原始，见 docs/runtime/mcp-governance-and-key-limits.md §5）
-    if let Some(repo) = &state.event_repo {
-        use asterlane::store::ToolMetadataRepository;
-        match repo.list_tool_metadata().await {
-            Ok(rows) if !rows.is_empty() => {
-                let count = rows.len();
-                let overrides = rows
-                    .into_iter()
-                    .map(|row| (row.tool_name, row.description))
-                    .collect();
-                state
-                    .catalog
-                    .write()
-                    .await
-                    .load_description_overrides(overrides);
-                info!(count, "tool description overrides loaded");
-            }
-            Ok(_) => {}
-            Err(e) => warn!(error = %e, "failed to load tool description overrides"),
-        }
-    }
-
-    // admin 认证：启动期解析 token secret ref，失败 fail fast；未配置则不挂载 admin API
+/// 认证装配：admin key 与 gateway key，启动期解析 secret ref，失败 fail fast。
+async fn attach_auth(mut state: AppState) -> Result<AppState> {
     let config = state.config_snapshot().await;
+    // admin 认证：启动期解析 token secret ref；未配置则不挂载 admin API
     match asterlane::admin::AdminAuth::from_config(&config.admin, state.secrets.as_ref())
         .await
         .context("failed to resolve admin key secret refs")?
@@ -316,9 +331,13 @@ async fn serve(args: ServeArgs) -> Result<()> {
         },
         "gateway key auth configured"
     );
-    state = state.with_gateway_auth(gateway_auth);
+    Ok(state.with_gateway_auth(gateway_auth))
+}
 
-    // key 池：启动期从配置构建（校验 keys 非空、auth 形状、ref 格式），失败 fail fast
+/// 运行期服务装配：key 池、限额引擎、语义搜索，配置非法时 fail fast。
+async fn attach_runtime_services(mut state: AppState) -> Result<AppState> {
+    let config = state.config_snapshot().await;
+    // key 池：启动期从配置构建（校验 keys 非空、auth 形状、ref 格式）
     if let Some(registry) =
         asterlane::keys::KeyPoolRegistry::from_config(&config).context("invalid key_pool config")?
     {
@@ -327,55 +346,15 @@ async fn serve(args: ServeArgs) -> Result<()> {
         state = state.with_key_pools(Arc::new(registry));
     }
 
-    // 限额引擎：启动期从配置构建（数值 0 非法 fail fast）；有 store 时用
-    // 每 key 成功次数回填 max_calls（request_count − error_count；失败已退还，
-    // Limited 计入 error_count 且从未记入配额。无 store 仅内存计数，重启归零
-    // ——见 docs/runtime/mcp-governance-and-key-limits.md §3）
+    // 限额引擎：启动期从配置构建（数值 0 非法 fail fast）；有 store 时回填调用计数
     let limit_registry =
         asterlane::limits::LimitRegistry::from_config(&config).context("invalid limits config")?;
     if let Some(repo) = &state.event_repo {
-        use asterlane::store::{AggregationDimension, AggregationFilter, AggregationRepository};
-        match repo
-            .summarize_by(
-                AggregationDimension::ProxyKey,
-                &AggregationFilter::default(),
-                u32::MAX,
-            )
-            .await
-        {
-            Ok(rows) => {
-                for row in rows {
-                    let successes = (row.request_count - row.error_count).max(0) as u64;
-                    limit_registry.seed_call_count(&row.dimension_value, successes);
-                }
-            }
-            Err(e) => warn!(error = %e, "failed to seed max_calls counters from store"),
-        }
-        // 日配额回填：当天（UTC 零点起）事件按 key 求和成功次数
-        let day_start = chrono::Utc::now()
-            .date_naive()
-            .and_time(chrono::NaiveTime::MIN)
-            .and_utc();
-        let today_filter = AggregationFilter {
-            from: Some(day_start),
-            ..Default::default()
-        };
-        match repo
-            .summarize_by(AggregationDimension::ProxyKey, &today_filter, u32::MAX)
-            .await
-        {
-            Ok(rows) => {
-                for row in rows {
-                    let successes = (row.request_count - row.error_count).max(0) as u64;
-                    limit_registry.seed_daily_count(&row.dimension_value, successes);
-                }
-            }
-            Err(e) => warn!(error = %e, "failed to seed daily call counters from store"),
-        }
+        asterlane::limits::seed_from_store(&limit_registry, repo.as_ref()).await;
     }
     state = state.with_limit_registry(Arc::new(limit_registry));
 
-    // 语义搜索：启动期解析 embedding 端点 api key ref，失败 fail fast；未配置则关键词搜索
+    // 语义搜索：启动期解析 embedding 端点 api key ref；未配置则关键词搜索
     if let Some(semantic) = asterlane::semantic::SemanticIndex::from_config(
         config.semantic_search.as_ref(),
         state.secrets.as_ref(),
@@ -387,9 +366,15 @@ async fn serve(args: ServeArgs) -> Result<()> {
         info!("semantic tool search enabled");
         state = state.with_semantic(Arc::new(semantic));
     }
+    Ok(state)
+}
 
-    let ct = tokio_util::sync::CancellationToken::new();
-
+/// 启动后台 task：请求事件保留清理、MCP registry 刷新（含 drift 检测）。
+async fn spawn_background_tasks(
+    state: &AppState,
+    upstream_notify_rx: tokio::sync::mpsc::Receiver<String>,
+    ct: &CancellationToken,
+) {
     if let Some(repo) = &state.event_repo {
         let retention_days = state
             .config_snapshot()
@@ -404,48 +389,32 @@ async fn serve(args: ServeArgs) -> Result<()> {
         );
     }
 
-    // 后台周期性刷新上游 MCP server 工具列表 + drift 检测 + 同步 catalog + notify 客户端。
-    if let Some(registry) = &mcp_registry {
+    if let Some(registry) = &state.mcp_registry {
         // 首次 pin integrity baseline（从当前已发现的 tools）
-        let integrity_baseline = state.integrity_baseline.clone();
-        {
-            let descriptors: Vec<asterlane::mcp::ToolDescriptor> = registry
-                .all_descriptors()
-                .iter()
-                .map(|(_, d)| d.clone())
-                .collect();
-            integrity_baseline.write().await.rebase(&descriptors);
-            info!(
-                pinned = descriptors.len(),
-                "integrity baseline pinned from initial mcp tools"
-            );
-        }
-        spawn_mcp_refresh_task(
-            registry.clone(),
-            state.catalog.clone(),
-            state.tool_list_changed_peers.clone(),
-            state.config.clone(),
-            state.integrity_baseline.clone(),
-            state.quarantined_tools.clone(),
-            state.event_repo.clone(),
-            state.secrets.clone(),
-            upstream_notify_rx,
-            ct.child_token(),
-        );
+        asterlane::integrity::pin_initial_baseline(registry, &state.integrity_baseline).await;
+        spawn_mcp_refresh_task(state.clone(), upstream_notify_rx, ct.child_token());
     }
+}
 
-    let listener = tokio::net::TcpListener::bind(&args.bind)
+/// 绑定监听地址并服务到 `ct` 取消（graceful shutdown）。
+async fn run_server(
+    state: AppState,
+    ct: CancellationToken,
+    bind: &str,
+    mcp_allowed_hosts: &[String],
+) -> Result<()> {
+    let listener = tokio::net::TcpListener::bind(bind)
         .await
-        .with_context(|| format!("failed to bind {}", args.bind))?;
-    println!("listening on {}", args.bind);
-    println!("  REST API: http://{}/v1/tools", args.bind);
-    println!("  MCP endpoint: http://{}/mcp", args.bind);
+        .with_context(|| format!("failed to bind {bind}"))?;
+    println!("listening on {bind}");
+    println!("  REST API: http://{bind}/v1/tools");
+    println!("  MCP endpoint: http://{bind}/mcp");
     if state.admin_auth.is_some() {
-        println!("  Admin console: http://{}/admin/ui", args.bind);
+        println!("  Admin console: http://{bind}/admin/ui");
     }
     axum::serve(
         listener,
-        asterlane::http::build_app_with_ct(state, ct.clone(), &args.mcp_allowed_hosts),
+        asterlane::http::build_app_with_ct(state, ct.clone(), mcp_allowed_hosts),
     )
     .with_graceful_shutdown(async move { ct.cancelled().await })
     .await?;
@@ -458,30 +427,17 @@ async fn serve(args: ServeArgs) -> Result<()> {
 /// - 周期：每 `config.mcp.refresh_interval_secs` 秒（启动时读取；`0` 不 tick）
 /// - 即时：上游 `tools/list_changed`（session 回调或 `subscriptions/listen`）
 ///
-/// 每次触发：
-/// 1. `registry.refresh_with_secrets()` 重新拉取上游 `tools/list`
-///    （unreachable 的 server 用 secrets 自动重连，恢复后并入其工具）。
-/// 2. `catalog.replace_mcp_tools()` 更新工具快照。
-/// 3. `check_integrity_drift()` 检测 drift → 写 security event → 更新隔离集合 → rebase baseline。
-/// 4. `notify_peers_tool_list_changed()` 向 legacy session 与
-///    `subscriptions/listen` 通道推送通知。
+/// 每次触发调用一次 [`AppState::refresh_mcp_tools`]（拉取上游工具、同步 catalog、
+/// drift 检测、通知下游），编排见该函数。
 ///
 /// graceful shutdown 时通过 `ct` 取消。
-#[allow(clippy::too_many_arguments)] // 聚合 refresh task 所需共享状态
 fn spawn_mcp_refresh_task(
-    registry: Arc<asterlane::mcp::McpServerRegistry>,
-    catalog: Arc<tokio::sync::RwLock<ToolCatalog>>,
-    peers: asterlane::http::ToolListChangedPeers,
-    config: Arc<tokio::sync::RwLock<Arc<asterlane::GatewayConfig>>>,
-    baseline: Arc<tokio::sync::RwLock<asterlane::integrity::IntegrityBaseline>>,
-    quarantined: asterlane::http::QuarantinedTools,
-    event_repo: Option<Arc<asterlane::store::SqliteRequestEventRepository>>,
-    secrets: Arc<asterlane::secrets::DefaultSecretStore>,
+    state: AppState,
     mut upstream_notify_rx: tokio::sync::mpsc::Receiver<String>,
-    ct: tokio_util::sync::CancellationToken,
+    ct: CancellationToken,
 ) {
     tokio::spawn(async move {
-        let interval_secs = config.read().await.mcp.refresh_interval_secs;
+        let interval_secs = state.config_snapshot().await.mcp.refresh_interval_secs;
         let tick = should_tick_mcp_refresh(interval_secs);
         let mut interval = tokio::time::interval(Duration::from_secs(interval_secs.max(1)));
         // 跳过第一次立即触发（启动时刚 connect_all 过）
@@ -489,19 +445,7 @@ fn spawn_mcp_refresh_task(
         loop {
             tokio::select! {
                 _ = interval.tick(), if tick => {
-                    apply_mcp_registry_refresh(
-                        "interval",
-                        None,
-                        &registry,
-                        &catalog,
-                        &peers,
-                        &config,
-                        &baseline,
-                        &quarantined,
-                        &event_repo,
-                        &secrets,
-                    )
-                    .await;
+                    state.refresh_mcp_tools("interval", None).await;
                 }
                 maybe_server = upstream_notify_rx.recv() => {
                     let Some(server_id) = maybe_server else {
@@ -512,19 +456,9 @@ fn spawn_mcp_refresh_task(
                     while let Ok(extra) = upstream_notify_rx.try_recv() {
                         servers.push(extra);
                     }
-                    apply_mcp_registry_refresh(
-                        "upstream_list_changed",
-                        Some(&servers),
-                        &registry,
-                        &catalog,
-                        &peers,
-                        &config,
-                        &baseline,
-                        &quarantined,
-                        &event_repo,
-                        &secrets,
-                    )
-                    .await;
+                    state
+                        .refresh_mcp_tools("upstream_list_changed", Some(&servers))
+                        .await;
                 }
                 _ = ct.cancelled() => {
                     info!("mcp refresh task shutting down");
@@ -533,46 +467,6 @@ fn spawn_mcp_refresh_task(
             }
         }
     });
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn apply_mcp_registry_refresh(
-    reason: &'static str,
-    servers: Option<&[String]>,
-    registry: &asterlane::mcp::McpServerRegistry,
-    catalog: &tokio::sync::RwLock<ToolCatalog>,
-    peers: &asterlane::http::ToolListChangedPeers,
-    config: &tokio::sync::RwLock<Arc<asterlane::GatewayConfig>>,
-    baseline: &Arc<tokio::sync::RwLock<asterlane::integrity::IntegrityBaseline>>,
-    quarantined: &asterlane::http::QuarantinedTools,
-    event_repo: &Option<Arc<asterlane::store::SqliteRequestEventRepository>>,
-    secrets: &asterlane::secrets::DefaultSecretStore,
-) {
-    let result = registry.refresh_with_secrets(secrets).await;
-    info!(
-        reason,
-        servers = ?servers,
-        old_count = result.old_tool_count,
-        new_count = result.new_tool_count,
-        failed_servers = ?result.failed_server_ids,
-        "mcp registry refreshed"
-    );
-    if !result.failed_server_ids.is_empty() {
-        warn!(
-            servers = ?result.failed_server_ids,
-            "some mcp servers failed during refresh"
-        );
-    }
-
-    let new_tools = registry.all_wrapped_tools();
-    let mcp_ids = registry.mcp_resource_ids();
-    catalog.write().await.replace_mcp_tools(new_tools, &mcp_ids);
-
-    let config_snap = config.read().await.clone();
-    asterlane::integrity::check_drift(registry, &config_snap, baseline, quarantined, event_repo)
-        .await;
-
-    asterlane::mcp::notify_peers_tool_list_changed(peers).await;
 }
 
 #[cfg(test)]

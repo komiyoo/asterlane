@@ -334,6 +334,25 @@ pub async fn check_drift<R: crate::store::SecurityEventRepository>(
     }
 }
 
+/// 启动期首次 pin：以 registry 当前已发现的 tools 重建 baseline，不做 drift 检测。
+///
+/// 此后每轮 MCP refresh 由 [`check_drift`] 与该基线比对。
+pub async fn pin_initial_baseline(
+    registry: &crate::mcp::McpServerRegistry,
+    baseline: &tokio::sync::RwLock<IntegrityBaseline>,
+) {
+    let descriptors: Vec<ToolDescriptor> = registry
+        .all_descriptors()
+        .into_iter()
+        .map(|(_, descriptor)| descriptor)
+        .collect();
+    baseline.write().await.rebase(&descriptors);
+    info!(
+        pinned = descriptors.len(),
+        "integrity baseline pinned from initial mcp tools"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

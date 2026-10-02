@@ -3,6 +3,9 @@
 //! 设计依据见 `docs/architecture/architecture.md` Data Flow、Retry And Failover、Credential Vault。
 //! 借鉴 NyaProxy（`core/queue.py` 重试决策）并按 Asterlane 模型重新解释。
 //!
+//! 本文件定义 [`ProxyExecutor`]、[`InvokeResult`] 与 `with_*` 注入入口；
+//! 调用管线的各阶段见 `invoke`，重试循环见 `retry`，事件记录与结果后处理见 `post`。
+//!
 //! # 安全
 //!
 //! 明文密钥只在 [`apply_auth`](super::auth::apply_auth) 调用
@@ -10,30 +13,20 @@
 //! `upstream_key_ref` 使用 `KeyId` 的脱敏 `Display` 输出（如 `key#0001`）。
 //! 错误消息不含 Authorization header、Bearer token 或上游响应体。
 
-use crate::WrappedTool;
-use crate::catalog::{CatalogError, ToolCatalog, ToolQualifiers};
-use crate::config::{GatewayConfig, ProxyKey, SecurityConfig};
-use crate::integrity::{IntegrityPolicy, QuarantinedTools};
+use crate::catalog::ToolCatalog;
+use crate::config::{GatewayConfig, ProxyKey};
+use crate::integrity::QuarantinedTools;
 use crate::keys::KeyPoolRegistry;
-use crate::limits::{CallQuotaGuard, LimitRegistry, QueuePermit};
-use crate::mcp::{
-    MCP_INPUT_REQUIRED_CONTENT_TYPE, McpServerRegistry, ToolCallExtras, UpstreamCallOutcome,
-};
-use crate::observability::{
-    BucketGranularity, RequestEvent, RequestStatus, UsageBucket, bucket_start, next_request_id,
-    record_request_event,
-};
-use crate::policy;
+use crate::limits::LimitRegistry;
+use crate::mcp::{McpServerRegistry, ToolCallExtras};
 use crate::render::ResponseFormat;
 use crate::secrets::SecretStore;
 use crate::shaping::ResultCache;
 use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use super::auth::resolve_auth_secret;
 use super::error::ProxyError;
-use super::post::request_status_from_proxy_error;
 
 /// 默认最大尝试次数（含首次调用）。
 const DEFAULT_MAX_ATTEMPTS: u32 = 3;
@@ -272,354 +265,6 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         self.invoke_call(wire_name, args, proxy_key, ToolCallExtras::default())
             .await
     }
-
-    /// 与 [`Self::invoke`] 相同，并转发 MCP MRTR 重试字段。
-    pub async fn invoke_call(
-        &self,
-        wire_name: &str,
-        args: serde_json::Value,
-        proxy_key: &ProxyKey,
-        extras: ToolCallExtras,
-    ) -> Result<InvokeResult, ProxyError> {
-        // 1. catalog 三级解析（alias 只命中 key 可见工具；scope 外 → 视为不存在）
-        let tool: &WrappedTool =
-            match self
-                .catalog
-                .resolve_for_key(wire_name, ToolQualifiers::default(), proxy_key)
-            {
-                Ok(Some(tool)) => tool,
-                Ok(None) => return Err(ProxyError::UnknownTool(wire_name.to_string())),
-                // scope 正则等策略错误保持既有错误码（config.invalid_regex）
-                Err(CatalogError::Policy(err)) => return Err(ProxyError::Policy(err)),
-                // 歧义（消息已含候选 canonical，agent 换长名可自愈）及其余解析错误
-                Err(err) => return Err(ProxyError::InvalidToolCall(err.to_string())),
-            };
-        // 2. canonical 贯穿下游：所有按名字键控处（quarantine/registry/事件）用 canonical，
-        //    面向用户的错误消息保留调用方输入名
-        let canonical = tool.name.to_wire_name();
-
-        tracing::Span::current().record("canonical_name", canonical.as_str());
-        tracing::Span::current().record("resource_id", tool.resource_id.as_str());
-
-        // 负载捕获：调用参数只序列化一次（截断 + 脱敏；capture_payloads=false 时 None）
-        let captured_args = self.capture_args(&args);
-
-        // 3. Integrity 隔离检查：被隔离（Quarantine/Block）的 tool 拒绝调用。
-        //    Warn 策略不隔离，不在此拦截。检查发生在 catalog 解析之后、
-        //    上游分流之前（MCP 与 HTTP API 共用同一隔离集合），键为 canonical——
-        //    经 alias 调用的隔离工具同样被拦。
-        if let Some(quarantined) = &self.quarantined
-            && let Some(policy) = quarantined.read().await.get(canonical.as_str()).copied()
-        {
-            let msg = match policy {
-                IntegrityPolicy::Quarantine => {
-                    format!("tool quarantined due to integrity drift: {wire_name}")
-                }
-                IntegrityPolicy::Block => {
-                    format!("tool blocked due to integrity drift: {wire_name}")
-                }
-                IntegrityPolicy::Warn => {
-                    // Warn 不应出现在隔离集合中，防御性处理
-                    return Err(ProxyError::InvalidToolCall(format!(
-                        "unexpected warn policy in quarantine set for: {wire_name}"
-                    )));
-                }
-            };
-            return Err(ProxyError::InvalidToolCall(msg));
-        }
-
-        // 4. remote MCP tool 分流：catalog/policy/limits/observability 仍统一生效。
-        if let Some(registry) = &self.mcp_registry
-            && registry.contains_tool(&canonical)
-        {
-            if !policy::key_can_use_tool(proxy_key, &tool.name, &tool.resource_id)? {
-                return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
-            }
-
-            // 统一准入管线；permit（若有）在上游调用期间持有
-            let _permit = self
-                .admit_or_record(proxy_key, &tool.resource_id, &canonical, &captured_args)
-                .await?;
-            let quota = self.quota_guard(&proxy_key.id);
-
-            let request_id = next_request_id();
-            tracing::Span::current().record("request_id", request_id.as_str());
-            let start = Instant::now();
-            let result = registry
-                .call_tool_ex(&canonical, args, extras)
-                .await
-                .map_err(ProxyError::from);
-            let elapsed = start.elapsed();
-            let latency_ms = elapsed.as_millis().min(u32::MAX as u128) as u32;
-
-            match result {
-                Ok(UpstreamCallOutcome::InputRequired(payload)) => {
-                    if let Some(guard) = quota {
-                        guard.commit();
-                    }
-                    let body = serde_json::to_vec(&payload).unwrap_or_default();
-                    self.record_event(
-                        &request_id,
-                        &proxy_key.id,
-                        &tool.resource_id,
-                        &canonical,
-                        "<mcp>",
-                        RequestStatus::Success,
-                        latency_ms,
-                        0,
-                        captured_args,
-                        Some("input_required".to_string()),
-                        Some(latency_ms),
-                    )
-                    .await;
-                    return Ok(InvokeResult {
-                        request_id,
-                        status: 200,
-                        body,
-                        content_type: Some(MCP_INPUT_REQUIRED_CONTENT_TYPE.to_string()),
-                        content_defense_flag: false,
-                        shaped: false,
-                        rendered_format: None,
-                    });
-                }
-                Ok(UpstreamCallOutcome::Complete(tool_result)) => {
-                    if let Some(guard) = quota {
-                        guard.commit();
-                    }
-                    // registry 调用计时即上游服务端耗时（单次尝试，无排队/重试）
-                    let response_preview = self.capture_tool_result(&tool_result);
-                    self.record_event(
-                        &request_id,
-                        &proxy_key.id,
-                        &tool.resource_id,
-                        &canonical,
-                        "<mcp>",
-                        RequestStatus::Success,
-                        latency_ms,
-                        0,
-                        captured_args,
-                        response_preview,
-                        Some(latency_ms),
-                    )
-                    .await;
-                    // Defense 扫描 + shaping：per-resource security 配置
-                    let security: SecurityConfig = self
-                        .config
-                        .mcp_server(&tool.resource_id)
-                        .map(|s| s.security.clone())
-                        .unwrap_or_default();
-                    let mut result = self
-                        .shape_remote_mcp_result(
-                            tool_result,
-                            &tool.resource_id,
-                            &canonical,
-                            &proxy_key.id,
-                            &security,
-                        )
-                        .await;
-                    result.request_id = request_id;
-                    return Ok(result);
-                }
-                Err(err) => {
-                    let request_status = request_status_from_proxy_error(&err);
-                    self.record_event(
-                        &request_id,
-                        &proxy_key.id,
-                        &tool.resource_id,
-                        &canonical,
-                        "<mcp>",
-                        request_status,
-                        latency_ms,
-                        0,
-                        captured_args,
-                        None,
-                        None,
-                    )
-                    .await;
-                    return Err(err);
-                }
-            }
-        }
-
-        // 5. config 查找 resource
-        let resource = self
-            .config
-            .resource(&tool.resource_id)
-            .ok_or_else(|| ProxyError::UnknownResource(tool.resource_id.clone()))?;
-
-        // 6. policy 校验 scope
-        if !policy::key_can_use_tool(proxy_key, &tool.name, &tool.resource_id)? {
-            return Err(ProxyError::ForbiddenTool(wire_name.to_string()));
-        }
-
-        // 7. 统一准入管线（scope 之后、secret 解析之前：被限流的请求不触碰
-        //    secret backend）；permit 在上游调用期间持有
-        let _permit = self
-            .admit_or_record(proxy_key, &resource.id, &canonical, &captured_args)
-            .await?;
-        let quota = self.quota_guard(&proxy_key.id);
-
-        // 8. resolve secret：有 key pool 的资源在重试循环内 per-key 解析，
-        //    此处跳过单 ref 解析（auth 中的单 ref 不再使用）
-        let resource_pool = self
-            .key_pools
-            .as_ref()
-            .and_then(|pools| pools.get(&resource.id));
-        let secret = if resource_pool.is_some() {
-            None
-        } else {
-            resolve_auth_secret(&resource.auth, &*self.secrets).await?
-        };
-
-        // 7-10. 构造请求 + 重试 + failover + 记录
-        let request_id = next_request_id();
-        tracing::Span::current().record("request_id", request_id.as_str());
-        let start = Instant::now();
-
-        let outcome = self
-            .execute_with_retry(
-                tool.http_method,
-                &tool.upstream_path,
-                &resource.base_url,
-                &resource.auth,
-                &args,
-                &secret,
-                resource_pool,
-                tool.param_locations.as_ref(),
-            )
-            .await;
-
-        let elapsed = start.elapsed();
-        let latency_ms = elapsed.as_millis().min(u32::MAX as u128) as u32;
-
-        match outcome {
-            Ok((result, retry_count, upstream_key_ref, upstream_ms)) => {
-                if let Some(guard) = quota {
-                    guard.commit();
-                }
-                let response_preview = self.capture_body_preview(&result.body);
-                self.record_event(
-                    &request_id,
-                    &proxy_key.id,
-                    &resource.id,
-                    &canonical,
-                    &upstream_key_ref,
-                    RequestStatus::Success,
-                    latency_ms,
-                    retry_count,
-                    captured_args,
-                    response_preview,
-                    Some(upstream_ms),
-                )
-                .await;
-                // Defense 扫描 + shaping：per-resource security 配置
-                let mut result = self
-                    .apply_defense_and_shaping(
-                        result,
-                        &resource.id,
-                        &canonical,
-                        &proxy_key.id,
-                        &resource.security,
-                    )
-                    .await;
-                result.request_id = request_id;
-                Ok(result)
-            }
-            Err(exec_err) => {
-                let request_status = request_status_from_proxy_error(&exec_err.proxy_error);
-                self.record_event(
-                    &request_id,
-                    &proxy_key.id,
-                    &resource.id,
-                    &canonical,
-                    &exec_err.upstream_key_ref,
-                    request_status,
-                    latency_ms,
-                    exec_err.retry_count,
-                    captured_args,
-                    None,
-                    exec_err.upstream_latency_ms,
-                )
-                .await;
-                Err(exec_err.proxy_error)
-            }
-        }
-    }
-
-    /// 准入成功后持有；invoke 失败（含 secret 解析 `?`）时 Drop 退还累计/日配额。
-    fn quota_guard(&self, proxy_key_id: &str) -> Option<CallQuotaGuard> {
-        self.limits
-            .as_ref()
-            .map(|registry| CallQuotaGuard::new(Arc::clone(registry), proxy_key_id))
-    }
-
-    /// 统一准入 choke point（REST invoke / MCP tools/call / admin 调试共用）。
-    ///
-    /// 未注入注册表时放行；被拒时按既有 rate-limited 口径落 request event
-    /// （status `Limited`、`rate_limited: true`）与 metrics 后返回 `ProxyError::Limit`。
-    /// 被拒事件带 `rate_limited: true` 标记，启动回填 `max_calls` 时从
-    /// `request_count - error_count` 取成功次数（失败已退还，Limited 从未计入；
-    /// 见 docs/runtime/mcp-governance-and-key-limits.md §3 计数口径）。
-    async fn admit_or_record(
-        &self,
-        proxy_key: &ProxyKey,
-        resource_id: &str,
-        canonical_name: &str,
-        captured_args: &Option<String>,
-    ) -> Result<Option<QueuePermit>, ProxyError> {
-        let Some(limits) = &self.limits else {
-            return Ok(None);
-        };
-        match limits.admit(&proxy_key.id, resource_id).await {
-            Ok(permit) => Ok(permit),
-            Err(err) => {
-                let request_id = next_request_id();
-                tracing::Span::current().record("request_id", request_id.as_str());
-                tracing::warn!(
-                    proxy_key_id = %proxy_key.id,
-                    resource_id,
-                    tool_name = canonical_name,
-                    error.message = %err,
-                    "request rejected by limit admission"
-                );
-                // record_event 固定 rate_limited=false，被拒事件在此内联构造
-                // （proxy/post.rs 归其他切片，不改其签名）
-                let event = RequestEvent {
-                    timestamp: chrono::Utc::now(),
-                    request_id: request_id.clone(),
-                    proxy_key_id: proxy_key.id.clone(),
-                    resource_id: resource_id.to_string(),
-                    tool_name: canonical_name.to_string(),
-                    upstream_key_ref: "<limited>".to_string(),
-                    status: RequestStatus::Limited,
-                    latency_ms: 0,
-                    request_units: 1,
-                    retry_count: 0,
-                    rate_limited: true,
-                    queued_ms: 0,
-                    request_args: captured_args.clone(),
-                    response_preview: None,
-                    upstream_latency_ms: None,
-                };
-                record_request_event(&event);
-                if let Some(repo) = &self.event_repo {
-                    if let Err(e) = repo.insert_event(&event).await {
-                        tracing::warn!(error = %e, request_id, "failed to persist limited event");
-                    }
-                    let granularity = BucketGranularity::Hour;
-                    let bucket = UsageBucket::from_event(
-                        bucket_start(event.timestamp, granularity),
-                        granularity,
-                        &event,
-                    );
-                    if let Err(e) = repo.upsert_bucket(&(&bucket).into()).await {
-                        tracing::warn!(error = %e, request_id, "failed to upsert limited bucket");
-                    }
-                }
-                Err(ProxyError::Limit(err))
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -632,7 +277,8 @@ mod tests {
     use crate::limits::{LimitError, LimitRegistry};
     use crate::mcp::model::ToolContent;
     use crate::mcp::{McpError, McpServerRegistry, RemoteMcpPeer};
-    use crate::observability::{RequestEvent, SecurityEvent};
+    use crate::observability::{RequestEvent, RequestStatus, SecurityEvent, next_request_id};
+    use crate::proxy::post::request_status_from_proxy_error;
     use crate::secrets::{SecretRef, SecretStore, SecretString};
     use crate::shaping::ResultCache;
     use crate::store::{RequestEventFilter, RequestEventRepository, StoreError};

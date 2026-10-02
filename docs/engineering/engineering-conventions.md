@@ -37,7 +37,7 @@ timestamp: 2026-07-05T00:00:00Z
 - 单元测试内联在文件底部 `#[cfg(test)] mod tests`；跨模块端到端验证放 `tests/`（wiremock 模拟上游）。测试行数不计入预算。
 - **文件预算**：生产代码（不含 `#[cfg(test)]`）超过 500 行——先拆再改，或先在文件头注释写明拆分方向才允许继续增长。
 - **函数预算**：超过 80 行或嵌套超过 3 层——拆。
-- `#[allow(clippy::too_many_arguments)]` 是拆分信号而非常规工具：出现即说明该函数在聚合本应成为 struct 的状态。现存两处已入债务台账。
+- `#[allow(clippy::too_many_arguments)]` 是拆分信号而非常规工具：出现即说明该函数在聚合本应成为 struct 的状态。仓库内已无存量豁免（2026-10-01 清零），新增参数过多时先把总是一起传递的参数聚合为 struct。
 - 模块晋升：单文件模块出现第二个内聚子单元（典型标志：需要自己的 `error.rs`）时晋升为目录；不预先建目录。
 - `lib.rs` 只 re-export 稳定对外类型；新增 `pub use` 视为公共 API 承诺（见 [Compatibility Policy](../architecture/compatibility-policy.md)）。
 
@@ -90,7 +90,8 @@ timestamp: 2026-07-05T00:00:00Z
 
 | 债务 | 位置 | 状态 |
 | --- | --- | --- |
-| ~~invoke 编排 god-file 化~~ | `src/proxy/executor.rs` | ✓ 已拆为 executor（489 行）+ retry（328 行）+ post（251 行） |
+| ~~invoke 编排 god-file 化~~ | `src/proxy/executor.rs` | ✓ 已拆为 executor（269 行）+ `invoke/`（`mod.rs` 434 行、`admission.rs` 134 行）+ retry（452 行）+ post（335 行），均为生产代码行数；`invoke_call` 按阶段拆为私有步骤，最长 36 行 |
+| ~~`too_many_arguments` 豁免~~ | `proxy/post.rs`、`proxy/retry.rs`、`main.rs` | ✓ 已清零：`record_event` 收 `EventDraft`，`execute_with_retry` 收 `UpstreamRequest`，main 的两个 refresh 函数收 `AppState` |
 | ~~integrity drift 编排住在 main~~ | `src/integrity.rs` `check_drift` | ✓ 迁入 `integrity` 模块，`main.rs` 只调用 |
 | ~~热路径无 tracing span~~ | `proxy::executor::invoke`、`mcp::server` | ✓ 已补 `#[instrument]` |
 | ~~观测写入静默吞错~~ | `proxy::post` / `integrity` | ✓ 已补 `warn!` |
