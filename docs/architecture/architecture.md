@@ -89,9 +89,9 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 借鉴 NyaProxy（`services/limit.py`、`core/queue.py`）：
 
-- **限流维度**（类型化 `LimiterKey` 枚举替代字符串拼接）：`Endpoint(ApiId)`、`UpstreamKey(ApiId, KeyId)`、`Ip(ApiId, IpAddr)`、`GatewayPrincipal(ApiId, PrincipalId)`。
+- **限流维度**（类型化 `LimiterKey` 枚举替代字符串拼接）：生产在用 `Endpoint(ApiId)`（上游）与 `Principal(PrincipalId)`（gateway key）；`UpstreamKey`、`Ip`、`GatewayPrincipal` 与 `RateLimits` 尚未接线（截至 2026-10-01），来历、成本与接线或保留的推荐见 [Rate Limit Dimensions](rate-limit-dimensions.md)。
 - **算法**：`governor` GCRA（O(1) 内存）。整数配额可退还；GCRA 令牌不能退还。`Retry-After` 从 check 失败时的 `wait_time_from` 传递，不做非消费 peek（governor 不支持）。
-- **队列**：每 API 一个 tokio 调度器，优先级队列（重试 > master key > 普通），`tokio::time::timeout` 包裹排队，过期直接 429。
+- **队列**：每个配置了 `max_concurrent` 的上游一个 tokio `Semaphore` 控制并发，`tokio::time::timeout` 包裹排队；排队超时返回 503 `limit.queue_timeout`。`Priority::{MasterKey, Retry}` 已实现但生产路径固定传 `Normal`，不存在优先级队列。
 
 # Request Transformation
 
