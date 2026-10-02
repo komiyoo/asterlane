@@ -35,15 +35,15 @@ sources:
 
 ## Files
 
-- [`src/discovery.rs`](../../../../../src/discovery.rs)、[`src/catalog.rs`](../../../../../src/catalog.rs) — 默认模式、搜索分页、详情投影与 meta-tool 描述。
+- [`src/discovery.rs`](../../../../../src/discovery.rs)、[`src/catalog/`](../../../../../src/catalog/) — 默认模式、搜索分页、详情投影与 meta-tool 描述。
 - [`src/mcp/model.rs`](../../../../../src/mcp/model.rs)、[`src/mcp/server.rs`](../../../../../src/mcp/server.rs)、[`src/mcp/call.rs`](../../../../../src/mcp/call.rs) — 共享批量契约、MCP 分派与流程 prompt。
 - [`src/http/routes.rs`](../../../../../src/http/routes.rs)、[`src/cli/tools.rs`](../../../../../src/cli/tools.rs) — REST 分派及在线 CLI 的新响应格式和批量命令。
-- [`src/config.rs`](../../../../../src/config.rs)、[`src/gateway_auth.rs`](../../../../../src/gateway_auth.rs) — 默认模式与 key 绑定的回归检查；认证实现仅在测试揭示缺口时改动。
+- [`src/config/`](../../../../../src/config/)、[`src/gateway_auth.rs`](../../../../../src/gateway_auth.rs) — 默认模式与 key 绑定的回归检查；认证实现仅在测试揭示缺口时改动。
 - [`tests/gateway_auth.rs`](../../../../../tests/gateway_auth.rs)、[`tests/semantic_search.rs`](../../../../../tests/semantic_search.rs)、[`tests/limits_enforcement.rs`](../../../../../tests/limits_enforcement.rs) — 跨入口、授权、搜索与计量验证。
 
 ## Reuse
 
-- [`ToolCatalog::search_for_key` 与 `resolve_for_key`](../../../../../src/catalog.rs) — 搜索和别名解析；详情的规范名命中后还须显式调用 `key_can_use_tool`，因为规范名解析本身不判 scope。[^naming]
+- [`ToolCatalog::search_for_key` 与 `resolve_for_key`](../../../../../src/catalog/query.rs) — 搜索和别名解析；详情的规范名命中后还须显式调用 `key_can_use_tool`，因为规范名解析本身不判 scope。[^naming]
 - [`ProxyExecutor::invoke_call`](../../../../../src/proxy/executor.rs) — 每个批量子调用的授权、限额、凭据、审计和裁剪，禁止从批量入口直连上游。
 - [`ResultCache`](../../../../../src/shaping.rs) — 批量结果超预算时保留全文并按 key 提供游标续取。
 - `rmcp::ServerHandler` 的 `list_prompts` / `get_prompt` — 网关自有提示；上游 prompts 代理不在本计划内。[^protocol]

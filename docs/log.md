@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-10-02（2026-10 实施计划完成并归档）
+
+- **结论**：[实施计划](plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md)的 S0–S8 与 D1–D2 全部合入本地 `main`，计划移入 `plans/Archive/2026/10-01/`。S8 随 S7 在同一分支完成。另插入一个只改测试的修复：`tests/proxy_events.rs` 的偶发失败，以及两个 OAuth 测试文件的日志捕获。
+- **文档**：[Roadmap](product/roadmap.md)、[Rate Limit Dimensions](architecture/rate-limit-dimensions.md) 与本日志中指向计划的链接改到归档路径。2026-09-26 归档计划里指向 `src/catalog.rs`、`src/config.rs` 的失效链接，改为指向拆分后的目录。
+- **待决**：多租户与 RBAC；[Rate Limit Dimensions](architecture/rate-limit-dimensions.md) 中 `UpstreamKey` 是否接线、`X-Forwarded-For` 信任方案；上游 OAuth 尚未对真实授权服务器端到端验证（Phase 8 准出条件）；`LICENSE` 为 Apache-2.0 全文，而 `Cargo.toml` 与 README 声明 MIT，首次发布前须统一。
+- **验证**：主仓 rustc 1.99.0 下 `just check` 通过（1024 passed，2 ignored）；`cargo deny check` 通过；文档相对链接全部可解析。
+
 ## 2026-10-02（代理上游 resources 与 prompts）
 
 - **结论**：落地计划 S7。远程 MCP 上游的 prompts、resources 与 resource templates 与 tools 同一周期刷新（连接、周期 refresh、上游 `tools/list_changed`）。可见范围沿用工具 scope，没有新配置字段。stdio / 本地进程仍是非目标。
@@ -102,7 +109,7 @@
 
 - **决策**：删除请求变换；成本核算暂缓；存储维持 SQLite，Postgres 与共享状态本轮不做；代理上游 resources 与 prompts，key 范围沿用工具 scope，stdio 定为非目标；上游 MCP OAuth 只做网关持有（client-credentials + 管理员一次性授权码）；限流维度先出设计；每次发布默认 patch +0.0.1。多租户与 RBAC 仍未定。
 - **依赖**：`cargo update -p rustls`（0.23.43 → 0.23.45），修复 RUSTSEC-2026-0285，`cargo deny check` 恢复通过。确认 rmcp 3.1.2 的 `auth` feature 可用及其 DCR / refresh 边界。
-- **文档**：[Roadmap](product/roadmap.md) 的「待产品决策项」改为「产品决策」并就地更新各阶段条目；[Crate Selection](architecture/crate-selection.md) 增 rmcp `auth` 行；新增[实施计划](plans/2026/10-01/00-上游-oauth-资源代理与工程债.md)。
+- **文档**：[Roadmap](product/roadmap.md) 的「待产品决策项」改为「产品决策」并就地更新各阶段条目；[Crate Selection](architecture/crate-selection.md) 增 rmcp `auth` 行；新增[实施计划](plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md)（已归档）。
 - **验证**：本机 rustc 1.99.0 下 `just check` 通过（878 passed，2 ignored）；`cargo deny check` 通过。
 
 ## 2026-09-26（默认 lazy 与批量工具操作）

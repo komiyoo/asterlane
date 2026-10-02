@@ -2,9 +2,9 @@
 type: Plan
 title: 上游 OAuth、resources/prompts 代理、工程债与发布
 description: 落地 2026-10-01 产品决策：上游 MCP OAuth、代理上游 resources 与 prompts、代码规模债、删除请求变换、限流维度设计与发布流水线。
-resource: docs/plans/2026/10-01/00-上游-oauth-资源代理与工程债.md
+resource: docs/plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md
 tags: [计划, oauth, mcp, resources, prompts, refactor, release]
-status: active
+status: stable
 sources:
   - id: roadmap
     resource: docs/product/roadmap.md
@@ -25,7 +25,7 @@ sources:
 
 # 上游 OAuth、resources/prompts 代理、工程债与发布
 
-决策结论见 [Roadmap · 产品决策](../../../product/roadmap.md#产品决策)。本计划只安排落点、顺序和验收。[^roadmap]
+决策结论见 [Roadmap · 产品决策](../../../../product/roadmap.md#产品决策)。本计划只安排落点、顺序和验收。[^roadmap]
 
 ## Context
 
@@ -38,7 +38,7 @@ sources:
 - **机器只有 2 核、3 GB 内存**：同一时刻只允许一个切片编译。所有编码切片在同一棵 worktree `.worktrees/code` 里串行执行，每个切片从最新本地 `main` 新开分支，复用该树的 `target/`。纯文档或 CI 切片（D1、D2）在各自的 worktree 中并行，不运行 cargo 编译。
 - **分支与合并**：每个切片一个分支，按可审查的粒度提交（Conventional Commits，中文描述）。子代理只提交，不合并，不 push。主代理在该树复跑 `just check` 后，以 `--no-ff` 合回本地 `main`。
 - **文档同步**：切片改动行为、schema 或模块边界时，同一分支内更新对应概念文档和 `docs/log.md`（新条目置顶）。CHANGELOG 在 D2 合入后建立，之后的切片在 `## [Unreleased]` 下追加条目。
-- **门禁**：每个切片在自己的树里 `just check` 全绿；新增依赖时还要跑 `cargo deny check`，并更新 [Crate Selection](../../../architecture/crate-selection.md)。
+- **门禁**：每个切片在自己的树里 `just check` 全绿；新增依赖时还要跑 `cargo deny check`，并更新 [Crate Selection](../../../../architecture/crate-selection.md)。
 - **工程纲领**：生产代码单文件 ≤500 行、单函数 ≤80 行；禁 `unwrap`/`expect`；错误有稳定码且可安全展示；`tracing` 是唯一日志通道；密钥与 token 不进日志、错误、响应和测试快照。[^conventions]
 
 ## 依赖
@@ -75,7 +75,7 @@ flowchart LR
 
 - [x] 安装 rustup（stable 1.99.0）、`just`、`cargo-deny`；`just check` 全绿。
 - [x] `cargo update -p rustls`（0.23.43 → 0.23.45），修复 RUSTSEC-2026-0285，`cargo deny check` 通过。
-- [x] 确认 rmcp 3.1.2 的 `auth` feature 及其边界，记入 [Crate Selection](../../../architecture/crate-selection.md)。
+- [x] 确认 rmcp 3.1.2 的 `auth` feature 及其边界，记入 [Crate Selection](../../../../architecture/crate-selection.md)。
 - [x] Roadmap 产品决策表与各阶段条目就地更新；新增本计划。
 
 ## S1 拆分 mcp/registry.rs
@@ -93,8 +93,8 @@ flowchart LR
 ## S2 删除请求变换
 
 - [x] 删除 `src/transform/` 与 `src/lib.rs` 的 `pub mod transform`。
-- [x] 删除 `ErrorCode::TransformDangerousHeader` / `TransformInvalidPointer` 及 `transform` 分类映射，删除 `src/cli/client.rs` 中 `transform` → 退出码 8 的映射与测试。这些码从未在生产路径发出，没有消费者，不走弃用周期；在 [Error Model](../../../architecture/error-model.md) 注明退出码 8 已退役、不复用。
-- [x] 同步撤回声明：[Product Requirements](../../../product/product-requirements.md)（借鉴清单、需求条目与 `Request Transformation` 节）、[Architecture](../../../architecture/architecture.md) 模块表与编排说明、[Engineering Conventions](../../../engineering/engineering-conventions.md) 分层表与 `transform` 豁免、[Development Workflow](../../../engineering/development-workflow.md) 模块表与借鉴清单、[Response Rendering](../../../runtime/response-rendering.md) 中的对照句、根 `README.md` 能力概览与项目结构、[Roadmap](../../../product/roadmap.md) 支柱四与 Phase 7 条目。
+- [x] 删除 `ErrorCode::TransformDangerousHeader` / `TransformInvalidPointer` 及 `transform` 分类映射，删除 `src/cli/client.rs` 中 `transform` → 退出码 8 的映射与测试。这些码从未在生产路径发出，没有消费者，不走弃用周期；在 [Error Model](../../../../architecture/error-model.md) 注明退出码 8 已退役、不复用。
+- [x] 同步撤回声明：[Product Requirements](../../../../product/product-requirements.md)（借鉴清单、需求条目与 `Request Transformation` 节）、[Architecture](../../../../architecture/architecture.md) 模块表与编排说明、[Engineering Conventions](../../../../engineering/engineering-conventions.md) 分层表与 `transform` 豁免、[Development Workflow](../../../../engineering/development-workflow.md) 模块表与借鉴清单、[Response Rendering](../../../../runtime/response-rendering.md) 中的对照句、根 `README.md` 能力概览与项目结构、[Roadmap](../../../../product/roadmap.md) 支柱四与 Phase 7 条目。
 - [x] `rg -i "transform" src docs README.md` 只剩 CSS 与历史记录（`docs/log.md`、计划归档）。
 
 验收：`just check` 全绿；全库不再有请求变换的现行承诺。
@@ -116,7 +116,7 @@ flowchart LR
 ## S4 拆分 invoke_call 与 serve
 
 - [x] `ProxyExecutor::invoke_call`（`src/proxy/executor.rs`，约 270 行）按管线阶段拆成私有步骤函数（解析与授权、准入与配额、凭据与上游调用、裁剪与事件），单函数 ≤80 行；`src/proxy/executor.rs` 生产代码 ≤500 行。
-- [x] `serve`（`src/main.rs`，约 250 行）拆为装配步骤。`main.rs` 只保留 CLI 解析、装配和进程生命周期，后台任务每个 tick 收敛为某个模块公开函数的一次调用（见 [Engineering Conventions · 组合根](../../../engineering/engineering-conventions.md#组合根)）。
+- [x] `serve`（`src/main.rs`，约 250 行）拆为装配步骤。`main.rs` 只保留 CLI 解析、装配和进程生命周期，后台任务每个 tick 收敛为某个模块公开函数的一次调用（见 [Engineering Conventions · 组合根](../../../../engineering/engineering-conventions.md#组合根)）。
 - [x] 消除 4 处 `#[allow(clippy::too_many_arguments)]`：`src/proxy/retry.rs` 的 `execute_with_retry`、`src/proxy/post.rs`、`src/main.rs` 的两个 refresh task 函数，聚合为参数 struct。
 - [x] 行为不变：请求事件字段、错误码、tracing span 字段与拆分前一致。
 
@@ -145,14 +145,14 @@ oauth:                               # 顶层，可选；任一 server 用 autho
   token_encryption_key_ref: secret://env/ASTERLANE_OAUTH_KEY  # 32 字节、base64 编码
 ```
 
-- [x] `Cargo.toml` 的 rmcp 启用 `auth`；`ring`（锁文件已有 0.17）提升为直接依赖，用于 token 加密；按需直接依赖 `base64`。更新 [Crate Selection](../../../architecture/crate-selection.md)，通过 `cargo deny check`。
+- [x] `Cargo.toml` 的 rmcp 启用 `auth`；`ring`（锁文件已有 0.17）提升为直接依赖，用于 token 加密；按需直接依赖 `base64`。更新 [Crate Selection](../../../../architecture/crate-selection.md)，通过 `cargo deny check`。
 - [x] `UpstreamAuth` 增 `OAuth` 变体，顶层增 `oauth` 节；全部 `#[serde(default)]` 或可选，校验 fail fast（必填项缺失、`api_resources` 使用 OAuth、`redirect_base_url` 非 https 且非 localhost、密钥长度不对）。
 - [x] 凭据存储：新迁移建 `upstream_oauth_credentials(server_id PRIMARY KEY, sealed_credentials, updated_at)`。rmcp `StoredCredentials` 序列化后用 `ring::aead::CHACHA20_POLY1305` 加密（随机 nonce，AAD = server id）。sqlx 访问留在 `store`，加解密放 `secrets`，rmcp 的 `CredentialStore` 适配放 `mcp`（rmcp 类型不出 `mcp/`）。无数据库时用内存存储；client-credentials 的 token 一律只放内存。
 - [x] transport 接线（`src/mcp/transport.rs`）：OAuth server 用 `AuthClient<reqwest::Client>` 作为 `StreamableHttpClientTransport` 的 HTTP client；经 RFC 9728 / 8414 元数据发现取得授权服务器，RFC 8707 `resource` 用发现到的资源标识。
 - [x] client-credentials：连接时 `configure_client_credentials` + `exchange_client_credentials`。rmcp 的刷新只处理 refresh token，所以 token 临近过期或被上游 401 拒绝时，必须在请求路径上重新换取，不能等周期重连。
 - [x] authorization_code：启动时从存储加载已有凭据（`initialize_from_store`），由 rmcp 自动刷新；刷新后轮换的 refresh token 写回存储。没有凭据或刷新被拒绝时，server 进入新健康状态 `auth_required`。FailClosed 把它和 `unreachable` 一样视为不可用；`tools/call` 返回新错误码 `mcp.upstream_auth_required`，消息可安全展示，并提示联系管理员授权。
 - [x] 测试（进程内模拟，不连真实上游）：受保护资源元数据 + 授权服务器元数据 + token 端点 + 校验 Bearer 的 Streamable HTTP MCP server。覆盖：client-credentials 握手与列工具、短 `expires_in` 后自动重新换取、存储加解密往返、密钥错误时降为 `auth_required` 并告警、无凭据的授权码 server 显示 `auth_required`、日志/错误/admin 响应中无 token 与 client secret。
-- [x] 文档：[Configuration Schema](../../../runtime/config-schema.md)、[Key Credentials & Persistence](../../../runtime/key-credentials-and-persistence.md)（上游 OAuth 凭据与加密存储）、[MCP Protocol](../../../architecture/mcp-protocol.md)、[MCP Governance](../../../runtime/mcp-governance-and-key-limits.md)（`auth_required` 状态）、[Error Model](../../../architecture/error-model.md)、[Compatibility Policy](../../../architecture/compatibility-policy.md)（新配置节）、[Roadmap](../../../product/roadmap.md) 支柱一、根 `README.md`、`docs/log.md`。
+- [x] 文档：[Configuration Schema](../../../../runtime/config-schema.md)、[Key Credentials & Persistence](../../../../runtime/key-credentials-and-persistence.md)（上游 OAuth 凭据与加密存储）、[MCP Protocol](../../../../architecture/mcp-protocol.md)、[MCP Governance](../../../../runtime/mcp-governance-and-key-limits.md)（`auth_required` 状态）、[Error Model](../../../../architecture/error-model.md)、[Compatibility Policy](../../../../architecture/compatibility-policy.md)（新配置节）、[Roadmap](../../../../product/roadmap.md) 支柱一、根 `README.md`、`docs/log.md`。
 
 验收：client-credentials 上游端到端可用，代理侧只见 gateway key；`just check` 与 `cargo deny check` 全绿。
 
@@ -169,7 +169,7 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 - [x] CLI：`asterlane admin mcp-servers authorize <id>`（打印授权 URL）与 `deauthorize <id>`。
 - [x] 控制台：MCP server 卡片在 `auth_required` 时显示「授权」按钮（新标签页打开 URL），已授权时显示「撤销授权」。
 - [x] 测试：模拟授权服务器（含 DCR 端点）跑完整流程（authorize → 直接以 code + state 调 callback → 连接成功）；state 错误、过期、重放均被拒；refresh 后新 refresh token 落库；admin 与 CLI 输出不含 token。
-- [x] 文档：[Admin Console](../../../admin/admin-console.md)、[CLI 架构](../../../admin/cli-client-architecture.md)、[Configuration Schema](../../../runtime/config-schema.md)、[MCP Protocol](../../../architecture/mcp-protocol.md)、[Roadmap](../../../product/roadmap.md)（Phase 8 OAuth 标已交付）、根 `README.md`、`docs/log.md`。
+- [x] 文档：[Admin Console](../../../../admin/admin-console.md)、[CLI 架构](../../../../admin/cli-client-architecture.md)、[Configuration Schema](../../../../runtime/config-schema.md)、[MCP Protocol](../../../../architecture/mcp-protocol.md)、[Roadmap](../../../../product/roadmap.md)（Phase 8 OAuth 标已交付）、根 `README.md`、`docs/log.md`。
 
 验收：模拟授权码上游从「需要授权」到可调用全流程走通；重启网关（SQLite 文件库）后无需重新授权；`just check` 全绿。
 
@@ -186,7 +186,7 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 - [x] 治理：`prompts/get` 与 `resources/read` 经过和 `tools/call` 相同的 key 级与上游级限流准入（复用 `LimitRegistry`，不另写限流）；不计入调用配额，不写 `request_events`（在 Roadmap 登记为已知缺口）。
 - [x] 不在本轮：resource 订阅（`resources/subscribe`）、向下游推送 prompts/resources 的 list_changed、REST 与 CLI 入口。
 - [x] 测试：进程内上游同时提供 tools、prompts、resources、templates；两个 key 范围互不可见；URI 改写与还原往返；无权限读返回 -32002 且不触发上游；不支持 resources 的上游不报错。
-- [x] 文档：[Product Requirements](../../../product/product-requirements.md)（MCP 网关代理 tools/resources/prompts，stdio 为非目标）、[MCP Protocol](../../../architecture/mcp-protocol.md)（capabilities 与 URI 命名空间）、[MCP Governance](../../../runtime/mcp-governance-and-key-limits.md)（scope 规则覆盖 prompts/resources）、[API Discovery](../../../runtime/api-discovery.md)（lazy 不影响 prompts/resources）、[Compatibility Policy](../../../architecture/compatibility-policy.md)（行为变更：scope 已覆盖某上游的 key 升级后会看到其 prompts/resources；URI 命名空间格式是稳定契约）、[Roadmap](../../../product/roadmap.md) 支柱四、根 `README.md`、`docs/log.md`。
+- [x] 文档：[Product Requirements](../../../../product/product-requirements.md)（MCP 网关代理 tools/resources/prompts，stdio 为非目标）、[MCP Protocol](../../../../architecture/mcp-protocol.md)（capabilities 与 URI 命名空间）、[MCP Governance](../../../../runtime/mcp-governance-and-key-limits.md)（scope 规则覆盖 prompts/resources）、[API Discovery](../../../../runtime/api-discovery.md)（lazy 不影响 prompts/resources）、[Compatibility Policy](../../../../architecture/compatibility-policy.md)（行为变更：scope 已覆盖某上游的 key 升级后会看到其 prompts/resources；URI 命名空间格式是稳定契约）、[Roadmap](../../../../product/roadmap.md) 支柱四、根 `README.md`、`docs/log.md`。
 
 验收：MCP 客户端经网关看到并使用上游 prompts 与 resources，范围与工具一致；`just check` 全绿。
 
@@ -195,7 +195,7 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 ## S8 剩余超预算文件与债务台账
 
 - [x] 处理仍超过 500 行生产代码的文件。截至 S0 为 `src/catalog.rs`、`src/http/routes.rs`、`src/admin/crud.rs`、`src/admin/mod.rs`、`src/store/repository.rs`，另加 S5–S7 之后新超出的文件。有明显内聚单元的拆分；没有的在文件头写明拆分方向。
-- [x] 重写 [Engineering Conventions · 已知债务台账](../../../engineering/engineering-conventions.md#已知债务台账)：更正过时的 executor 行数与 `too_many_arguments` 说明；登记仍超 80 行的函数（截至 S0 例如 `handle_meta_tool_with_proxy`、`mcp::call::call_tools`、`shape_remote_mcp_result`、`mcp::server` 的 `call_tool`），写明位置与拆分方向。
+- [x] 重写 [Engineering Conventions · 已知债务台账](../../../../engineering/engineering-conventions.md#已知债务台账)：更正过时的 executor 行数与 `too_many_arguments` 说明；登记仍超 80 行的函数（截至 S0 例如 `handle_meta_tool_with_proxy`、`mcp::call::call_tools`、`shape_remote_mcp_result`、`mcp::server` 的 `call_tool`），写明位置与拆分方向。
 
 验收：无未登记的超预算文件；台账与代码一致；`just check` 全绿。
 
@@ -205,22 +205,22 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 
 - [x] 新建 `docs/architecture/rate-limit-dimensions.md`（`type: Design`），覆盖：生产在用的维度（`LimitRegistry` 的 `Endpoint`、`Principal`）；未接线的 `RateLimits` 与 `LimiterKey::{Ip, UpstreamKey, GatewayPrincipal}` 的原始意图、接线成本、与现有维度的重叠；每个维度给出「接线 / 保留 / 删除」选项和推荐。
 - [x] `X-Forwarded-For` 信任边界列为待决项：默认不信任、可信代理 CIDR 列表、跳数等方案的取舍。多副本共享计数不在范围内。
-- [x] 更新 `docs/architecture/README.md` 索引、[Roadmap](../../../product/roadmap.md) Phase 10 条目链接、`docs/log.md`。
+- [x] 更新 `docs/architecture/README.md` 索引、[Roadmap](../../../../product/roadmap.md) Phase 10 条目链接、`docs/log.md`。
 
 验收：OKF 检查通过；文档足以支撑「接线或保留」的评审决定。
 
-结果（2026-10-01）：推荐 `UpstreamKey` 接线（前提：确认有按 key 计量的上游），`RateLimits` 随之保留；`GatewayPrincipal`、`Ip` 保留不接并写明触发条件；`X-Forwarded-For` 推荐默认不信任、需要时用可信代理 CIDR。另更正 [Architecture](../../../architecture/architecture.md) 中队列与维度的过时描述。等待评审决定。
+结果（2026-10-01）：推荐 `UpstreamKey` 接线（前提：确认有按 key 计量的上游），`RateLimits` 随之保留；`GatewayPrincipal`、`Ip` 保留不接并写明触发条件；`X-Forwarded-For` 推荐默认不信任、需要时用可信代理 CIDR。另更正 [Architecture](../../../../architecture/architecture.md) 中队列与维度的过时描述。等待评审决定。
 
 ## D2 发布设置
 
 - [x] 根目录新增 `CHANGELOG.md`（Keep a Changelog 格式），含 `## [Unreleased]`。
-- [x] 新增 `docs/engineering/release-process.md`：版本策略（每次发布默认 patch +0.0.1；0.x breaking 显著标注）、发布步骤（改版本号、整理 CHANGELOG、提交、打 `vX.Y.Z` tag、由维护者 push tag）。在 [Compatibility Policy](../../../architecture/compatibility-policy.md) 的语义化版本节写入同一策略并链接过去。
+- [x] 新增 `docs/engineering/release-process.md`：版本策略（每次发布默认 patch +0.0.1；0.x breaking 显著标注）、发布步骤（改版本号、整理 CHANGELOG、提交、打 `vX.Y.Z` tag、由维护者 push tag）。在 [Compatibility Policy](../../../../architecture/compatibility-policy.md) 的语义化版本节写入同一策略并链接过去。
 - [x] `.github/workflows/release.yml`：`push` tag `v*` 触发。校验 tag 与 `Cargo.toml` 版本一致且 CHANGELOG 有对应小节；在原生 runner 上 `cargo build --release --locked` 构建 `x86_64-unknown-linux-gnu`（ubuntu-latest）、`aarch64-unknown-linux-gnu`（ubuntu-24.04-arm）、`aarch64-apple-darwin`（macos-latest），打包 tar.gz 并附 sha256；以 CHANGELOG 对应小节为说明创建 GitHub Release 并上传产物；镜像按架构在原生 runner 上构建，推送到 `ghcr.io/komiyoo/asterlane`（`X.Y.Z` 与 `latest`，linux/amd64 + linux/arm64 合成 manifest）。只用 `GITHUB_TOKEN`，权限最小化。
 - [x] `ci.yml` 增 `build` job：`cargo build --release --locked`，并 `docker build`（不推送）验证 Dockerfile。
-- [x] 更新根 `README.md` 的 CI 与发布说明、[Roadmap](../../../product/roadmap.md) Phase 9 发布工程条目、`docs/engineering/README.md` 索引、`docs/log.md`。
+- [x] 更新根 `README.md` 的 CI 与发布说明、[Roadmap](../../../../product/roadmap.md) Phase 9 发布工程条目、`docs/engineering/README.md` 索引、`docs/log.md`。
 - [x] 不打 tag，不 push，不改 `Cargo.toml` 版本号。
 
-结果（2026-10-01）：actionlint 1.7.12 + shellcheck 0.11.0 零错误；校验、说明抽取与打包脚本已用样例本机模拟。另补 `Dockerfile` 的 `--locked`；因默认 patch 发布，[Compatibility Policy](../../../architecture/compatibility-policy.md) 的弃用周期改为按发布次数计。未在 GitHub 实跑。
+结果（2026-10-01）：actionlint 1.7.12 + shellcheck 0.11.0 零错误；校验、说明抽取与打包脚本已用样例本机模拟。另补 `Dockerfile` 的 `--locked`；因默认 patch 发布，[Compatibility Policy](../../../../architecture/compatibility-policy.md) 的弃用周期改为按发布次数计。未在 GitHub 实跑。
 
 验收：workflow YAML 能解析（有 `actionlint` 时一并检查）；OKF 检查通过。本机无法运行 GitHub Actions，首次真实运行在维护者推 tag 时验证。
 
