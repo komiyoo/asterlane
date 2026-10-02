@@ -7,11 +7,12 @@ mod oauth_callback;
 mod request_id;
 mod routes;
 mod state;
+mod tools;
 
 pub use crate::mcp::ToolListChangedPeers;
 pub use state::AppState;
 // 供 admin 调试调用复用 `/v1/tools/{name}/invoke` 的执行管线。
-pub(crate) use routes::execute_invoke;
+pub(crate) use tools::execute_invoke;
 // 从 integrity 模块直接再导出，供外部调用方从 http 入口获取。
 pub use crate::integrity::QuarantinedTools;
 
@@ -73,8 +74,8 @@ pub fn build_app_with_ct(
 
     let mut api = Router::new()
         .route("/config", get(routes::get_config))
-        .route("/v1/tools", get(routes::list_tools))
-        .route("/v1/tools/{name}/invoke", post(routes::invoke_tool));
+        .route("/v1/tools", get(tools::list_tools))
+        .route("/v1/tools/{name}/invoke", post(tools::invoke_tool));
     if state.admin_auth.is_some() {
         api = api.nest("/admin", crate::admin::router(&state)).route(
             "/",
