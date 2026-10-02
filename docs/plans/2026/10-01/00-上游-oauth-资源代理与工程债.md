@@ -197,12 +197,14 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 
 ## D2 发布设置
 
-- [ ] 根目录新增 `CHANGELOG.md`（Keep a Changelog 格式），含 `## [Unreleased]`。
-- [ ] 新增 `docs/engineering/release-process.md`：版本策略（每次发布默认 patch +0.0.1；0.x breaking 显著标注）、发布步骤（改版本号、整理 CHANGELOG、提交、打 `vX.Y.Z` tag、由维护者 push tag）。在 [Compatibility Policy](../../../architecture/compatibility-policy.md) 的语义化版本节写入同一策略并链接过去。
-- [ ] `.github/workflows/release.yml`：`push` tag `v*` 触发。校验 tag 与 `Cargo.toml` 版本一致且 CHANGELOG 有对应小节；在原生 runner 上 `cargo build --release --locked` 构建 `x86_64-unknown-linux-gnu`（ubuntu-latest）、`aarch64-unknown-linux-gnu`（ubuntu-24.04-arm）、`aarch64-apple-darwin`（macos-latest），打包 tar.gz 并附 sha256；以 CHANGELOG 对应小节为说明创建 GitHub Release 并上传产物；镜像按架构在原生 runner 上构建，推送到 `ghcr.io/komiyoo/asterlane`（`X.Y.Z` 与 `latest`，linux/amd64 + linux/arm64 合成 manifest）。只用 `GITHUB_TOKEN`，权限最小化。
-- [ ] `ci.yml` 增 `build` job：`cargo build --release --locked`，并 `docker build`（不推送）验证 Dockerfile。
-- [ ] 更新根 `README.md` 的 CI 与发布说明、[Roadmap](../../../product/roadmap.md) Phase 9 发布工程条目、`docs/engineering/README.md` 索引、`docs/log.md`。
-- [ ] 不打 tag，不 push，不改 `Cargo.toml` 版本号。
+- [x] 根目录新增 `CHANGELOG.md`（Keep a Changelog 格式），含 `## [Unreleased]`。
+- [x] 新增 `docs/engineering/release-process.md`：版本策略（每次发布默认 patch +0.0.1；0.x breaking 显著标注）、发布步骤（改版本号、整理 CHANGELOG、提交、打 `vX.Y.Z` tag、由维护者 push tag）。在 [Compatibility Policy](../../../architecture/compatibility-policy.md) 的语义化版本节写入同一策略并链接过去。
+- [x] `.github/workflows/release.yml`：`push` tag `v*` 触发。校验 tag 与 `Cargo.toml` 版本一致且 CHANGELOG 有对应小节；在原生 runner 上 `cargo build --release --locked` 构建 `x86_64-unknown-linux-gnu`（ubuntu-latest）、`aarch64-unknown-linux-gnu`（ubuntu-24.04-arm）、`aarch64-apple-darwin`（macos-latest），打包 tar.gz 并附 sha256；以 CHANGELOG 对应小节为说明创建 GitHub Release 并上传产物；镜像按架构在原生 runner 上构建，推送到 `ghcr.io/komiyoo/asterlane`（`X.Y.Z` 与 `latest`，linux/amd64 + linux/arm64 合成 manifest）。只用 `GITHUB_TOKEN`，权限最小化。
+- [x] `ci.yml` 增 `build` job：`cargo build --release --locked`，并 `docker build`（不推送）验证 Dockerfile。
+- [x] 更新根 `README.md` 的 CI 与发布说明、[Roadmap](../../../product/roadmap.md) Phase 9 发布工程条目、`docs/engineering/README.md` 索引、`docs/log.md`。
+- [x] 不打 tag，不 push，不改 `Cargo.toml` 版本号。
+
+结果（2026-10-01）：actionlint 1.7.12 + shellcheck 0.11.0 零错误；校验、说明抽取与打包脚本已用样例本机模拟。另补 `Dockerfile` 的 `--locked`；因默认 patch 发布，[Compatibility Policy](../../../architecture/compatibility-policy.md) 的弃用周期改为按发布次数计。未在 GitHub 实跑。
 
 验收：workflow YAML 能解析（有 `actionlint` 时一并检查）；OKF 检查通过。本机无法运行 GitHub Actions，首次真实运行在维护者推 tag 时验证。
 

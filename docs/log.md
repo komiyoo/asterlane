@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-10-01（发布流程）
+
+- **新增**：根 `CHANGELOG.md`（Keep a Changelog 1.1.0，中文条目），`[Unreleased]` 先记入 rustls 升级；[Release Process](engineering/release-process.md)，覆盖版本策略（每次发布默认 patch +0.0.1）、CHANGELOG 约定、发布步骤、产物与首次发布注意事项；`.github/workflows/release.yml`，push `v*.*.*` tag 触发：校验 tag 与 `Cargo.toml`、`Cargo.lock`、CHANGELOG → 原生 runner 构建三个目标的二进制 → amd64 / arm64 镜像按摘要推送并合成 manifest（`ghcr.io/komiyoo/asterlane`，`X.Y.Z` 与 `latest`）→ 创建 GitHub Release。只用 `GITHUB_TOKEN`。
+- **CI**：`ci.yml` 增 `build` job（`cargo build --release --locked`，Docker 构建不推送并运行 `--help` 冒烟）；`Dockerfile` 的 `cargo build` 加 `--locked`，与发布构建一致。
+- **文档**：[Compatibility Policy](architecture/compatibility-policy.md) 的语义化版本节写入同一策略，并把两处「下一个 minor 移除」改为「至少经过一次发布后再移除」，避免与 patch 默认节奏矛盾；[Roadmap](product/roadmap.md) Phase 9 与生产就绪表记发布工程已交付，`cargo-semver-checks` 本轮不做（兼容策略规定发布到 crates.io 时才启用）；根 `README.md` 的 CI 表改为六个 job 并新增「发布」节；[Development Workflow](engineering/development-workflow.md) 的 CI job 描述同步；[工程与文档](engineering/README.md) 索引加一行。
+- **验证**：workflow YAML 可解析；`actionlint` 1.7.12（含 shellcheck 0.11.0）0 错误；校验、抽取说明与打包脚本在本机用样例文件模拟通过；`python3 scripts/check_okf_docs.py`、`git diff --check` 通过。未运行 GitHub Actions 和 `cargo build --locked`，流水线首次真实运行待维护者推 tag 验证。
+
 ## 2026-10-01（产品决策与实施计划）
 
 - **决策**：删除请求变换；成本核算暂缓；存储维持 SQLite，Postgres 与共享状态本轮不做；代理上游 resources 与 prompts，key 范围沿用工具 scope，stdio 定为非目标；上游 MCP OAuth 只做网关持有（client-credentials + 管理员一次性授权码）；限流维度先出设计；每次发布默认 patch +0.0.1。多租户与 RBAC 仍未定。

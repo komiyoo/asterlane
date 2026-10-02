@@ -5,7 +5,7 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 COPY migrations/ migrations/
-RUN cargo build --release && strip target/release/asterlane
+RUN cargo build --release --locked && strip target/release/asterlane
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \

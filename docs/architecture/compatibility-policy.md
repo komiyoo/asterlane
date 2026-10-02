@@ -4,7 +4,7 @@ title: 后向兼容策略
 description: 定义配置、MCP 工具名、错误码与公共 API 的后向兼容边界与演进准则。
 resource: docs/architecture/compatibility-policy.md
 tags: [compatibility, architecture, api, versioning]
-timestamp: 2026-07-22T00:00:00+08:00
+timestamp: 2026-10-01T00:00:00Z
 ---
 
 # 背景
@@ -16,7 +16,7 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 ## 原则
 
 - 配置文件向后兼容：新增字段必须有 `#[serde(default)]`，旧配置文件在新版本仍可加载。
-- 删除字段需经过弃用周期：先标 `#[deprecated]` 并在 `docs/log.md` 记录，下一个 minor 版本移除。
+- 删除字段需经过弃用周期：先标 `#[deprecated]` 并在 `docs/log.md` 记录，至少经过一次发布后再移除（见[语义化版本](#语义化版本)）。
 - 字段语义变更视为 breaking，必须新增字段而非改旧字段含义。
 
 ## 当前已知演进
@@ -85,7 +85,7 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 
 - 错误码字符串值一经发布不得变更。
 - 新增错误码不算 breaking。
-- 删除/合并错误码需经过弃用周期：先在响应中保留旧码并附加 `deprecated: true` 字段，下一个 minor 移除。
+- 删除/合并错误码需经过弃用周期：先在响应中保留旧码并附加 `deprecated: true` 字段，至少经过一次发布后再移除。
 - 错误码的 category 前缀（`config.*` / `auth.*` 等）稳定，不重组。
 
 # 公共 API 兼容性（lib + admin API）
@@ -113,9 +113,11 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 
 # 语义化版本
 
-- 0.x 期间：minor 版本可含 breaking change，但在 `docs/log.md` 与 CHANGELOG 显著标注。
+- 发布节奏：每次发布默认 patch +0.0.1（如 `0.1.0` → `0.1.1`）。发布步骤与流水线见 [Release Process](../engineering/release-process.md)。
+- 0.x 期间：不承诺 SemVer 兼容，任何版本（含 patch）都可能含 breaking change。此类变更必须在 `docs/log.md` 与 CHANGELOG 以「破坏性变更」显著标注并写明迁移办法；影响面大时，维护者可以例外地升 minor。
 - 1.0 之后：遵循 SemVer，breaking change 必须升 major。
-- MSRV 提升不视为 semver breaking（tokio 等基石 crate 的事实做法），但应克制、与 minor 版本一起批量提。
+- 弃用周期按发布次数计：弃用在某次发布中生效，至少再经过一次发布才能移除。
+- MSRV 提升不视为 semver breaking（tokio 等基石 crate 的事实做法），但应克制、批量提升，并在 CHANGELOG 的 `Changed` 中标注。
 
 # Citations
 
@@ -124,3 +126,4 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 - [3] [Error Model](error-model.md)
 - [4] [Naming Convention](naming-convention.md)
 - [5] [Development Workflow](../engineering/development-workflow.md)
+- [6] [Release Process](../engineering/release-process.md)
