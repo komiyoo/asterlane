@@ -9,6 +9,10 @@
 //! - [`auth`]: 上游凭据注入纯函数 [`apply_auth`](auth::apply_auth)。
 //! - [`executor`]: [`ProxyExecutor`] 与 [`InvokeResult`]，编排 catalog、config、
 //!   secrets、key pool、limits 与 reqwest，完成上游 HTTP 调用。
+//! - `invoke`（私有）：`ProxyExecutor::invoke_call` 的管线阶段——解析与授权、
+//!   准入与配额、凭据与上游调用、结果裁剪与事件记录。
+//! - `retry`（私有）：重试循环与 failover。
+//! - `post`（私有）：请求事件记录、负载捕获、content defense、渲染与 result shaping。
 //!
 //! # 安全
 //!
@@ -19,6 +23,7 @@
 pub mod auth;
 pub mod error;
 pub mod executor;
+mod invoke;
 mod post;
 mod retry;
 

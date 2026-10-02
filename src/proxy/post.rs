@@ -16,6 +16,27 @@ use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketR
 use chrono::Utc;
 use tracing::warn;
 
+/// 待记录的请求事件内容（`record_event` 的参数聚合）。
+///
+/// `request_args` / `response_preview` 由调用方经 capture helper 截断 + 脱敏后传入。
+/// 时间戳与固定字段（`request_units = 1`、`rate_limited = false`、`queued_ms = 0`）
+/// 由 `record_event` 补齐。
+#[derive(Debug)]
+pub(super) struct EventDraft<'a> {
+    pub(super) request_id: &'a str,
+    pub(super) proxy_key_id: &'a str,
+    pub(super) resource_id: &'a str,
+    /// canonical wire name。
+    pub(super) tool_name: &'a str,
+    pub(super) upstream_key_ref: &'a str,
+    pub(super) status: RequestStatus,
+    pub(super) latency_ms: u32,
+    pub(super) retry_count: u8,
+    pub(super) request_args: Option<String>,
+    pub(super) response_preview: Option<String>,
+    pub(super) upstream_latency_ms: Option<u32>,
+}
+
 impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + UsageBucketRepository>
     ProxyExecutor<S, R>
 {
@@ -50,40 +71,26 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
     /// 记录 `RequestEvent`（metrics facade，未设导出器时为 no-op）。
     ///
-    /// `request_args`/`response_preview` 由调用方经 capture helper
-    /// 截断 + 脱敏后传入；捕获开启时同步在请求 span 内输出 `info!`
-    /// tracing 事件，保证日志与 DB 口径一致。
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn record_event(
-        &self,
-        request_id: &str,
-        proxy_key_id: &str,
-        resource_id: &str,
-        wire_name: &str,
-        upstream_key_ref: &str,
-        status: RequestStatus,
-        latency_ms: u32,
-        retry_count: u8,
-        request_args: Option<String>,
-        response_preview: Option<String>,
-        upstream_latency_ms: Option<u32>,
-    ) {
+    /// 捕获开启时同步在请求 span 内输出 `info!` tracing 事件，
+    /// 保证日志与 DB 口径一致。
+    pub(super) async fn record_event(&self, draft: EventDraft<'_>) {
+        let request_id = draft.request_id;
         let event = RequestEvent {
             timestamp: Utc::now(),
             request_id: request_id.to_string(),
-            proxy_key_id: proxy_key_id.to_string(),
-            resource_id: resource_id.to_string(),
-            tool_name: wire_name.to_string(),
-            upstream_key_ref: upstream_key_ref.to_string(),
-            status,
-            latency_ms,
+            proxy_key_id: draft.proxy_key_id.to_string(),
+            resource_id: draft.resource_id.to_string(),
+            tool_name: draft.tool_name.to_string(),
+            upstream_key_ref: draft.upstream_key_ref.to_string(),
+            status: draft.status,
+            latency_ms: draft.latency_ms,
             request_units: 1,
-            retry_count,
+            retry_count: draft.retry_count,
             rate_limited: false,
             queued_ms: 0,
-            request_args,
-            response_preview,
-            upstream_latency_ms,
+            request_args: draft.request_args,
+            response_preview: draft.response_preview,
+            upstream_latency_ms: draft.upstream_latency_ms,
         };
         record_request_event(&event);
         // 捕获开启时在请求 span 内输出与 DB 同口径的负载字段；关闭时不输出
