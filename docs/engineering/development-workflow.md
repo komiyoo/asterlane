@@ -202,7 +202,7 @@ python3 scripts/check_okf_docs.py
 
 脚本行为与仓库其他任务入口见 [scripts/README.md](../../scripts/README.md)。
 
-CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny 五个 job。供应链检查用 `cargo-deny`（`deny.toml`）。Lint 配置在 `Cargo.toml` `[lints]` 与 `clippy.toml`（测试代码允许 `unwrap`/`expect`/`print`）。
+CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny / build 六个 job。供应链检查用 `cargo-deny`（`deny.toml`）。发布由 tag 触发另一个 workflow，见 [Release Process](release-process.md)。Lint 配置在 `Cargo.toml` `[lints]` 与 `clippy.toml`（测试代码允许 `unwrap`/`expect`/`print`）。
 
 PR 描述用 `.github/PULL_REQUEST_TEMPLATE.md`：验证表格要求填实际结果而非打勾，自查分文档、工程纲领、安全三块，按改动相关性选填。
 

@@ -118,7 +118,7 @@ docker run --rm -p 3000:3000 \
 
 ## CI
 
-GitHub Actions（`.github/workflows/ci.yml`）在 push main 和 PR 时运行五个 job：
+GitHub Actions（`.github/workflows/ci.yml`）在 push main 和 PR 时运行六个 job：
 
 | Job | 内容 |
 |-----|------|
@@ -127,6 +127,11 @@ GitHub Actions（`.github/workflows/ci.yml`）在 push main 和 PR 时运行五�
 | `test` | `cargo test` |
 | `docs` | OKF 文档 frontmatter/type 校验 |
 | `deny` | `cargo-deny` 供应链审计 |
+| `build` | `cargo build --release --locked`，并构建 Docker 镜像（不推送）做冒烟检查 |
+
+## 发布
+
+维护者推送 `vX.Y.Z` tag 后，`.github/workflows/release.yml` 在原生 runner 上构建 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin` 三个目标的二进制（附 `.sha256`）并创建 GitHub Release，同时把 linux/amd64 + linux/arm64 镜像推到 `ghcr.io/komiyoo/asterlane`（`X.Y.Z` 与 `latest`）。每次发布默认 patch +0.0.1。版本策略、发布步骤和首次发布注意事项见 [Release Process](docs/engineering/release-process.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 配置
 

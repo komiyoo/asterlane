@@ -108,7 +108,7 @@ timestamp: 2026-10-01T00:00:00Z
 | **状态全进程内，多副本失效** | 生产就绪（重） | `limits::registry` 的用量表、`keys::pool` 的 `PoolState`、`shaping::ResultCache` 均为进程内 `Mutex` |
 | **已交付：HTTP 边界**（2026-08-19） | 生产就绪（已清） | `GatewayConfig.http`：`DefaultBodyLimit` + `http.body_too_large`（413）；REST/admin `TimeoutLayer` + `http.timeout`（408），不套 `/mcp` 与探活；响应头 `nosniff` / `DENY` / `no-referrer` |
 | **已交付：容器非 root + HEALTHCHECK**（2026-08-19） | 生产就绪（已清） | `Dockerfile`：`USER asterlane`（uid 10001）+ `HEALTHCHECK` 探 `/healthz` |
-| 无发布工程：无 CHANGELOG、无镜像/二进制发布、版本仍 `0.1.0` | 生产就绪 | `.github/workflows/ci.yml` 只有 fmt/clippy/test/docs/deny |
+| **已交付：发布工程**（2026-10-01） | 生产就绪（已清） | 根 `CHANGELOG.md`；`.github/workflows/release.yml`（tag 触发，构建二进制与镜像并创建 GitHub Release）；`ci.yml` 的 `build` job。版本仍是 `0.1.0`，流水线首次真实运行待维护者推 tag 验证，见 [Release Process](../engineering/release-process.md) |
 | 无覆盖率、基准与负载测试 | 增强 | 无 llvm-cov / criterion 配置 |
 
 ## 横切：技术债与文档腐烂
@@ -149,7 +149,8 @@ timestamp: 2026-10-01T00:00:00Z
 
 - Postgres 存储后端：sqlx feature、迁移双轨、`main.rs` 按 URL scheme 分流（2026-10-01：本轮不做，维持 SQLite）
 - 共享状态：限流计数、配额、key pool 冷却与 result cache 迁到共享后端；保留单机模式为默认（2026-10-01：本轮不做）
-- 发布工程：CHANGELOG、版本策略（每次发布默认 patch +0.0.1）、镜像与二进制发布流水线、`cargo-semver-checks`（2026-10-01：本轮做）
+- **已交付（2026-10-01）**：发布工程。根 `CHANGELOG.md`（Keep a Changelog）；版本策略（每次发布默认 patch +0.0.1）与发布步骤，见 [Release Process](../engineering/release-process.md)；tag 触发的 `release.yml`：校验 tag 与 `Cargo.toml` 版本及 CHANGELOG 小节，在原生 runner 上构建 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin` 二进制并附到 GitHub Release，推送 linux/amd64 + linux/arm64 镜像到 `ghcr.io/komiyoo/asterlane`；`ci.yml` 的 `build` job（`cargo build --release --locked` 与 Docker 构建）。流水线首次真实运行待维护者推 tag 验证
+- 发布时运行 `cargo-semver-checks`：本轮不做。[Compatibility Policy](../architecture/compatibility-policy.md) 规定发布到 crates.io 时才启用，而本轮发布只到 GitHub Release 与 GHCR
 - K8s 部署物（manifest 或 chart）
 
 **准出**：两副本部署下 per-key 配额与限流全局一致；打标签即产出镜像与二进制。
@@ -179,7 +180,7 @@ timestamp: 2026-10-01T00:00:00Z
 | **成本核算的计量口径** | 2026-10-01：暂缓 | `request_units` 维持恒为 1，不写代码、不做迁移 |
 | **Postgres 与共享状态** | 2026-10-01：本轮不做 | 存储维持 SQLite；多副本与共享状态不在本轮范围 |
 | **未接线的限流维度（IP / UpstreamKey / GatewayPrincipal）** | 2026-10-01：先出设计，暂不删除 | 设计评审后再决定接线或保留；`X-Forwarded-For` 信任边界列为设计内待决项 |
-| **版本策略** | 2026-10-01：每次发布默认 patch +0.0.1 | 0.x 期间 breaking 仍按 [Compatibility Policy](../architecture/compatibility-policy.md) 在 CHANGELOG 显著标注 |
+| **版本策略** | 2026-10-01：每次发布默认 patch +0.0.1 | 0.x 期间 breaking 仍按 [Compatibility Policy](../architecture/compatibility-policy.md) 在 CHANGELOG 显著标注；流程见 [Release Process](../engineering/release-process.md) |
 | **多租户与 RBAC 是否进入产品** | 未定 | 现有文档列为非目标；Postgres 与共享状态落地前须定调。进入也不采用 agentgateway 式 `jwt.sub && mcp.tool.name` CEL 作为默认模型；授权主体仍是 gateway key |
 
 # 不变的非目标
