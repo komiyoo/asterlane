@@ -91,7 +91,8 @@ pub enum McpFailureMode {
     /// 刷新失败保留 stale 快照，`tools/list` 仍返回（0.x 缺省）。
     #[default]
     FailOpen,
-    /// `health_snapshot` 中任一 `Unreachable` 时拒绝 list，不把 stale 目录当权威结果。
+    /// `health_snapshot` 中任一 `Unreachable` 或 `AuthRequired` 时拒绝 list，
+    /// 不把 stale 目录当权威结果。
     FailClosed,
 }
 

@@ -288,10 +288,21 @@ async fn assemble_state(
     // 添加/启用首个 MCP server 无需重启即生效（connect_all(&[]) 即空 registry；
     // 修复"零 MCP 配置启动 → 在线加首个 server 报 503"的已知边界）。
     let (upstream_notify, upstream_notify_rx) = asterlane::mcp::UpstreamListChanged::channel();
-    let registry = asterlane::mcp::McpServerRegistry::connect_all_notifying(
+    // 上游 OAuth 服务：解析 token 加密密钥（无效则启动失败），与 registry 共用
+    let oauth = Arc::new(
+        asterlane::mcp::UpstreamOAuth::from_config(
+            config.oauth.as_ref(),
+            secrets.as_ref(),
+            event_repo.clone(),
+        )
+        .await
+        .context("invalid oauth.token_encryption_key_ref")?,
+    );
+    let registry = asterlane::mcp::McpServerRegistry::connect_all_with_oauth(
         &config.mcp_servers,
         secrets.clone(),
         upstream_notify,
+        oauth.clone(),
     )
     .await
     .context("failed to connect remote MCP servers")?;
@@ -299,7 +310,8 @@ async fn assemble_state(
     let mut state = AppState::new(config, catalog)
         .with_metrics_handle(prometheus_handle)
         .with_secrets(secrets)
-        .with_mcp_registry(Arc::new(registry));
+        .with_mcp_registry(Arc::new(registry))
+        .with_upstream_oauth(oauth);
     if let Some(repo) = event_repo {
         state = state.with_event_repository(repo);
     }

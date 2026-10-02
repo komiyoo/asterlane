@@ -10,7 +10,7 @@ use crate::gateway_auth::GatewayAuth;
 use crate::integrity::{IntegrityBaseline, IntegrityPolicy, QuarantinedTools};
 use crate::keys::KeyPoolRegistry;
 use crate::limits::LimitRegistry;
-use crate::mcp::{McpServerRegistry, ToolListChangedPeers};
+use crate::mcp::{McpServerRegistry, ToolListChangedPeers, UpstreamOAuth};
 use crate::secrets::DefaultSecretStore;
 use crate::semantic::SemanticIndex;
 use crate::shaping::ResultCache;
@@ -46,6 +46,9 @@ pub struct AppState {
     pub event_repo: Option<Arc<SqliteRequestEventRepository>>,
     /// Optional remote MCP registry for proxied MCP servers.
     pub mcp_registry: Option<Arc<McpServerRegistry>>,
+    /// 上游 MCP OAuth 服务（加密凭据存储与授权状态）。与 `mcp_registry` 的 connector
+    /// 共用同一个实例；admin 删除 server 时据此清除已存凭据。
+    pub upstream_oauth: Option<Arc<UpstreamOAuth>>,
     /// Result shaping cache for lazy discovery large-result pagination.
     pub result_cache: Arc<ResultCache>,
     /// 活跃下游通知通道（legacy session peer + subscriptions/listen）。
@@ -100,6 +103,7 @@ impl AppState {
             limit_registry: Arc::new(RwLock::new(Arc::new(LimitRegistry::default()))),
             event_repo: None,
             mcp_registry: None,
+            upstream_oauth: None,
             result_cache: Arc::new(ResultCache::new()),
             tool_list_changed_peers: Arc::new(RwLock::new(Vec::new())),
             integrity_baseline: Arc::new(RwLock::new(IntegrityBaseline::new())),
@@ -154,6 +158,12 @@ impl AppState {
 
     pub fn with_mcp_registry(mut self, mcp_registry: Arc<McpServerRegistry>) -> Self {
         self.mcp_registry = Some(mcp_registry);
+        self
+    }
+
+    /// 注入上游 MCP OAuth 服务（main.rs 装配时与 registry 共用同一个实例）。
+    pub fn with_upstream_oauth(mut self, oauth: Arc<UpstreamOAuth>) -> Self {
+        self.upstream_oauth = Some(oauth);
         self
     }
 
