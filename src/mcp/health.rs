@@ -18,11 +18,11 @@ use serde::Serialize;
 use tracing::{debug, warn};
 
 use crate::config::McpServerConfig;
+use crate::mcp::convert::wrap_tools;
 use crate::mcp::error::McpError;
-use crate::mcp::registry::{
-    McpServerEntry, McpServerRegistry, PeerConnector, RefreshResult, RemoteMcpPeer,
-    transport_config, wrap_tools,
-};
+use crate::mcp::peer::{PeerConnector, RemoteMcpPeer};
+use crate::mcp::registry::{McpServerEntry, McpServerRegistry, RefreshResult};
+use crate::mcp::transport::transport_config;
 use crate::secrets::{SecretError, SecretRef, SecretStore, SecretString};
 
 /// MCP server 健康状态（serde 小写，供 wave 2 admin JSON 直接输出）。
