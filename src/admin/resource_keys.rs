@@ -19,6 +19,17 @@ pub(super) fn invalid_key_pool(err: crate::keys::KeyPoolError) -> AsterlaneError
     AsterlaneError::internal(ErrorCode::AdminInvalidQuery, err.to_string())
 }
 
+/// HTTP API 资源不支持 OAuth（只用于 MCP server）：写路径落地前收成 400。
+pub(super) fn reject_oauth(auth: Option<&UpstreamAuth>) -> Result<(), AsterlaneError> {
+    if matches!(auth, Some(UpstreamAuth::OAuth { .. })) {
+        return Err(AsterlaneError::internal(
+            ErrorCode::AdminInvalidQuery,
+            "auth type oauth is only supported for mcp servers",
+        ));
+    }
+    Ok(())
+}
+
 /// 创建：`auth` 缺省 `None`，`key_pool` 原样。
 pub(super) fn apply_create(input: &ResourceInput) -> (UpstreamAuth, Option<KeyPoolConfig>) {
     (
@@ -47,6 +58,7 @@ pub(super) fn auth_type_label(auth: &UpstreamAuth) -> &'static str {
         UpstreamAuth::None => "none",
         UpstreamAuth::Bearer { .. } => "bearer",
         UpstreamAuth::Header { .. } => "header",
+        UpstreamAuth::OAuth { .. } => "oauth",
     }
 }
 

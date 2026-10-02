@@ -18,7 +18,8 @@ pub(super) async fn transport_config<S: SecretStore>(
 ) -> Result<StreamableHttpClientTransportConfig, McpError> {
     let mut config = StreamableHttpClientTransportConfig::with_uri(server.url.clone());
     match &server.auth {
-        UpstreamAuth::None => {}
+        // OAuth 的 token 由 `mcp::oauth` 的 HTTP client 逐请求注入，不进静态配置
+        UpstreamAuth::None | UpstreamAuth::OAuth { .. } => {}
         UpstreamAuth::Bearer { token_ref } => {
             let secret = resolve_secret(token_ref, secrets).await?;
             config = config.auth_header(secret.expose_secret().to_string());

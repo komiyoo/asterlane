@@ -18,6 +18,39 @@ impl GatewayConfig {
         Ok(())
     }
 
+    /// 校验上游 OAuth 配置（见 docs/runtime/config-schema.md「OAuth」）。
+    ///
+    /// - `api_resources[].auth` 不允许 `oauth`（HTTP API 资源不走 OAuth）；
+    /// - 顶层 `oauth` 节的已填字段格式；
+    /// - 每个 `mcp_servers[]` 的 OAuth 字段（必填项、https、`authorization_code`
+    ///   对顶层节的依赖）。
+    ///
+    /// 配置加载与启动期合并持久化条目后各调用一次，失败 fail fast。
+    pub fn validate_oauth(&self) -> Result<(), AsterlaneError> {
+        let invalid =
+            |message: String| AsterlaneError::internal(ErrorCode::ConfigInvalidYaml, message);
+        if let Some(resource) = self
+            .api_resources
+            .iter()
+            .find(|r| matches!(r.auth, UpstreamAuth::OAuth { .. }))
+        {
+            return Err(invalid(format!(
+                "api_resources[{}]: auth type oauth is only supported for mcp_servers",
+                resource.id
+            )));
+        }
+        if let Some(oauth) = &self.oauth {
+            oauth.validate().map_err(invalid)?;
+        }
+        for server in &self.mcp_servers {
+            server
+                .auth
+                .validate_mcp_oauth(&server.url, self.oauth.as_ref())
+                .map_err(|message| invalid(format!("mcp_servers[{}]: {message}", server.id)))?;
+        }
+        Ok(())
+    }
+
     /// 校验 proxy key 凭据字段（见 docs/runtime/key-credentials-and-persistence.md K1）。
     ///
     /// - `token_ref` 与 `token_digest` 互斥；
@@ -235,6 +268,92 @@ mcp_servers:
                 "digest {bad:?} should be rejected"
             );
         }
+    }
+
+    const OAUTH_SERVER: &str = r#"
+mcp_servers:
+  - id: linear
+    domain: pm
+    provider: linear
+    url: https://mcp.example.com/mcp
+    auth:
+      type: oauth
+      grant: client_credentials
+      client_id: my-client
+      client_secret_ref: secret://env/LINEAR_SECRET
+      scopes: [read]
+"#;
+
+    fn oauth_error(yaml: &str) -> String {
+        let err = parse(yaml).validate_oauth().expect_err("must fail");
+        assert_eq!(err.error_code(), ErrorCode::ConfigInvalidYaml);
+        err.to_string()
+    }
+
+    #[test]
+    fn legacy_config_without_oauth_loads_and_validates() {
+        let config = parse("api_resources: []\nmcp_servers: []\n");
+        assert!(config.oauth.is_none());
+        assert!(config.validate_oauth().is_ok());
+    }
+
+    #[test]
+    fn client_credentials_server_validates_without_oauth_section() {
+        let config = parse(OAUTH_SERVER);
+        assert_eq!(
+            config.mcp_servers[0].auth.oauth_grant(),
+            Some(crate::config::OAuthGrant::ClientCredentials)
+        );
+        assert!(config.validate_oauth().is_ok());
+    }
+
+    #[test]
+    fn oauth_on_api_resource_is_rejected() {
+        let message = oauth_error(
+            r#"
+api_resources:
+  - id: tavily
+    domain: search
+    base_url: https://api.tavily.com
+    auth:
+      type: oauth
+      grant: client_credentials
+      client_id: x
+      client_secret_ref: secret://env/S
+"#,
+        );
+        assert!(message.contains("api_resources[tavily]"));
+        assert!(message.contains("only supported for mcp_servers"));
+    }
+
+    #[test]
+    fn oauth_server_errors_name_the_server_and_hide_values() {
+        let message = oauth_error(&OAUTH_SERVER.replace("secret://env/LINEAR_SECRET", "hunter2"));
+        assert!(message.contains("mcp_servers[linear]"));
+        assert!(!message.contains("hunter2"));
+        let message = oauth_error(&OAUTH_SERVER.replace("      client_id: my-client\n", ""));
+        assert!(message.contains("client_id"));
+    }
+
+    #[test]
+    fn authorization_code_server_needs_the_top_level_oauth_section() {
+        let server = r#"
+mcp_servers:
+  - id: linear
+    domain: pm
+    provider: linear
+    url: https://mcp.example.com/mcp
+    auth:
+      type: oauth
+      grant: authorization_code
+"#;
+        assert!(oauth_error(server).contains("oauth.redirect_base_url"));
+        let with_section = format!(
+            "{server}oauth:\n  redirect_base_url: https://gateway.example.com\n  token_encryption_key_ref: secret://env/KEY\n"
+        );
+        assert!(parse(&with_section).validate_oauth().is_ok());
+        let http_redirect = with_section.replace("https://gateway", "http://gateway");
+        assert!(oauth_error(&http_redirect).contains("redirect_base_url"));
     }
 
     #[test]

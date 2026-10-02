@@ -30,7 +30,9 @@ pub(crate) fn apply_auth(
     builder: reqwest::RequestBuilder,
 ) -> reqwest::RequestBuilder {
     match auth {
-        UpstreamAuth::None => builder,
+        // oauth 只用于 MCP server：配置校验拒绝 api_resources 使用，
+        // `resolve_auth_secret` 也会先一步报错，这里不注入任何凭据
+        UpstreamAuth::None | UpstreamAuth::OAuth { .. } => builder,
         UpstreamAuth::Bearer { .. } => {
             if let Some(token) = secret {
                 // 明文只在 expose_secret 瞬间使用，不存储到局部变量
@@ -71,6 +73,10 @@ pub(super) async fn resolve_auth_secret<S: crate::secrets::SecretStore>(
             let secret = secrets.resolve(&secret_ref).await?;
             Ok(Some(secret))
         }
+        // fail closed：不带凭据的请求不应发往要求 OAuth 的上游
+        UpstreamAuth::OAuth { .. } => Err(super::error::ProxyError::InvalidToolCall(
+            "oauth auth is only supported for MCP servers".to_string(),
+        )),
     }
 }
 

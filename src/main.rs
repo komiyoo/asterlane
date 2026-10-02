@@ -146,6 +146,9 @@ fn parse_config_file(path: &std::path::Path) -> Result<GatewayConfig> {
     config
         .validate_http()
         .with_context(|| format!("invalid http section in config {}", path.display()))?;
+    config
+        .validate_oauth()
+        .with_context(|| format!("invalid oauth settings in config {}", path.display()))?;
     Ok(config)
 }
 
@@ -250,6 +253,10 @@ async fn load_serve_config(
         None => None,
     };
     expand_builtin(&mut config, config_path)?;
+    // 持久化条目（admin 在线添加）并入后再校验一次 OAuth 约束
+    config
+        .validate_oauth()
+        .context("invalid oauth settings after merging persisted config entries")?;
     Ok((config, event_repo))
 }
 

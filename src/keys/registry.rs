@@ -177,6 +177,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: vec![ApiResource {
                 id: "tavily".to_string(),
                 domain: "search".to_string(),

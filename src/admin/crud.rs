@@ -88,6 +88,7 @@ pub(super) async fn create_resource(
     Extension(admin): Extension<AdminKeyId>,
     Json(input): Json<ResourceInput>,
 ) -> Result<Json<Value>, AsterlaneError> {
+    resource_keys::reject_oauth(input.auth.as_ref())?;
     let config = state.config_snapshot().await;
     if config.api_resources.iter().any(|r| r.id == input.id) {
         return Err(AsterlaneError::internal(
@@ -115,6 +116,7 @@ pub(super) async fn update_resource(
     Path(id): Path<String>,
     Json(input): Json<ResourceInput>,
 ) -> Result<Json<Value>, AsterlaneError> {
+    resource_keys::reject_oauth(input.auth.as_ref())?;
     let config = state.config_snapshot().await;
     if !config.api_resources.iter().any(|r| r.id == id) {
         return Err(AsterlaneError::internal(
