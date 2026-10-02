@@ -52,3 +52,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Docker 镜像构建（不推送）
+        run: docker build --tag asterlane:ci .
+      - name: Docker 镜像冒烟
+        run: docker run --rm asterlane:ci --help
