@@ -10,9 +10,11 @@ use std::time::Instant;
 use crate::catalog::WrappedTool;
 use crate::config::McpServerConfig;
 use crate::mcp::convert::wrap_tools;
+use crate::mcp::dedup::push_deduped_entry;
 use crate::mcp::error::McpError;
-use crate::mcp::health::{ServerHealth, elapsed_ms, establish_entry, mark_ok, push_deduped_entry};
+use crate::mcp::health::{ServerHealth, elapsed_ms, establish_entry, mark_ok};
 use crate::mcp::model::{ToolCallExtras, ToolCallResult, ToolDescriptor, UpstreamCallOutcome};
+use crate::mcp::oauth::UpstreamOAuth;
 use crate::mcp::peer::{PeerConnector, RemoteMcpPeer, RmcpConnector};
 use crate::mcp::upstream_notify::UpstreamListChanged;
 use crate::secrets::SecretStore;
@@ -80,6 +82,18 @@ impl McpServerRegistry {
         notify: UpstreamListChanged,
     ) -> Result<Self, McpError> {
         Ok(Self::connect_all_with(configs, &*secrets, Arc::new(RmcpConnector::new(notify))).await)
+    }
+
+    /// 同 [`Self::connect_all_notifying`]，并注入 OAuth 服务：`auth.type: oauth`
+    /// 的 server（含运行期经 admin 新增的）经它取得带 token 的连接。
+    pub async fn connect_all_with_oauth<S: SecretStore>(
+        configs: &[McpServerConfig],
+        secrets: Arc<S>,
+        notify: UpstreamListChanged,
+        oauth: Arc<UpstreamOAuth>,
+    ) -> Result<Self, McpError> {
+        let connector = RmcpConnector::new(notify).with_oauth(oauth);
+        Ok(Self::connect_all_with(configs, &*secrets, Arc::new(connector)).await)
     }
 
     /// 用注入的 connector 连接全部 server（单测入口）。

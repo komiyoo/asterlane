@@ -198,6 +198,7 @@ td.err { color: var(--err); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); vertical-align: middle; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 0 2px var(--ok-weak); }
 .dot.unreachable { background: var(--err); box-shadow: 0 0 0 2px var(--danger-weak); }
+.dot.auth_required { background: var(--warn); box-shadow: 0 0 0 2px var(--danger-weak); }
 .dot.unknown { background: var(--muted); }
 .dot.disabled { background: var(--border); }
 

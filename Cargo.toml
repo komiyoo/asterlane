@@ -43,7 +43,16 @@ tower-http = { version = "0.7", features = ["trace", "set-header"] }
 sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 governor = "0.10"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-rmcp = { version = "3.1", default-features = false, features = ["client", "server", "macros", "transport-streamable-http-client-reqwest", "transport-streamable-http-server"] }
+rmcp = { version = "3.1", default-features = false, features = ["client", "server", "macros", "auth", "transport-streamable-http-client-reqwest", "transport-streamable-http-server"] }
+# 上游 OAuth 凭据加密（ChaCha20-Poly1305）；async-trait 用于实现 rmcp 的 CredentialStore；
+# oauth2（读取 rmcp token 响应的 TokenResponse trait）、futures 与 sse-stream（实现
+# rmcp 的 StreamableHttpClient 签名所需的类型）都已随 rmcp 的 auth 与 client 特性在依赖树中
+ring = "0.17"
+base64 = "0.22"
+async-trait = "0.1"
+oauth2 = { version = "5.0", default-features = false }
+futures = "0.3"
+sse-stream = "0.2"
 schemars = "1.2"
 tokio-util = "0.7"
 backon = "1.6"

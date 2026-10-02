@@ -16,8 +16,11 @@
 //! - [`peer`]：上游 peer 层——`RemoteMcpPeer` trait、rmcp 实现
 //!   `RmcpRemoteMcpPeer`（握手与 `subscriptions/listen`）与建连 seam
 //!   `PeerConnector`。
+//! - `dedup`（私有）：跨 server 的 wire name 去重（refresh、新增、替换共用）。
 //! - `transport`（私有）：上游 `StreamableHttpClientTransportConfig` 构造与
-//!   auth secret 解析（`transport_config`）。
+//!   auth secret 解析（`transport_config`、`connect_server`）。
+//! - `oauth`（私有，对外 [`UpstreamOAuth`]）：上游 MCP OAuth——client-credentials、
+//!   授权码类上游的加密凭据存储与「需要授权」状态；rmcp 的 `auth` 类型止步于此。
 //! - `convert`（私有）：rmcp 类型到网关模型的转换；`wrap_tools` 把上游原始
 //!   tool name 写入 `WrappedTool.upstream_path`，转发时剥网关前缀。
 //! - [`upstream_notify`]：上游 `tools/list_changed`（listen + session 回调）。
@@ -39,10 +42,12 @@
 
 pub(crate) mod call;
 mod convert;
+mod dedup;
 pub mod error;
 pub mod health;
 pub mod model;
 pub mod notify;
+mod oauth;
 pub mod peer;
 pub mod registry;
 mod result;
@@ -56,7 +61,8 @@ use crate::config::McpFailureMode;
 pub use error::McpError;
 pub use health::{HealthStatus, ServerHealth};
 
-/// FailClosed 下列表是否应拒绝：registry 健康快照中存在 `Unreachable`。
+/// FailClosed 下列表是否应拒绝：registry 健康快照中存在 `Unreachable` 或
+/// `AuthRequired`（需要管理员授权的上游与连不上的上游同样不可用）。
 ///
 /// `Disabled` / `Unknown` / `Ok` 不阻塞。无 registry 或无 server 不阻塞。
 pub fn list_blocked_by_fail_closed(
@@ -72,7 +78,7 @@ pub fn list_blocked_by_fail_closed(
     registry
         .health_snapshot()
         .iter()
-        .any(|health| health.status == HealthStatus::Unreachable)
+        .any(|health| health.status.is_unavailable())
 }
 
 /// FailClosed 拦截 list 时的稳定错误（HTTP 503 / MCP JSON-RPC -32603）。
@@ -87,6 +93,7 @@ pub use model::{
     UpstreamCallOutcome,
 };
 pub use notify::{ToolListChangedPeers, ToolListChangedTarget, notify_peers_tool_list_changed};
+pub use oauth::UpstreamOAuth;
 pub use peer::{RemoteMcpPeer, RmcpRemoteMcpPeer};
 pub use registry::{McpServerRegistry, RefreshResult};
 pub use server::AsterlaneToolServer;

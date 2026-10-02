@@ -59,11 +59,22 @@ Streamable HTTP POST 必须带 `MCP-Protocol-Version`、`Mcp-Method`，命名请
 - 客户端重试时带上的 `inputResponses` / `requestState` 原样转给上游。
 - 上游 `resultType: "task"` 不代理，返回可展示错误。网关不广告 Tasks 扩展。
 
+## 上游认证
+
+上游 MCP server 的认证除了无认证、`bearer`、`header`（secret ref 注入静态凭据）之外，还支持 OAuth（`auth.type: oauth`，配置见 [Configuration Schema](../runtime/config-schema.md#oauth-认证)）。网关是 OAuth **客户端**：token 永不离开网关，下游只用 gateway key，Asterlane 不做授权服务器。整个网关共用一个上游身份，不做按用户委托。协议本身由 rmcp 的 `auth` 实现，不手写；rmcp 类型止步于 `src/mcp/oauth/`。
+
+- **元数据发现**：RFC 9728 受保护资源元数据 → RFC 8414 授权服务器元数据，由 rmcp 完成；上游没有发布 OAuth 元数据时不猜测端点，连接失败。授权服务器的 token 端点必须是 https（本机 loopback 联调除外）。
+- **RFC 8707 `resource`**：token 请求带 `resource`，取受保护资源元数据里的 `resource`（rmcp 3.1 不公开它读到的值，网关按同一顺序再读一次同源文档里的这个字段：401 的 `resource_metadata` 指针、路径插入式 well-known、根 well-known），发现不到就用 server URL。
+- **client-credentials**：连接时发现元数据、校验授权服务器支持 client secret 认证、换取 token。rmcp 的刷新只处理 refresh token，client-credentials 没有它，过期后 rmcp 不会重新换取，所以网关自己包了一层 `StreamableHttpClient`：每个请求取当前有效 token，距过期不足 `min(30s, 生命周期/2)` 时先换新，被上游 401 拒绝时换新并重试一次；并发请求只换取一次。授权服务器没给 `expires_in` 时只在被 401 拒绝后换取。token 只放内存。
+- **authorization_code**：启动和重连时从存储加载凭据，由 rmcp 自动刷新，轮换的 refresh token 写回存储（见 [Key Credentials & Persistence](../runtime/key-credentials-and-persistence.md#上游-oauth-凭据)）。没有凭据、解密失败或刷新被拒时 server 进入健康状态 `auth_required`（见 [MCP 治理](../runtime/mcp-governance-and-key-limits.md)）；该上游的工具调用返回 `mcp.upstream_auth_required`。管理员发起授权的入口属于后续切片。
+- 401 的含义随授权方式不同：授权码上游被 401 且无法刷新 → 需要管理员授权；client-credentials 上游在重新换取后仍被 401 → 网关自己的凭据被拒，按普通上游失败处理（`mcp.upstream_mcp_failure`）。
+- **错误脱敏**：rmcp 的 `AuthError` 与授权服务器返回的内容（错误描述、响应体）只进 tracing，不原样进入用户可见的错误与 admin 响应；日志与错误不含 access token、refresh token、client secret。
+
 # 明确不做
 
 - Roots / Sampling / Logging：规范已弃用，新实现不跟。
 - HTTP+SSE 旧传输：不恢复。
-- 把 Asterlane 做成 OAuth 授权服务器或 CIMD 发行方。上游 OAuth 仍走 secret ref 注入。
+- 把 Asterlane 做成 OAuth 授权服务器或 CIMD 发行方；按用户委托的上游 OAuth（整个网关共用一个上游身份）。
 - MCP Apps。
 
 # 兼容

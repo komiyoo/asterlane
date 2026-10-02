@@ -102,11 +102,12 @@ proxy_keys:
 
 ## 4. MCP 健康模型（mcp/registry.rs）
 
-- 状态机：`ok`（最近一次探测成功）| `unreachable`（最近一次探测失败）| `unknown`（尚未探测）| `disabled`（`health_check.enabled: false`，不参与周期探测）。
+- 状态机：`ok`（最近一次探测成功）| `unreachable`（最近一次探测失败）| `auth_required`（授权码类 OAuth 上游需要管理员授权）| `unknown`（尚未探测）| `disabled`（`health_check.enabled: false`，不参与周期探测）。serde 为 snake_case，`auth_required` 在 admin JSON 与控制台（橙色状态灯）中可见。
+- **`auth_required`**：只出现在 `auth: {type: oauth, grant: authorization_code}` 的 server——没有已存凭据、凭据无法解密（例如加密密钥换了）或授权服务器拒绝刷新（见 [MCP Protocol – 上游认证](../architecture/mcp-protocol.md#上游认证)）。进入该状态时打一条不含 token 的 `warn`，`last_error` 只含固定的安全消息；没有凭据时不会去连上游。client-credentials 上游连不上或被拒是 `unreachable`，不是 `auth_required`。该状态下的上游工具调用返回 `mcp.upstream_auth_required`（HTTP 502 / MCP tool result `isError`）。从未连接成功的 server 没有工具快照，其工具名不在 catalog 中，调用得到的是 `catalog.unknown_tool` 而不是 `mcp.upstream_auth_required`，管理员通过健康状态发现。
 - 健康数据：`server_id, status, last_check_at, last_ok_at, latency_ms（最近成功探测耗时）, consecutive_failures, last_error（脱敏 message）, tool_count`。
 - 探测 = 未连接时先连接 + `tools/list`（与 refresh 同口径）；周期探测搭现有 refresh 任务（`disabled` 的 server 跳过，工具沿用 stale 快照）；按需探测 `probe(id)` 立即执行单服务器并更新健康与工具快照。
 - **启动降级**：`connect_all` 不再整体失败——单服务器连接失败记 `unreachable`（entry 无 peer），网关照常启动；后续 refresh/probe 成功后自动转 `ok` 并合并其工具。
-- **目录失败模式**：`mcp.failure_mode: fail_closed` 时，`health_snapshot()` 中任一 `unreachable` 会拒绝 MCP/REST `tools/list`（`mcp.upstream_unavailable`）；`tools/call` 与 `/healthz` 不株连。缺省 `fail_open` 仍返回 stale 快照。
+- **目录失败模式**：`mcp.failure_mode: fail_closed` 时，`health_snapshot()` 中任一 `unreachable` 或 `auth_required` 会拒绝 MCP/REST `tools/list`（`mcp.upstream_unavailable`，两者同样视为不可用）；`tools/call` 与 `/healthz` 不株连。缺省 `fail_open` 仍返回 stale 快照。
 - registry 对外新 API（as-built，`src/mcp/health.rs` + `registry.rs`）：
   - `health_snapshot() -> Vec<ServerHealth>`
   - `probe<S: SecretStore>(server_id: &str, secrets: &S) -> Result<ServerHealth, McpError>`（重连需要 secrets；unknown id → `McpError::UnknownServer` → 404 `admin.not_found`）
@@ -145,6 +146,7 @@ CREATE TABLE tool_metadata (
   "url": "https://mcp.exa.ai/mcp", "description": "...",
   "builtin": true,
   "requires_key": false, "auth_type": "none",
+  "oauth": null,
   "security": { "integrity_policy": "warn", "defense_enabled": false, "result_budget_bytes": null },
   "limits": { "rps": null, "rpm": null, "max_concurrent": null },
   "health_check_enabled": true,
@@ -154,6 +156,7 @@ CREATE TABLE tool_metadata (
 }
 ```
 
+- OAuth server 的 `auth_type` 为 `"oauth"`，`requires_key` 为 `true`，`oauth` 为 `{"grant": "client_credentials" | "authorization_code"}`；非 OAuth 为 `null`。auth 视图只有类型与 grant，不出现 client id、scope、secret ref、token 与 refresh token。`PUT`/`POST` 的 body 可带 `auth: {type: oauth, ...}`（校验同配置）；控制台的编辑表单不支持 OAuth，OAuth server 的「编辑」按钮禁用（避免保存时丢失 OAuth 配置），请通过配置文件或 API 修改。`DELETE` 同时清除该 server 已存的 OAuth 凭据。
 - `GET /admin/mcp-servers/{id}` → 上面单项 + `"tools": [{"wire_name", "upstream_name", "description", "description_override", "input_schema"}]`；不存在 404 `admin.not_found`。用量走既有 `/admin/usage?resource_id=`，详情端点不重复聚合。
 - `POST /admin/mcp-servers`、`PUT /admin/mcp-servers/{id}`：body = `{id?, domain, provider, url, description?, auth?, security?, limits?, health_check?}`（auth 形态同配置 schema，value 一律 secret ref）。POST 创建即尝试连接，失败仍保存配置并返回 `health.status = "unreachable"`（201）；PUT 在 url/auth 变更时重连。均触发 catalog 同步与配置快照原子替换（复用 C3 `swap_config_and_catalog` 模式）、DB 持久化（新 `mcp_servers` 表，`config_json` 模式同 `resources` 表）。
 - `DELETE /admin/mcp-servers/{id}` → 移除配置与 registry entry、清理 catalog 该 server 工具；204。

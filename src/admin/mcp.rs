@@ -19,7 +19,8 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::config::{
-    GatewayConfig, HealthCheckConfig, McpServerConfig, SecurityConfig, UpstreamAuth, UpstreamLimits,
+    GatewayConfig, HealthCheckConfig, McpServerConfig, OAuthConfig, SecurityConfig, UpstreamAuth,
+    UpstreamLimits,
 };
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
@@ -55,7 +56,12 @@ pub(super) struct McpServerInput {
 
 impl McpServerInput {
     /// 转换为配置结构并做输入校验；非法输入一律 400 `admin.invalid_query`。
-    fn into_config(self, path_id: Option<&str>) -> Result<McpServerConfig, AsterlaneError> {
+    /// `oauth` 是当前配置的顶层 `oauth` 节，`authorization_code` 依赖它。
+    fn into_config(
+        self,
+        path_id: Option<&str>,
+        oauth: Option<&OAuthConfig>,
+    ) -> Result<McpServerConfig, AsterlaneError> {
         let id = path_id.map(str::to_string).or(self.id).unwrap_or_default();
         for (field, value) in [
             ("id", &id),
@@ -69,6 +75,8 @@ impl McpServerInput {
         }
         let auth = self.auth.unwrap_or_default();
         validate_auth(&auth)?;
+        auth.validate_mcp_oauth(&self.url, oauth)
+            .map_err(|message| invalid(format!("invalid oauth auth: {message}")))?;
         Ok(McpServerConfig {
             id,
             domain: self.domain,
@@ -95,9 +103,10 @@ fn not_found(id: &str) -> AsterlaneError {
 }
 
 /// auth 字段校验：bearer/header 凭据不能为空，header name 不能为空。
+/// OAuth 字段由 `UpstreamAuth::validate_mcp_oauth` 校验（见 `into_config`）。
 fn validate_auth(auth: &UpstreamAuth) -> Result<(), AsterlaneError> {
     match auth {
-        UpstreamAuth::None => Ok(()),
+        UpstreamAuth::None | UpstreamAuth::OAuth { .. } => Ok(()),
         UpstreamAuth::Bearer { token_ref } => {
             if token_ref.trim().is_empty() {
                 return Err(invalid("auth.token_ref is required for bearer auth"));
@@ -162,7 +171,8 @@ fn unknown_health() -> Value {
     })
 }
 
-/// 契约 §6 列表项。auth 只回显 `auth_type`，绝不含 ref 或明文。
+/// 契约 §6 列表项。auth 只回显 `auth_type`（OAuth 另带 `oauth.grant`），
+/// 绝不含 ref、client id、scope 或任何 token。
 fn server_json(
     server: &McpServerConfig,
     config: &GatewayConfig,
@@ -172,7 +182,12 @@ fn server_json(
         UpstreamAuth::None => "none",
         UpstreamAuth::Bearer { .. } => "bearer",
         UpstreamAuth::Header { .. } => "header",
+        UpstreamAuth::OAuth { .. } => "oauth",
     };
+    let oauth = server
+        .auth
+        .oauth_grant()
+        .map(|grant| json!({ "grant": grant.as_str() }));
     json!({
         "id": server.id,
         "domain": server.domain,
@@ -182,6 +197,7 @@ fn server_json(
         "builtin": config.builtin_mcp.contains(&server.id),
         "requires_key": !matches!(server.auth, UpstreamAuth::None),
         "auth_type": auth_type,
+        "oauth": oauth,
         "security": {
             "integrity_policy": server.security.integrity_policy,
             "defense_enabled": server.security.defense.enabled,
@@ -269,8 +285,8 @@ pub(super) async fn create_server(
     Extension(admin): Extension<AdminKeyId>,
     Json(input): Json<McpServerInput>,
 ) -> Result<(StatusCode, Json<Value>), AsterlaneError> {
-    let server = input.into_config(None)?;
     let config = state.config_snapshot().await;
+    let server = input.into_config(None, config.oauth.as_ref())?;
     // 重复 id 预检（含 api_resources——catalog 按 resource_id 分片，不允许互撞），干净 400
     if config.mcp_server(&server.id).is_some() || config.resource(&server.id).is_some() {
         return Err(invalid(format!("id '{}' already exists", server.id)));
@@ -304,8 +320,8 @@ pub(super) async fn update_server(
     Path(id): Path<String>,
     Json(input): Json<McpServerInput>,
 ) -> Result<Json<Value>, AsterlaneError> {
-    let server = input.into_config(Some(&id))?;
     let config = state.config_snapshot().await;
+    let server = input.into_config(Some(&id), config.oauth.as_ref())?;
     if config.mcp_server(&id).is_none() {
         return Err(not_found(&id));
     }
@@ -357,6 +373,12 @@ pub(super) async fn delete_server(
         && let Err(e) = repo.delete_mcp_server(&id).await
     {
         warn!(error = %e, server_id = %id, "failed to delete mcp server from store");
+    }
+    // 该 server 已存的 OAuth 凭据一并清除（内存与数据库）
+    if let Some(oauth) = &state.upstream_oauth
+        && let Err(e) = oauth.clear_credentials(&id).await
+    {
+        warn!(error = %e, server_id = %id, "failed to clear mcp server oauth credentials");
     }
     record_audit(&state, &admin.0, "delete", "mcp_server", &id).await;
     Ok(StatusCode::NO_CONTENT)
@@ -724,6 +746,158 @@ mcp_servers:
             assert_eq!(status, StatusCode::BAD_REQUEST, "{case}");
             assert_eq!(body["error"]["code"], "admin.invalid_query", "{case}");
         }
+    }
+
+    const OAUTH_YAML: &str = r#"
+mcp_servers:
+  - id: linear
+    domain: pm
+    provider: linear
+    url: https://mcp.example.com/mcp
+    auth:
+      type: oauth
+      grant: client_credentials
+      client_id: client-id-visible-only-in-config
+      client_secret_ref: secret://env/LINEAR_SECRET
+      scopes: [read]
+"#;
+
+    #[tokio::test]
+    async fn list_oauth_server_reports_type_and_grant_without_secrets() {
+        let state = plain_state(OAUTH_YAML);
+        let (status, body) = send(&state, "GET", "/admin/mcp-servers", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let linear = &body.as_array().expect("array")[0];
+        assert_eq!(linear["auth_type"], "oauth");
+        assert_eq!(linear["requires_key"], true);
+        assert_eq!(linear["oauth"], json!({"grant": "client_credentials"}));
+        let raw = body.to_string();
+        for leaked in [
+            "secret://",
+            "client_secret_ref",
+            "client-id-visible-only-in-config",
+            "scopes",
+        ] {
+            assert!(!raw.contains(leaked), "response leaks {leaked}: {raw}");
+        }
+    }
+
+    #[tokio::test]
+    async fn create_rejects_invalid_oauth_auth_before_touching_registry() {
+        let state = plain_state("{}");
+        let base = r#""id":"x","domain":"d","provider":"p","url":"https://mcp.example.com/mcp""#;
+        for (case, auth) in [
+            (
+                "client_credentials without secret ref",
+                r#"{"type":"oauth","grant":"client_credentials","client_id":"c"}"#,
+            ),
+            (
+                "plaintext client secret",
+                r#"{"type":"oauth","grant":"client_credentials","client_id":"c","client_secret_ref":"plain"}"#,
+            ),
+            (
+                "authorization_code without top-level oauth section",
+                r#"{"type":"oauth","grant":"authorization_code"}"#,
+            ),
+        ] {
+            let body = format!("{{{base},\"auth\":{auth}}}");
+            let (status, body) = send(&state, "POST", "/admin/mcp-servers", Some(&body)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{case}");
+            assert_eq!(body["error"]["code"], "admin.invalid_query", "{case}");
+            assert!(!body.to_string().contains("plain\""), "{case}");
+        }
+    }
+
+    #[tokio::test]
+    async fn create_oauth_server_persists_only_the_secret_ref_and_round_trips() {
+        let registry = McpServerRegistry::from_peers(&[], vec![]).await.unwrap();
+        let config: GatewayConfig = serde_norway::from_str("{}").unwrap();
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let state = with_store(
+            AppState::new(config, catalog)
+                .with_admin_auth(admin_auth())
+                .with_mcp_registry(Arc::new(registry)),
+        )
+        .await;
+
+        let input = r#"{"id":"lin","domain":"pm","provider":"linear",
+            "url":"https://mcp.example.com/mcp",
+            "auth":{"type":"oauth","grant":"client_credentials","client_id":"cid",
+                    "client_secret_ref":"secret://env/LINEAR_SECRET","scopes":["read"]}}"#;
+        let (status, body) = send(&state, "POST", "/admin/mcp-servers", Some(input)).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(body["auth_type"], "oauth");
+        assert_eq!(body["oauth"], json!({"grant": "client_credentials"}));
+        // 测试环境没有该 secret：登记为 unreachable，配置仍保存；
+        // 错误里的 ref 只有脱敏前缀，没有 ref 的路径段
+        assert_eq!(body["health"]["status"], "unreachable");
+        assert!(!body.to_string().contains("LINEAR_SECRET"));
+
+        // 落库的 config_json 只含 secret ref，反序列化后与配置一致（启动合并走同一条路径）
+        let repo = state.event_repo.as_ref().unwrap();
+        let rows = repo.list_mcp_servers().await.unwrap();
+        let stored: Value = serde_json::from_str(&rows[0].config_json).unwrap();
+        assert_eq!(
+            serde_json::from_value::<UpstreamAuth>(stored["auth"].clone()).unwrap(),
+            state
+                .config_snapshot()
+                .await
+                .mcp_server("lin")
+                .unwrap()
+                .auth
+        );
+        assert_eq!(
+            stored["auth"]["client_secret_ref"],
+            "secret://env/LINEAR_SECRET"
+        );
+        assert_eq!(stored["auth"]["type"], "oauth");
+    }
+
+    #[tokio::test]
+    async fn delete_clears_the_servers_stored_oauth_credentials() {
+        use crate::mcp::UpstreamOAuth;
+        use crate::store::UpstreamOAuthCredentialRepository;
+
+        let peer = FakePeer::new(vec![vec![make_tool("web_search_exa", "desc")]]);
+        let state = with_store(state_with_registry(ONE_SERVER_YAML, vec![peer]).await).await;
+        let repo = state.event_repo.clone().unwrap();
+        let oauth = Arc::new(UpstreamOAuth::new(None, Some(repo.clone()), None).unwrap());
+        let state = state.with_upstream_oauth(oauth);
+        repo.put_sealed_credentials("exa", "sealed").await.unwrap();
+        repo.put_sealed_credentials("other", "sealed")
+            .await
+            .unwrap();
+
+        let (status, _) = send(&state, "DELETE", "/admin/mcp-servers/exa", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(repo.get_sealed_credentials("exa").await.unwrap().is_none());
+        assert!(
+            repo.get_sealed_credentials("other")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn api_resource_cannot_use_oauth_auth() {
+        let state = plain_state("{}");
+        let input = r#"{"id":"r","domain":"d","base_url":"https://api.example.com",
+            "auth":{"type":"oauth","grant":"client_credentials","client_id":"c",
+                    "client_secret_ref":"secret://env/S"}}"#;
+        let (status, body) = send(&state, "POST", "/admin/resources", Some(input)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"]["code"], "admin.invalid_query");
+
+        // 更新同样拒绝，且已有资源的认证不被改动
+        let plain = r#"{"id":"r","domain":"d","base_url":"https://api.example.com"}"#;
+        let (status, _) = send(&state, "POST", "/admin/resources", Some(plain)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, body) = send(&state, "PUT", "/admin/resources/r", Some(input)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"]["code"], "admin.invalid_query");
+        let config = state.config_snapshot().await;
+        assert!(config.resource("r").unwrap().auth.is_none());
     }
 
     #[tokio::test]

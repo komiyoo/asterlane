@@ -9,6 +9,7 @@
 //! - `InvalidToolCall` → `mcp.invalid_tool_call` → JSON-RPC `-32602`（Invalid params）
 //! - `Secret` → `auth.missing_upstream_secret`
 //! - `UpstreamFailure` → `mcp.upstream_mcp_failure` → tool result `isError: true`
+//! - `UpstreamAuthRequired` → `mcp.upstream_auth_required` → tool result `isError: true`
 //! - `UnknownServer` → `admin.not_found`（治理路径 404，不进 JSON-RPC 边界）
 
 use crate::error::{AsterlaneError, ErrorCode};
@@ -39,6 +40,12 @@ pub enum McpError {
     /// `detail` 必须脱敏，不含 Authorization header 或上游原始响应体。
     #[error("upstream MCP server error: {detail}")]
     UpstreamFailure { detail: String },
+
+    /// 授权码类上游需要管理员授权：没有已存凭据、凭据无法解密（例如密钥换了）
+    /// 或授权服务器拒绝刷新。映射到 `mcp.upstream_auth_required`
+    /// → tool result `isError: true`。具体原因只进 tracing，不进消息。
+    #[error("upstream MCP server requires administrator authorization")]
+    UpstreamAuthRequired,
 
     /// secret 解析失败（复用 `SecretError` → `auth.missing_upstream_secret`）。
     #[error(transparent)]
@@ -100,6 +107,10 @@ impl From<McpError> for AsterlaneError {
                 ErrorCode::McpUpstreamMcpFailure,
                 format!("upstream MCP server error: {detail}"),
             ),
+            McpError::UpstreamAuthRequired => (
+                ErrorCode::McpUpstreamAuthRequired,
+                McpError::UpstreamAuthRequired.to_string(),
+            ),
             McpError::Secret(err) => return err.into(),
             McpError::UnknownServer { server_id } => (
                 ErrorCode::AdminNotFound,
@@ -133,6 +144,18 @@ mod tests {
     fn upstream_failure_maps_to_mcp_upstream_failure() {
         let err = AsterlaneError::from(McpError::upstream_failure("connection refused"));
         assert_eq!(err.error_code(), ErrorCode::McpUpstreamMcpFailure);
+    }
+
+    #[test]
+    fn auth_required_maps_to_upstream_auth_required_with_safe_message() {
+        let err = AsterlaneError::from(McpError::UpstreamAuthRequired);
+        assert_eq!(err.error_code(), ErrorCode::McpUpstreamAuthRequired);
+        assert_eq!(err.http_response().status, 502);
+        assert!(matches!(
+            err.mcp_error(),
+            McpErrorForm::ToolResultIsError(ref message)
+                if message == "upstream MCP server requires administrator authorization"
+        ));
     }
 
     #[test]

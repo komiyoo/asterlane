@@ -509,6 +509,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: vec![ApiResource {
                 id: "tavily".to_string(),
                 domain: "search".to_string(),
@@ -558,6 +559,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: vec![ApiResource {
                 id: "exa".to_string(),
                 domain: "search".to_string(),
@@ -673,6 +675,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: vec![],
             mcp_servers: Vec::new(),
             proxy_keys: config_with_tavily.proxy_keys.clone(),
@@ -770,6 +773,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -926,6 +930,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1055,6 +1060,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1127,6 +1133,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1498,6 +1505,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1760,6 +1768,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1827,6 +1836,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),

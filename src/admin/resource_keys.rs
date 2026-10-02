@@ -47,6 +47,7 @@ pub(super) fn auth_type_label(auth: &UpstreamAuth) -> &'static str {
         UpstreamAuth::None => "none",
         UpstreamAuth::Bearer { .. } => "bearer",
         UpstreamAuth::Header { .. } => "header",
+        UpstreamAuth::OAuth { .. } => "oauth",
     }
 }
 
@@ -58,10 +59,23 @@ pub(super) fn key_pool_size(resource: &ApiResource) -> usize {
         .unwrap_or(0)
 }
 
-/// 校验新配置的 key_pool；失败则整次写拒绝，内存态不变。
+/// 校验新配置的 key_pool 与资源认证；失败则整次写拒绝，内存态不变。
+///
+/// HTTP API 资源不支持 OAuth（只用于 MCP server），在 swap 前收成 400，
+/// 因此 create/update 两条写路径都不会落库。
 pub(super) fn key_pools_from_config(
     new_config: &GatewayConfig,
 ) -> Result<Option<KeyPoolRegistry>, AsterlaneError> {
+    if new_config
+        .api_resources
+        .iter()
+        .any(|r| matches!(r.auth, UpstreamAuth::OAuth { .. }))
+    {
+        return Err(AsterlaneError::internal(
+            ErrorCode::AdminInvalidQuery,
+            "auth type oauth is only supported for mcp servers",
+        ));
+    }
     KeyPoolRegistry::from_config(new_config).map_err(invalid_key_pool)
 }
 

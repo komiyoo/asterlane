@@ -59,9 +59,9 @@ export function objTable(rows, order, labels) {
   return '<div class="tablewrap"><table><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
 }
 
-// 健康状态灯：ok 绿 / unreachable 红 / unknown 灰 / disabled 暗
+// 健康状态灯：ok 绿 / unreachable 红 / auth_required 橙（OAuth 上游需要管理员授权）/ unknown 灰 / disabled 暗
 export function healthDot(h, id) {
-  const s = ["ok", "unreachable", "unknown", "disabled"].includes(h?.status) ? h.status : "unknown";
+  const s = ["ok", "unreachable", "auth_required", "unknown", "disabled"].includes(h?.status) ? h.status : "unknown";
   return '<span class="dot ' + s + '"' + (id ? ' id="' + id + '"' : "") + ' title="' + s + '"></span>';
 }
 

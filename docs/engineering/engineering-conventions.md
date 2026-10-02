@@ -25,6 +25,7 @@ timestamp: 2026-07-05T00:00:00Z
 - 协议类型止步于适配层：rmcp 类型不出 `mcp/` 与 `http/`（server transport 装配）；`proxy::executor` 只消费 `mcp::model` 自有类型。
 - 现存豁免（新增同类豁免须在此登记）：
   - `config::HttpMethod::to_reqwest`——类型转换 helper。
+  - `config::oauth` 用 `reqwest::Url` 解析并校验 `oauth.redirect_base_url` 与 OAuth server 的 `url`——只做 URL 解析（https / loopback 判断），不发请求，不手写 URL parser。
 
 # 组合根
 

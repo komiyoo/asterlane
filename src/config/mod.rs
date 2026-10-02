@@ -2,7 +2,8 @@
 //!
 //! 按内聚单元拆成私有子模块，对外路径一律是 `crate::config::X`（类型在此 re-export）：
 //!
-//! - `auth`：上游认证形状 `UpstreamAuth`。
+//! - `auth`：上游认证形状 `UpstreamAuth`（含 OAuth 授权方式 `OAuthGrant`）。
+//! - `oauth`：顶层 `oauth` 节 `OAuthConfig` 与 OAuth 字段校验。
 //! - `upstream`：`api_resources` 与 `mcp_servers`，及其附属配置（key 池、discovery、
 //!   限额、测活、安全）。
 //! - `proxy_key`：`proxy_keys` 与 per-key 限额。
@@ -14,6 +15,7 @@
 
 mod admin;
 mod auth;
+mod oauth;
 mod post_load;
 mod proxy_key;
 mod runtime;
@@ -26,7 +28,8 @@ use serde::{Deserialize, Serialize};
 use crate::render::ResponseFormat;
 
 pub use admin::{AdminConfig, AdminKey};
-pub use auth::UpstreamAuth;
+pub use auth::{OAuthGrant, UpstreamAuth};
+pub use oauth::OAuthConfig;
 pub use proxy_key::{KeyLimits, ProxyKey};
 pub use runtime::{HttpServerConfig, McpFailureMode, McpRuntimeConfig, ObservabilityConfig};
 pub use secrets::{InfisicalSecretsConfig, SecretsConfig, VaultSecretsConfig};
@@ -59,6 +62,10 @@ pub struct GatewayConfig {
     /// MCP 运行时：多上游失败模式、后台刷新间隔、`tools/list` TTL。
     #[serde(default)]
     pub mcp: McpRuntimeConfig,
+    /// 上游 MCP OAuth：回调地址与 token 加密密钥。任一 server 用
+    /// `authorization_code` 时必填（见 docs/runtime/config-schema.md「OAuth」）。
+    #[serde(default)]
+    pub oauth: Option<OAuthConfig>,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     /// 平台内置 MCP preset 启用列表，加载后展开进 `mcp_servers`

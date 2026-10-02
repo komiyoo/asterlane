@@ -84,7 +84,9 @@ export async function loadMcpServers(view) {
         + '<td>' + (s.requires_key ? "是（" + esc(s.auth_type || "?") + "）" : "否") + '</td>'
         + '<td>' + esc(s.tool_count ?? "") + '</td>'
         + '<td><button class="ms-probe" data-i="' + i + '">探测</button> '
-        + '<button class="ms-edit" data-i="' + i + '">编辑</button> '
+        // OAuth 认证的 client id / secret ref 不回显，表单无法保留它们：禁用编辑，避免保存时被改成无认证
+        + '<button class="ms-edit" data-i="' + i + '"'
+        + (s.auth_type === "oauth" ? ' disabled title="OAuth 认证请通过配置文件或 API 修改"' : "") + '>编辑</button> '
         + '<button class="ms-del" data-i="' + i + '">删除</button></td></tr>'
         + '<tr id="ms-detail-' + i + '" style="display:none"><td colspan="7"></td></tr>';
     });
@@ -284,6 +286,8 @@ export async function loadMcpServers(view) {
           : await apiWrite("POST", "/admin/mcp-servers", body);
         if (r.health?.status === "unreachable")
           alert("已保存但连接失败" + (r.health.last_error ? "：" + r.health.last_error : "，可稍后「探测」重试"));
+        else if (r.health?.status === "auth_required")
+          alert("已保存，但该上游需要管理员授权后才能使用");
         f.innerHTML = "";
         await refresh();
       } catch (e) { alert(e.message); }

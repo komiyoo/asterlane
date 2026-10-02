@@ -128,6 +128,7 @@ fn gateway_config(
         http: Default::default(),
         mcp,
         builtin_mcp: Vec::new(),
+        oauth: None,
         api_resources: Vec::new(),
         mcp_servers: servers,
         proxy_keys: vec![open_key(discovery_mode)],
