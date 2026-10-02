@@ -2,20 +2,21 @@
 //!
 //! rmcp 的 client 类型（`RunningService` 等）不出本模块；`registry` 只持有
 //! `Arc<dyn RemoteMcpPeer>` 与 `Arc<dyn PeerConnector>`，单测可注入假实现。
+//! rmcp 客户端的协议方法在子模块 `methods`。
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::config::McpServerConfig;
-use crate::mcp::convert::{arguments_to_object, convert_call_response, convert_call_result};
+use crate::mcp::convert::convert_call_result;
 use crate::mcp::error::McpError;
 use crate::mcp::model::{ToolCallExtras, UpstreamCallOutcome};
 use crate::mcp::oauth::{OAuthHttpClient, UpstreamOAuth};
 use crate::mcp::transport::transport_config;
 use crate::mcp::upstream_notify::{UpstreamListChanged, UpstreamNotifyHandler, spawn_listen_task};
 use crate::secrets::{SecretStore, SecretString};
-use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, ProtocolVersion, Tool};
+use rmcp::model::{CallToolResult, ProtocolVersion, Tool};
 use rmcp::service::{ClientInitializeError, ServiceError};
 use rmcp::transport::streamable_http_client::{
     AuthRequiredError, StreamableHttpClient, StreamableHttpClientTransportConfig,
@@ -344,72 +345,4 @@ impl PeerConnector for RmcpConnector {
     }
 }
 
-impl RemoteMcpPeer for RmcpRemoteMcpPeer {
-    fn list_tools(&self) -> McpFuture<'_, Result<Vec<Tool>, McpError>> {
-        Box::pin(async move {
-            self.client
-                .peer()
-                .list_all_tools()
-                .await
-                .map_err(|e| self.map_service_error("list tools", e))
-        })
-    }
-
-    fn call_tool(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-    ) -> McpFuture<'_, Result<CallToolResult, McpError>> {
-        let name = name.to_string();
-        Box::pin(async move {
-            let args = arguments_to_object(arguments)?;
-            match self
-                .client
-                .peer()
-                .call_tool_once(CallToolRequestParams::new(name).with_arguments(args))
-                .await
-                .map_err(|e| self.map_service_error("call tool", e))?
-            {
-                CallToolResponse::Complete(result) => Ok(result),
-                CallToolResponse::InputRequired(_) => Err(McpError::upstream_failure(
-                    "upstream requires additional input",
-                )),
-                CallToolResponse::Task(_) => Err(McpError::upstream_failure(
-                    "upstream returned a task handle; Tasks extension is not proxied",
-                )),
-                _ => Err(McpError::upstream_failure(
-                    "unsupported upstream tools/call result type",
-                )),
-            }
-        })
-    }
-
-    fn call_tool_ex(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-        extras: ToolCallExtras,
-    ) -> McpFuture<'_, Result<UpstreamCallOutcome, McpError>> {
-        let name = name.to_string();
-        Box::pin(async move {
-            let args = arguments_to_object(arguments)?;
-            let mut params = CallToolRequestParams::new(name).with_arguments(args);
-            if let Some(responses) = extras.input_responses {
-                let decoded = serde_json::from_value(responses).map_err(|error| {
-                    McpError::invalid_tool_call(format!("invalid input_responses: {error}"))
-                })?;
-                params = params.with_input_responses(decoded);
-            }
-            if let Some(request_state) = extras.request_state {
-                params = params.with_request_state(request_state);
-            }
-            let response = self
-                .client
-                .peer()
-                .call_tool_once(params)
-                .await
-                .map_err(|e| self.map_service_error("call tool", e))?;
-            convert_call_response(response)
-        })
-    }
-}
+mod methods;
