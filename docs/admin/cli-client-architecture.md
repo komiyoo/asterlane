@@ -182,5 +182,5 @@ cargo run -- tools call --help
 [4] [Error Model](../architecture/error-model.md)
 [5] [Compatibility Policy](../architecture/compatibility-policy.md)
 [6] [`src/cli.rs`](../../src/cli.rs) 与 [`src/cli/client.rs`](../../src/cli/client.rs)
-[7] [`src/http/routes.rs`](../../src/http/routes.rs) 与 [`src/mcp/server.rs`](../../src/mcp/server.rs)
+[7] [`src/http/tools.rs`](../../src/http/tools.rs) 与 [`src/mcp/server.rs`](../../src/mcp/server.rs)
 [8] [OKF v0.2 specification](https://github.com/GoogleCloudPlatform/open-knowledge-format/blob/main/SPEC.md)

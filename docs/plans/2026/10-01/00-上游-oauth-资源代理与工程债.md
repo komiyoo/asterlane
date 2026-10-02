@@ -192,10 +192,12 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 
 ## S8 剩余超预算文件与债务台账
 
-- [ ] 处理仍超过 500 行生产代码的文件。截至 S0 为 `src/catalog.rs`、`src/http/routes.rs`、`src/admin/crud.rs`、`src/admin/mod.rs`、`src/store/repository.rs`，另加 S5–S7 之后新超出的文件。有明显内聚单元的拆分；没有的在文件头写明拆分方向。
-- [ ] 重写 [Engineering Conventions · 已知债务台账](../../../engineering/engineering-conventions.md#已知债务台账)：更正过时的 executor 行数与 `too_many_arguments` 说明；登记仍超 80 行的函数（截至 S0 例如 `handle_meta_tool_with_proxy`、`mcp::call::call_tools`、`shape_remote_mcp_result`、`mcp::server` 的 `call_tool`），写明位置与拆分方向。
+- [x] 处理仍超过 500 行生产代码的文件。截至 S0 为 `src/catalog.rs`、`src/http/routes.rs`、`src/admin/crud.rs`、`src/admin/mod.rs`、`src/store/repository.rs`，另加 S5–S7 之后新超出的文件。有明显内聚单元的拆分；没有的在文件头写明拆分方向。
+- [x] 重写 [Engineering Conventions · 已知债务台账](../../../engineering/engineering-conventions.md#已知债务台账)：更正过时的 executor 行数与 `too_many_arguments` 说明；登记仍超 80 行的函数（截至 S0 例如 `handle_meta_tool_with_proxy`、`mcp::call::call_tools`、`shape_remote_mcp_result`、`mcp::server` 的 `call_tool`），写明位置与拆分方向。
 
 验收：无未登记的超预算文件；台账与代码一致；`just check` 全绿。
+
+结果（2026-10-02，随 S7 在 `feat/mcp-resources-prompts` 上一并完成，拆分是单独的纯移动提交）：有内聚边界的四个文件已拆开，行为不变。`catalog` 的列表、解析与搜索到 `catalog/query.rs`；`/v1/tools` 到 `http/tools.rs`；admin 的事件、用量、安全事件、统计与 key pool 到 `admin/observe.rs`；rmcp 协议方法到 `mcp/peer/methods.rs`。仍超过 500 行的只剩 `admin/crud.rs`（520）和 `store/repository.rs`（510），文件头写了拆分方向，并记入债务台账。台账同时更正了 executor 268 行、`invoke/mod.rs` 434、`admission.rs` 134、`retry.rs` 451、`post.rs` 335，并写明 `too_many_arguments` 已无存量豁免。仍超 80 行的 8 个函数（`execute_with_retry`、`handle_meta_tool_with_proxy`、`call_tools`、`meta_tool_descriptors`、`call_tool`、`shape_remote_mcp_result`、`build_input_schema`、`discover_endpoints`）都登记了位置与拆分方向。`just check` 通过，拆分没有增删测试（整棵树 1024 passed、2 ignored，含 S7）。
 
 ## D1 限流维度设计（只出设计，不改代码）
 

@@ -158,7 +158,7 @@ src/
 ├── config/          # 配置模型与加载后校验（按配置节拆分）
 ├── naming.rs        # MCP 工具命名解析
 ├── policy.rs        # key scope 与请求级收窄
-├── catalog.rs       # 工具目录、过滤、分页
+├── catalog/         # 工具目录、过滤、分页
 ├── error.rs         # 错误码与边界映射
 ├── gateway_auth.rs  # 网关认证
 ├── presets.rs       # 内置 MCP preset

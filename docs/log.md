@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-10-02（超预算文件与债务台账）
+
+- **结论**：落地计划 S8 的拆分与台账部分，不改行为。`catalog` 的列表、名字解析和搜索到 `src/catalog/query.rs`；`/v1/tools` 列表与 invoke 到 `src/http/tools.rs`；admin 的事件、用量、安全事件、统计和 key pool 到 `src/admin/observe.rs`；rmcp 的协议方法到 `src/mcp/peer/methods.rs`（S7 需要）。以上四处都是纯移动，只改了可见性与 `use`。
+- **仍超 500 行**：`src/admin/crud.rs`（520）、`src/store/repository.rs`（510）。没有明显内聚单元，文件头写了拆分方向。其余生产文件不超过 500 行（`src/main.rs` 496）。
+- **台账**：[Engineering Conventions · 已知债务台账](engineering/engineering-conventions.md#已知债务台账) 按 2026-10-02 的生产行数重写。executor 268 行，`invoke/mod.rs` 434，`admission.rs` 134，`retry.rs` 451，`post.rs` 335。`too_many_arguments` 没有存量豁免。仍超 80 行的 8 个函数登记了位置和拆分方向。
+- **引用**：README 项目结构、`error-model.md`、`cli-client-architecture.md` 与 `.codex/skills/asterlane/SKILL.md` 里指向旧文件路径的地方同步更新。
+- **验证**：拆分不增删测试。整棵树 `just check` 通过（1024 passed、2 ignored，含 S7）。
+
 ## 2026-10-02（修复 proxy_events 偶发失败）
 
 - **结论**：只改了测试代码（`tests/proxy_events.rs`，以及下面「同类问题」里的两个 OAuth 用例文件与 `tests/support/log_capture.rs`），生产代码不动。`invoke` span 用例并行时偶发失败，是测试收集 span 的方式有两处竞争，不是 `ProxyExecutor::invoke` 的问题。基线上循环 24 次 `cargo test --test proxy_events` 失败 2 次（`span_leaves_resolution_fields_empty_for_unknown_tool`、`span_records_canonical_resource_and_request_id_for_remote_mcp`，均为「应恰好一个 invoke span: []」）。
