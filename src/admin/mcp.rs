@@ -374,6 +374,12 @@ pub(super) async fn delete_server(
     {
         warn!(error = %e, server_id = %id, "failed to delete mcp server from store");
     }
+    // 该 server 已存的 OAuth 凭据一并清除（内存与数据库）
+    if let Some(oauth) = &state.upstream_oauth
+        && let Err(e) = oauth.clear_credentials(&id).await
+    {
+        warn!(error = %e, server_id = %id, "failed to clear mcp server oauth credentials");
+    }
     record_audit(&state, &admin.0, "delete", "mcp_server", &id).await;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -803,6 +809,77 @@ mcp_servers:
     }
 
     #[tokio::test]
+    async fn create_oauth_server_persists_only_the_secret_ref_and_round_trips() {
+        let registry = McpServerRegistry::from_peers(&[], vec![]).await.unwrap();
+        let config: GatewayConfig = serde_norway::from_str("{}").unwrap();
+        let catalog = ToolCatalog::from_config(&config).unwrap();
+        let state = with_store(
+            AppState::new(config, catalog)
+                .with_admin_auth(admin_auth())
+                .with_mcp_registry(Arc::new(registry)),
+        )
+        .await;
+
+        let input = r#"{"id":"lin","domain":"pm","provider":"linear",
+            "url":"https://mcp.example.com/mcp",
+            "auth":{"type":"oauth","grant":"client_credentials","client_id":"cid",
+                    "client_secret_ref":"secret://env/LINEAR_SECRET","scopes":["read"]}}"#;
+        let (status, body) = send(&state, "POST", "/admin/mcp-servers", Some(input)).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(body["auth_type"], "oauth");
+        assert_eq!(body["oauth"], json!({"grant": "client_credentials"}));
+        // 测试环境没有该 secret：登记为 unreachable，配置仍保存；
+        // 错误里的 ref 只有脱敏前缀，没有 ref 的路径段
+        assert_eq!(body["health"]["status"], "unreachable");
+        assert!(!body.to_string().contains("LINEAR_SECRET"));
+
+        // 落库的 config_json 只含 secret ref，反序列化后与配置一致（启动合并走同一条路径）
+        let repo = state.event_repo.as_ref().unwrap();
+        let rows = repo.list_mcp_servers().await.unwrap();
+        let stored: Value = serde_json::from_str(&rows[0].config_json).unwrap();
+        assert_eq!(
+            serde_json::from_value::<UpstreamAuth>(stored["auth"].clone()).unwrap(),
+            state
+                .config_snapshot()
+                .await
+                .mcp_server("lin")
+                .unwrap()
+                .auth
+        );
+        assert_eq!(
+            stored["auth"]["client_secret_ref"],
+            "secret://env/LINEAR_SECRET"
+        );
+        assert_eq!(stored["auth"]["type"], "oauth");
+    }
+
+    #[tokio::test]
+    async fn delete_clears_the_servers_stored_oauth_credentials() {
+        use crate::mcp::UpstreamOAuth;
+        use crate::store::UpstreamOAuthCredentialRepository;
+
+        let peer = FakePeer::new(vec![vec![make_tool("web_search_exa", "desc")]]);
+        let state = with_store(state_with_registry(ONE_SERVER_YAML, vec![peer]).await).await;
+        let repo = state.event_repo.clone().unwrap();
+        let oauth = Arc::new(UpstreamOAuth::new(None, Some(repo.clone()), None).unwrap());
+        let state = state.with_upstream_oauth(oauth);
+        repo.put_sealed_credentials("exa", "sealed").await.unwrap();
+        repo.put_sealed_credentials("other", "sealed")
+            .await
+            .unwrap();
+
+        let (status, _) = send(&state, "DELETE", "/admin/mcp-servers/exa", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(repo.get_sealed_credentials("exa").await.unwrap().is_none());
+        assert!(
+            repo.get_sealed_credentials("other")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
     async fn api_resource_cannot_use_oauth_auth() {
         let state = plain_state("{}");
         let input = r#"{"id":"r","domain":"d","base_url":"https://api.example.com",
@@ -811,8 +888,16 @@ mcp_servers:
         let (status, body) = send(&state, "POST", "/admin/resources", Some(input)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["error"]["code"], "admin.invalid_query");
-        let (status, _) = send(&state, "PUT", "/admin/resources/r", Some(input)).await;
+
+        // 更新同样拒绝，且已有资源的认证不被改动
+        let plain = r#"{"id":"r","domain":"d","base_url":"https://api.example.com"}"#;
+        let (status, _) = send(&state, "POST", "/admin/resources", Some(plain)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, body) = send(&state, "PUT", "/admin/resources/r", Some(input)).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"]["code"], "admin.invalid_query");
+        let config = state.config_snapshot().await;
+        assert!(config.resource("r").unwrap().auth.is_none());
     }
 
     #[tokio::test]

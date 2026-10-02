@@ -19,17 +19,6 @@ pub(super) fn invalid_key_pool(err: crate::keys::KeyPoolError) -> AsterlaneError
     AsterlaneError::internal(ErrorCode::AdminInvalidQuery, err.to_string())
 }
 
-/// HTTP API 资源不支持 OAuth（只用于 MCP server）：写路径落地前收成 400。
-pub(super) fn reject_oauth(auth: Option<&UpstreamAuth>) -> Result<(), AsterlaneError> {
-    if matches!(auth, Some(UpstreamAuth::OAuth { .. })) {
-        return Err(AsterlaneError::internal(
-            ErrorCode::AdminInvalidQuery,
-            "auth type oauth is only supported for mcp servers",
-        ));
-    }
-    Ok(())
-}
-
 /// 创建：`auth` 缺省 `None`，`key_pool` 原样。
 pub(super) fn apply_create(input: &ResourceInput) -> (UpstreamAuth, Option<KeyPoolConfig>) {
     (
@@ -70,10 +59,23 @@ pub(super) fn key_pool_size(resource: &ApiResource) -> usize {
         .unwrap_or(0)
 }
 
-/// 校验新配置的 key_pool；失败则整次写拒绝，内存态不变。
+/// 校验新配置的 key_pool 与资源认证；失败则整次写拒绝，内存态不变。
+///
+/// HTTP API 资源不支持 OAuth（只用于 MCP server），在 swap 前收成 400，
+/// 因此 create/update 两条写路径都不会落库。
 pub(super) fn key_pools_from_config(
     new_config: &GatewayConfig,
 ) -> Result<Option<KeyPoolRegistry>, AsterlaneError> {
+    if new_config
+        .api_resources
+        .iter()
+        .any(|r| matches!(r.auth, UpstreamAuth::OAuth { .. }))
+    {
+        return Err(AsterlaneError::internal(
+            ErrorCode::AdminInvalidQuery,
+            "auth type oauth is only supported for mcp servers",
+        ));
+    }
     KeyPoolRegistry::from_config(new_config).map_err(invalid_key_pool)
 }
 
