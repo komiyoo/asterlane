@@ -8,28 +8,40 @@
 //! - `authorization_code`（[`authorization_code`]）：管理员一次性授权后，从存储加载
 //!   凭据并由 rmcp 自动刷新；没有凭据、解密失败或刷新被拒时 server 进入
 //!   `auth_required`。凭据加密保存在 SQLite（[`credential_store`]），无数据库时
-//!   只保存在内存。
+//!   只保存在内存。管理员发起授权与浏览器回调完成授权见 [`authorize`]，待完成的
+//!   授权（state）只放内存，见 [`pending`]。
 //!
 //! rmcp 类型不出 `mcp/`：[`UpstreamOAuth`] 是对外的服务对象，在 `serve` 装配阶段构造
 //! 并放进 `AppState`；错误对外只用 [`McpError`] 的安全消息，授权服务器返回的内容
 //! 与 rmcp 的 `AuthError` 只进 tracing，且不含 token。
 
 mod authorization_code;
+mod authorize;
 mod client_credentials;
 mod credential_store;
+mod pending;
 mod resource;
 
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use reqwest::Url;
-use rmcp::transport::{AuthClient, AuthorizationManager, InMemoryCredentialStore};
+use rmcp::transport::{
+    AuthClient, AuthorizationManager, AuthorizationSession, InMemoryCredentialStore,
+};
 use secrecy::ExposeSecret;
 use tracing::warn;
 
+pub use authorization_code::CredentialSummary;
+pub use authorize::{AuthorizationStart, AuthorizeError, CallbackError, CallbackParams};
 pub(in crate::mcp) use client_credentials::ClientCredentialsClient;
 use credential_store::SealedCredentialStore;
+use pending::PendingStore;
+
+/// 授权发起后，管理员需要在这段时间内完成浏览器授权；state 到期失效且只能用一次。
+const AUTHORIZATION_TTL: Duration = Duration::from_secs(10 * 60);
 
 use crate::config::{McpServerConfig, OAuthConfig, OAuthGrant};
 use crate::error::{AsterlaneError, ErrorCode};
@@ -51,6 +63,8 @@ pub struct UpstreamOAuth {
     /// 与 rmcp 默认的 transport client 一致：不复用空闲连接、不跟随重定向，
     /// 避免请求头被带到重定向目标。
     http: reqwest::Client,
+    /// 已发起、等待浏览器回调的授权（state → 授权会话）。
+    pending: PendingStore<AuthorizationSession>,
 }
 
 // 手写 Debug：不输出密钥、凭据与回调地址。
@@ -128,12 +142,22 @@ impl UpstreamOAuth {
             memory: Mutex::new(HashMap::new()),
             redirect_base_url,
             http,
+            pending: PendingStore::new(AUTHORIZATION_TTL),
         })
     }
 
-    /// 清除某个 server 已存的凭据（内存与数据库）。server 回到「需要授权」，
-    /// 删除 server 时也会调用。
+    /// 改变授权 state 的有效期（缺省 10 分钟）。测试用：置为 `Duration::ZERO`
+    /// 即发起后立刻过期。
+    pub fn with_authorization_ttl(mut self, ttl: Duration) -> Self {
+        self.pending = PendingStore::new(ttl);
+        self
+    }
+
+    /// 清除某个 server 已存的凭据（内存与数据库），并丢弃它尚未完成的授权。
+    /// server 回到「需要授权」，删除 server 时也会调用。
     pub async fn clear_credentials(&self, server_id: &str) -> Result<(), McpError> {
+        // 先丢弃待完成的授权：撤销之后，旧的授权链接不能再把凭据写回去
+        self.pending.discard_server(server_id);
         self.memory
             .lock()
             .unwrap_or_else(|e| e.into_inner())

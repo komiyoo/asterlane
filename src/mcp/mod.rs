@@ -20,7 +20,8 @@
 //! - `transport`（私有）：上游 `StreamableHttpClientTransportConfig` 构造与
 //!   auth secret 解析（`transport_config`、`connect_server`）。
 //! - `oauth`（私有，对外 [`UpstreamOAuth`]）：上游 MCP OAuth——client-credentials、
-//!   授权码类上游的加密凭据存储与「需要授权」状态；rmcp 的 `auth` 类型止步于此。
+//!   授权码类上游的加密凭据存储、「需要授权」状态与管理员一次性授权（发起与回调
+//!   完成）；rmcp 的 `auth` 类型止步于此。
 //! - `convert`（私有）：rmcp 类型到网关模型的转换；`wrap_tools` 把上游原始
 //!   tool name 写入 `WrappedTool.upstream_path`，转发时剥网关前缀。
 //! - [`upstream_notify`]：上游 `tools/list_changed`（listen + session 回调）。
@@ -93,7 +94,10 @@ pub use model::{
     UpstreamCallOutcome,
 };
 pub use notify::{ToolListChangedPeers, ToolListChangedTarget, notify_peers_tool_list_changed};
-pub use oauth::UpstreamOAuth;
+pub use oauth::{
+    AuthorizationStart, AuthorizeError, CallbackError, CallbackParams, CredentialSummary,
+    UpstreamOAuth,
+};
 pub use peer::{RemoteMcpPeer, RmcpRemoteMcpPeer};
 pub use registry::{McpServerRegistry, RefreshResult};
 pub use server::AsterlaneToolServer;

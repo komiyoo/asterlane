@@ -251,6 +251,33 @@ impl McpServerRegistry {
             .ok_or_else(|| McpError::unknown_server(server_id))
     }
 
+    /// 丢弃现有连接并重新建连 + 拉取工具，返回最新健康态。授权码凭据变化后用
+    /// （授权完成、撤销授权）：`probe` 会复用已有连接，而旧连接持有旧的授权状态。
+    /// 建连失败时 entry 变为无连接、无工具快照（例如撤销授权后为 `auth_required`）。
+    /// unknown id 返回 [`McpError::UnknownServer`]。
+    pub async fn reconnect<S: SecretStore>(
+        &self,
+        server_id: &str,
+        secrets: &S,
+    ) -> Result<ServerHealth, McpError> {
+        let snapshot = self
+            .read_entries()
+            .iter()
+            .find(|e| e.config.id == server_id)
+            .cloned()
+            .ok_or_else(|| McpError::unknown_server(server_id))?;
+        let refreshed = establish_entry(
+            snapshot.config,
+            Some(snapshot.health),
+            secrets,
+            self.connector.as_ref(),
+        )
+        .await;
+        // 重连期间被并发 remove 时不复活该 entry
+        self.replace_entry(refreshed)
+            .ok_or_else(|| McpError::unknown_server(server_id))
+    }
+
     /// 登记新 server 并尝试连接 + 拉取工具。连接失败仍登记
     /// （`unreachable`，无 peer）并返回其健康态，不算 `Err`；
     /// id 已存在返回 `mcp.invalid_tool_call`。
