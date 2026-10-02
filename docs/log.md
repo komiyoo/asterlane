@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-10-01（产品决策与实施计划）
+
+- **决策**：删除请求变换；成本核算暂缓；存储维持 SQLite，Postgres 与共享状态本轮不做；代理上游 resources 与 prompts，key 范围沿用工具 scope，stdio 定为非目标；上游 MCP OAuth 只做网关持有（client-credentials + 管理员一次性授权码）；限流维度先出设计；每次发布默认 patch +0.0.1。多租户与 RBAC 仍未定。
+- **依赖**：`cargo update -p rustls`（0.23.43 → 0.23.45），修复 RUSTSEC-2026-0285，`cargo deny check` 恢复通过。确认 rmcp 3.1.2 的 `auth` feature 可用及其 DCR / refresh 边界。
+- **文档**：[Roadmap](product/roadmap.md) 的「待产品决策项」改为「产品决策」并就地更新各阶段条目；[Crate Selection](architecture/crate-selection.md) 增 rmcp `auth` 行；新增[实施计划](plans/2026/10-01/00-上游-oauth-资源代理与工程债.md)。
+- **验证**：本机 rustc 1.99.0 下 `just check` 通过（878 passed，2 ignored）；`cargo deny check` 通过。
+
 ## 2026-09-26（默认 lazy 与批量工具操作）
 
 - **行为**：未配置 `discovery_mode` 的 key 与开放 MCP 模式默认 lazy；显式 `full` 保留完整列表。`search_tools` 返回可翻页的 `{tools,next_cursor}`。新增按当前 key scope 批量取详情的 `get_tools` 和顺序执行独立调用的 `call_tools`，逐项返回结果，超预算内容通过 key 绑定游标续取。MCP 还提供可选的 `asterlane_tool_workflow` prompt。

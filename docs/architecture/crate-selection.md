@@ -29,6 +29,7 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | 能力 | Crate | 版本 | 理由 |
 | --- | --- | --- | --- |
 | MCP server/client | `rmcp` | 3.1 | 官方 Rust SDK（modelcontextprotocol/rust-sdk）。截至 2026-08-17 锁定 `3.1.2`，实现 MCP `2026-07-28` 并双栈兼容 `2025-11-25`。crate 自身 MSRV 1.88。server 端 Streamable HTTP + axum；client 端 `ClientLifecycleMode::Auto`；`subscriptions/listen`、`ttlMs`/`cacheScope`、标准请求头与 MRTR。公网部署仍按需配 `with_allowed_hosts`。迁移说明见 [MCP Protocol](mcp-protocol.md)。 |
+| 上游 MCP OAuth 客户端 | `rmcp` `auth` feature | 3.1 | 2026-10-01 确认 3.1.2 可用（引入 `oauth2` 5、`url`、`async-trait`），上游 OAuth 实现时启用，不手写 OAuth。提供 `AuthorizationManager`（RFC 9728 / 8414 元数据发现、PKCE 授权码、RFC 8707 `resource`、refresh）、client-credentials（SEP-1046）、可插拔 `CredentialStore` / `StateStore`；`AuthClient` 实现 `StreamableHttpClient`，可直接作为 transport 的 HTTP client。限制：`register_client`（DCR）只注册 `authorization_code` + `refresh_token` 的公开客户端；refresh 只处理 refresh token，client-credentials 过期须由调用方重新换取。 |
 
 ## 配置与序列化
 

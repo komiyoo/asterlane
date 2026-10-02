@@ -9,7 +9,7 @@ Layout: `YYYY/MM-DD/<lane>-<slug>.md`, with a derived `w<wave>-` prefix once the
 *Year folders appear below as they are created.*
 
 <!-- plan-index:begin -->
-_还没有计划。_
+- [2026](./2026/README.md) — 进行中：[上游 OAuth、resources/prompts 代理、工程债与发布](./2026/10-01/00-上游-oauth-资源代理与工程债.md)。
 <!-- plan-index:end -->
 
 # Archive
