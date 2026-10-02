@@ -16,7 +16,10 @@ use crate::mcp::oauth::{OAuthHttpClient, UpstreamOAuth};
 use crate::mcp::transport::transport_config;
 use crate::mcp::upstream_notify::{UpstreamListChanged, UpstreamNotifyHandler, spawn_listen_task};
 use crate::secrets::{SecretStore, SecretString};
-use rmcp::model::{CallToolResult, ProtocolVersion, Tool};
+use rmcp::model::{
+    CallToolResult, GetPromptResult, Prompt, ProtocolVersion, ReadResourceResult, Resource,
+    ResourceTemplate, Tool,
+};
 use rmcp::service::{ClientInitializeError, ServiceError};
 use rmcp::transport::streamable_http_client::{
     AuthRequiredError, StreamableHttpClient, StreamableHttpClientTransportConfig,
@@ -35,6 +38,55 @@ pub trait RemoteMcpPeer: std::fmt::Debug + Send + Sync {
         name: &str,
         arguments: serde_json::Value,
     ) -> McpFuture<'_, Result<CallToolResult, McpError>>;
+
+    /// 上游握手时是否声明了 prompts capability。默认否，测试替身不必实现。
+    fn supports_prompts(&self) -> bool {
+        false
+    }
+
+    /// 上游握手时是否声明了 resources capability。默认否。
+    fn supports_resources(&self) -> bool {
+        false
+    }
+
+    /// 列出上游 prompts。默认返回空列表，不访问上游。
+    fn list_prompts(&self) -> McpFuture<'_, Result<Vec<Prompt>, McpError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    /// 取一个上游 prompt。`name` 是上游原名。默认表示该上游不支持。
+    fn get_prompt(
+        &self,
+        name: &str,
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> McpFuture<'_, Result<GetPromptResult, McpError>> {
+        let _ = (name, arguments);
+        Box::pin(async {
+            Err(McpError::upstream_failure(
+                "prompts are not supported by this upstream",
+            ))
+        })
+    }
+
+    /// 列出上游 resources。默认返回空列表，不访问上游。
+    fn list_resources(&self) -> McpFuture<'_, Result<Vec<Resource>, McpError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    /// 列出上游 resource templates。默认返回空列表，不访问上游。
+    fn list_resource_templates(&self) -> McpFuture<'_, Result<Vec<ResourceTemplate>, McpError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    /// 读上游 resource。`uri` 是上游原 URI。默认表示该上游不支持。
+    fn read_resource(&self, uri: &str) -> McpFuture<'_, Result<ReadResourceResult, McpError>> {
+        let _ = uri;
+        Box::pin(async {
+            Err(McpError::upstream_failure(
+                "resources are not supported by this upstream",
+            ))
+        })
+    }
 
     /// 带 MRTR 字段的调用。默认包装 [`Self::call_tool`] 为完成结果。
     fn call_tool_ex(

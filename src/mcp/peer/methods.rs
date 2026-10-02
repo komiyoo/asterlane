@@ -1,10 +1,14 @@
-//! `RmcpRemoteMcpPeer` 的协议方法：tools。
+//! `RmcpRemoteMcpPeer` 的协议方法：tools / prompts / resources。
 
 use super::{McpFuture, RemoteMcpPeer, RmcpRemoteMcpPeer};
 use crate::mcp::convert::{arguments_to_object, convert_call_response};
 use crate::mcp::error::McpError;
 use crate::mcp::model::{ToolCallExtras, UpstreamCallOutcome};
-use rmcp::model::{CallToolRequestParams, CallToolResponse, CallToolResult, Tool};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, CallToolResult, GetPromptRequestParams,
+    GetPromptResponse, GetPromptResult, Prompt, ReadResourceRequestParams, ReadResourceResponse,
+    ReadResourceResult, Resource, ResourceTemplate, Tool,
+};
 
 impl RemoteMcpPeer for RmcpRemoteMcpPeer {
     fn list_tools(&self) -> McpFuture<'_, Result<Vec<Tool>, McpError>> {
@@ -73,5 +77,104 @@ impl RemoteMcpPeer for RmcpRemoteMcpPeer {
                 .map_err(|e| self.map_service_error("call tool", e))?;
             convert_call_response(response)
         })
+    }
+
+    fn supports_prompts(&self) -> bool {
+        self.server_capabilities()
+            .is_some_and(|capabilities| capabilities.prompts.is_some())
+    }
+
+    fn supports_resources(&self) -> bool {
+        self.server_capabilities()
+            .is_some_and(|capabilities| capabilities.resources.is_some())
+    }
+
+    fn list_prompts(&self) -> McpFuture<'_, Result<Vec<Prompt>, McpError>> {
+        Box::pin(async move {
+            self.client
+                .peer()
+                .list_all_prompts()
+                .await
+                .map_err(|e| self.map_service_error("list prompts", e))
+        })
+    }
+
+    fn get_prompt(
+        &self,
+        name: &str,
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> McpFuture<'_, Result<GetPromptResult, McpError>> {
+        let name = name.to_string();
+        Box::pin(async move {
+            let mut params = GetPromptRequestParams::new(name);
+            if let Some(arguments) = arguments {
+                params = params.with_arguments(arguments);
+            }
+            match self
+                .client
+                .peer()
+                .get_prompt_once(params)
+                .await
+                .map_err(|e| self.map_service_error("get prompt", e))?
+            {
+                GetPromptResponse::Complete(result) => Ok(result),
+                GetPromptResponse::InputRequired(_) => Err(McpError::upstream_failure(
+                    "upstream prompt requires additional input",
+                )),
+                _ => Err(McpError::upstream_failure(
+                    "unsupported upstream prompts/get result type",
+                )),
+            }
+        })
+    }
+
+    fn list_resources(&self) -> McpFuture<'_, Result<Vec<Resource>, McpError>> {
+        Box::pin(async move {
+            self.client
+                .peer()
+                .list_all_resources()
+                .await
+                .map_err(|e| self.map_service_error("list resources", e))
+        })
+    }
+
+    fn list_resource_templates(&self) -> McpFuture<'_, Result<Vec<ResourceTemplate>, McpError>> {
+        Box::pin(async move {
+            self.client
+                .peer()
+                .list_all_resource_templates()
+                .await
+                .map_err(|e| self.map_service_error("list resource templates", e))
+        })
+    }
+
+    fn read_resource(&self, uri: &str) -> McpFuture<'_, Result<ReadResourceResult, McpError>> {
+        let uri = uri.to_string();
+        Box::pin(async move {
+            match self
+                .client
+                .peer()
+                .read_resource_once(ReadResourceRequestParams::new(uri))
+                .await
+                .map_err(|e| self.map_service_error("read resource", e))?
+            {
+                ReadResourceResponse::Complete(result) => Ok(result),
+                ReadResourceResponse::InputRequired(_) => Err(McpError::upstream_failure(
+                    "upstream resource requires additional input",
+                )),
+                _ => Err(McpError::upstream_failure(
+                    "unsupported upstream resources/read result type",
+                )),
+            }
+        })
+    }
+}
+
+impl RmcpRemoteMcpPeer {
+    fn server_capabilities(&self) -> Option<rmcp::model::ServerCapabilities> {
+        self.client
+            .peer()
+            .peer_info()
+            .map(|info| info.capabilities.clone())
     }
 }
