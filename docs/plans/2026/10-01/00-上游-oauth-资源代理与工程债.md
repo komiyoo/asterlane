@@ -162,16 +162,18 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 
 目标：管理员为授权码类上游发起一次授权，之后网关自己保存并刷新 token。整个网关共用一个上游身份，不是按用户委托。
 
-- [ ] `POST /admin/mcp-servers/{id}/oauth/authorize`（admin 认证）：元数据发现；未配置 `client_id` 时做 DCR；生成 PKCE 与 state，返回 `{authorization_url, expires_in}`。redirect URI 固定为 `{oauth.redirect_base_url}/oauth/callback`。state 只在内存保存，10 分钟过期且只能用一次。
-- [ ] `GET /oauth/callback`：顶层路由，不挂 admin 认证（浏览器跳转带不了 admin token），只靠 state 校验。成功后用 code 换 token，加密存储，并触发该 server 重连（复用 probe 路径）。返回极简 HTML，不显示任何 token；失败返回可安全展示的错误页并带 `request_id`。
-- [ ] `DELETE /admin/mcp-servers/{id}/oauth`：清除已存凭据，server 回到 `auth_required`。
-- [ ] admin server 视图增 `oauth: {grant, status, expires_at}`，不含任何 token、client secret 或 refresh token。
-- [ ] CLI：`asterlane admin mcp-servers authorize <id>`（打印授权 URL）与 `deauthorize <id>`。
-- [ ] 控制台：MCP server 卡片在 `auth_required` 时显示「授权」按钮（新标签页打开 URL），已授权时显示「撤销授权」。
-- [ ] 测试：模拟授权服务器（含 DCR 端点）跑完整流程（authorize → 直接以 code + state 调 callback → 连接成功）；state 错误、过期、重放均被拒；refresh 后新 refresh token 落库；admin 与 CLI 输出不含 token。
-- [ ] 文档：[Admin Console](../../../admin/admin-console.md)、[CLI 架构](../../../admin/cli-client-architecture.md)、[Configuration Schema](../../../runtime/config-schema.md)、[MCP Protocol](../../../architecture/mcp-protocol.md)、[Roadmap](../../../product/roadmap.md)（Phase 8 OAuth 标已交付）、根 `README.md`、`docs/log.md`。
+- [x] `POST /admin/mcp-servers/{id}/oauth/authorize`（admin 认证）：元数据发现；未配置 `client_id` 时做 DCR；生成 PKCE 与 state，返回 `{authorization_url, expires_in}`。redirect URI 固定为 `{oauth.redirect_base_url}/oauth/callback`。state 只在内存保存，10 分钟过期且只能用一次。
+- [x] `GET /oauth/callback`：顶层路由，不挂 admin 认证（浏览器跳转带不了 admin token），只靠 state 校验。成功后用 code 换 token，加密存储，并触发该 server 重连（复用 probe 路径）。返回极简 HTML，不显示任何 token；失败返回可安全展示的错误页并带 `request_id`。
+- [x] `DELETE /admin/mcp-servers/{id}/oauth`：清除已存凭据，server 回到 `auth_required`。
+- [x] admin server 视图增 `oauth: {grant, status, expires_at}`，不含任何 token、client secret 或 refresh token。
+- [x] CLI：`asterlane admin mcp-servers authorize <id>`（打印授权 URL）与 `deauthorize <id>`。
+- [x] 控制台：MCP server 卡片在 `auth_required` 时显示「授权」按钮（新标签页打开 URL），已授权时显示「撤销授权」。
+- [x] 测试：模拟授权服务器（含 DCR 端点）跑完整流程（authorize → 直接以 code + state 调 callback → 连接成功）；state 错误、过期、重放均被拒；refresh 后新 refresh token 落库；admin 与 CLI 输出不含 token。
+- [x] 文档：[Admin Console](../../../admin/admin-console.md)、[CLI 架构](../../../admin/cli-client-architecture.md)、[Configuration Schema](../../../runtime/config-schema.md)、[MCP Protocol](../../../architecture/mcp-protocol.md)、[Roadmap](../../../product/roadmap.md)（Phase 8 OAuth 标已交付）、根 `README.md`、`docs/log.md`。
 
 验收：模拟授权码上游从「需要授权」到可调用全流程走通；重启网关（SQLite 文件库）后无需重新授权；`just check` 全绿。
+
+结果（2026-10-01）：管理员一次性授权已交付。`POST /admin/mcp-servers/{id}/oauth/authorize`（元数据发现；未配 `client_id` 动态注册，授权服务器不支持则 409 并提示配置 `client_id`；有 `client_secret_ref` 按机密客户端；返回 `{authorization_url, expires_in: 600}`）、顶层 `GET /oauth/callback`（不经 admin 认证，只靠 state；成功页只说「授权完成」，失败页固定文案并带 `request_id`，不反射输入，`Cache-Control: no-store`）、`DELETE /admin/mcp-servers/{id}/oauth`（清除凭据、丢弃未完成授权、重连回到 `auth_required`）；admin 视图增 `oauth {grant, status, expires_at}`；CLI `authorize` / `deauthorize`；控制台「授权」「撤销授权」，OAuth server 的「编辑」不再禁用。state 在 `src/mcp/oauth/pending.rs`：内存、10 分钟、取出即移除（重放与过期同样被拒）、登记与取出时清理过期记录。日志安全：核实 rmcp 3.1.2 在 `debug` 级打印授权 code 与 token 响应的非标准字段（access / refresh token 在 `Debug` 里是 `[redacted]`），`serve` 的 tracing 叠加固定的 `info` 级上限层；另发现 tower-http 默认请求 span 会把回调 URI（code 与 state）带进日志，回调只记路径；过滤层本身与回调 URI 处理各有回归测试（去掉 URI 处理，集成测试失败），`main.rs` 把过滤层接入 tracing 初始化这一行没有自动化测试。`just check` 全绿，994 passed、2 ignored（S5 后基线 956 passed、2 ignored，旧测试无删减；新增 38 个，调整了 S5 的一条 admin 视图断言，见偏差 1）；`cargo deny check` 通过，无新依赖。新增生产文件（生产行数）：`src/mcp/oauth/authorize.rs` 336、`pending.rs` 88、`src/http/oauth_callback.rs` 147、`src/admin/oauth.rs` 172、`src/observability/log_filter.rs` 34，均 ≤500，最长函数 67 行；改动文件 `mcp/health.rs` 485、`admin/mcp.rs` 468、`main.rs` 496，`src/admin/crud.rs` 未改。偏差：（1）admin `oauth` 段除 `grant`、`status`、`expires_at` 外还回显 `client_id`、`client_secret_ref`（引用）与 `scopes`，编辑表单需要它们；S5 断言「视图不出现 client id、secret ref、scope」相应改为「不出现 secret 值、token、code」，另增 `status: automatic`（client_credentials）；（2）没有包装 rmcp 的 `StateStore`：每次授权持有自己的 `AuthorizationManager`（自带只含这一次授权的 state store），随 `PendingStore` 的记录创建与释放，过期与一次性在 `PendingStore`；（3）日志上限放在 `observability::log_filter` 由 `main.rs` 调用，做成与 `RUST_LOG` 叠加的过滤层而不是追加 `EnvFilter` 指令，避免把 `RUST_LOG=warn` 抬高，也便于测试；（4）新增 `McpServerRegistry::reconnect` 与 `AppState::reconnect_mcp_server`（丢弃旧连接、同步 catalog 与 integrity 基线、通知下游），授权完成与撤销共用，因为 `probe` 会复用已有连接；（5）`src/admin/mod.rs` 为注册路由增加 2 行（生产 515 → 517，S0 已列为超预算，留给 S8）。限制：rmcp 的 DCR 注册公开客户端，授权服务器仍返回 client secret 时网关没有地方保存它；state 重启即失效；撤销只清除网关保存的凭据，不通知授权服务器吊销 token。
 
 ## S7 代理上游 resources 与 prompts
 

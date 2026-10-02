@@ -80,6 +80,17 @@ src/mcp/result.rs          # 内部/执行结果到 MCP CallToolResult 的转换
 
 先拆分现有 admin 模块，再增加格式选项。参数定义与请求编排分离后，两个生产文件都必须低于 500 行；既有 clap 测试随参数定义移动，查询与响应处理测试随执行逻辑移动。
 
+### 上游 OAuth 授权命令（2026-10-01）
+
+`admin mcp-servers` 增加两个子命令，沿用 `ApiClient`、全局 `--server`/`--token-env`/`--format` 与错误退出码映射，没有新的客户端代码路径：
+
+| 命令 | 请求 | 输出 |
+| --- | --- | --- |
+| `authorize <id>` | `POST /admin/mcp-servers/{id}/oauth/authorize` | stdout 是 `{authorization_url, expires_in}`（按 `--format`）；stderr 提示在浏览器里打开该 URL 并在有效期内完成授权，URL 一次性使用、不要分享 |
+| `deauthorize <id>` | `DELETE /admin/mcp-servers/{id}/oauth` | stdout 是更新后的 server 视图（`oauth.status` 为 `authorization_required`，`health.status` 为 `auth_required`） |
+
+授权在浏览器里完成，CLI 不等待回调；完成后用 `admin mcp-servers get <id>` 或列表查看 `oauth.status`。`<id>` 不存在为 `admin.not_found`、server 不是 `authorization_code` 授权方式为 `admin.invalid_query`，退出码均为 3。授权 URL 含一次性 state，因此提示写 stderr、URL 只在 stdout 的结果里出现。CLI 输出不含 token、授权 code 与 client secret（集成测试用编译出的二进制断言）。协议与端点见 [Admin Console – C7](admin-console.md)。
+
 ## `tools.rs`
 
 该文件拥有 gateway 用户命令，不依赖 admin 模块：
@@ -123,7 +134,7 @@ MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`�
 
 # 兼容性
 
-- 新增 `tools` 命令和 `admin --format` 是增量 CLI 能力。
+- 新增 `tools` 命令和 `admin --format` 是增量 CLI 能力；`admin mcp-servers authorize|deauthorize` 同样是增量命令。
 - admin 在交互式终端中的默认成功输出从 pretty JSON 变为 markdown；脚本和 pipe 默认仍为 JSON，也可用 `--format json` 固定。
 - MCP 忽略格式 override 是行为变更；已同步更正 [Response Rendering](../runtime/response-rendering.md)、[Compatibility Policy](../architecture/compatibility-policy.md) 与 [Documentation Log](../log.md)。
 - REST 格式协商不变。本次不删除配置字段，也不改变 `/v1/tools` DTO。
@@ -137,7 +148,7 @@ MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`�
 1. `output.rs`：flag/env/TTY 优先级、未知格式、JSON/YAML/markdown 回退。
 2. `input.rs`：inline、文件、非 JSON、非 object、空参数。
 3. `client.rs`：server 优先级、query/path 编码、完整纯文本成功响应、非 JSON 错误预览、退出码映射。
-4. `admin.rs`：既有命令解析不回归，`--format` 可位于子命令前后。
+4. `admin.rs`：既有命令解析不回归，`--format` 可位于子命令前后；`mcp-servers authorize|deauthorize` 的参数解析（`<id>` 必填）。端到端：`tests/mcp_oauth_authorize.rs` 用编译出的二进制对真实端口上的网关跑 `authorize`、`deauthorize` 与错误退出码，断言 stdout / stderr 的内容。
 5. `tools.rs`：五个子命令解析、list query、call 参数、meta-tool 响应归一化。
 6. `main.rs`：顶层 `tools` dispatch 解析。
 7. `mcp/server.rs`/`mcp/result.rs`：结果转换测试随职责移动；传入 `_meta["asterlane.dev/format"]` 或配置 response format 时，JSON 上游结果仍不被渲染为 YAML/markdown。

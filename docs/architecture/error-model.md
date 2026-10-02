@@ -137,7 +137,8 @@ MCP 错误分两种承载方式，遵循社区共识：
 - 上游原始响应体（可能含密钥或敏感业务数据）。
 - secret ref 的完整 URI（只暴露 `secret://provider/` 前缀，不暴露具体路径段）。
 - upstream key 明文（只暴露 `upstream_key_ref` 的脱敏标识，如 `key:abcd…wxyz`）。
-- 上游 OAuth 的 access token、refresh token、client secret，以及 rmcp `AuthError` 与授权服务器返回的内容（错误描述、响应体）：只进 tracing 详情，用户可见错误只说哪一步失败（如 "OAuth token exchange failed"）。
+- 上游 OAuth 的 access token、refresh token、client secret、授权 code 与 state，以及 rmcp `AuthError` 与授权服务器返回的内容（错误描述、响应体）：只进 tracing 详情（写入前抹掉 code 与 state），用户可见错误只说哪一步失败（如 "OAuth token exchange failed"）。
+- 管理员授权的浏览器回调 `GET /oauth/callback` 失败时返回的是固定文案的 HTML 错误页（不是上面的 JSON 形态），带 `request_id`；页面不反射 query 参数或授权服务器返回的内容。发起授权的失败仍是 JSON：不是授权码授权方式 `admin.invalid_query`、server 不存在 `admin.not_found`、没配 `client_id` 且授权服务器不支持动态注册 `admin.conflict`、元数据发现等步骤失败 `mcp.upstream_mcp_failure`；没有新增错误码。
 
 脱敏由 `src/observability` 模块的 redaction helper 统一处理（见 [Observability](observability.md)）。模块错误在构造时只携带引用类型（`KeyId`、`SecretRef`），不携带明文；边界转换时引用类型 `Display` 实现输出脱敏形式。
 

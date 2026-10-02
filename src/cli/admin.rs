@@ -216,6 +216,18 @@ pub enum McpServersCommand {
         /// MCP server id
         id: String,
     },
+    /// 为授权码类上游发起一次性 OAuth 授权，输出授权 URL 与有效期
+    /// （POST /admin/mcp-servers/{id}/oauth/authorize）；需在浏览器里打开该 URL 完成授权
+    Authorize {
+        /// MCP server id
+        id: String,
+    },
+    /// 撤销授权：清除网关保存的凭据并使当前连接失效
+    /// （DELETE /admin/mcp-servers/{id}/oauth）
+    Deauthorize {
+        /// MCP server id
+        id: String,
+    },
     /// 创建 MCP server（POST /admin/mcp-servers）
     Create {
         #[command(flatten)]
@@ -549,6 +561,33 @@ mod tests {
             } => assert_eq!(id, "exa"),
             other => panic!("expected mcp-servers rm, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_mcp_servers_oauth_subcommands() {
+        match parse(&["mcp-servers", "authorize", "linear"]).command {
+            AdminCommand::McpServers {
+                command: Some(McpServersCommand::Authorize { id }),
+            } => assert_eq!(id, "linear"),
+            other => panic!("expected mcp-servers authorize, got {other:?}"),
+        }
+        match parse(&["mcp-servers", "deauthorize", "linear", "--format", "json"]) {
+            AdminArgs {
+                format,
+                command:
+                    AdminCommand::McpServers {
+                        command: Some(McpServersCommand::Deauthorize { id }),
+                    },
+                ..
+            } => {
+                assert_eq!(id, "linear");
+                assert_eq!(format.as_deref(), Some("json"));
+            }
+            other => panic!("expected mcp-servers deauthorize, got {other:?}"),
+        }
+        // id 是必填位置参数
+        parse_err(&["mcp-servers", "authorize"]);
+        parse_err(&["mcp-servers", "deauthorize"]);
     }
 
     #[test]

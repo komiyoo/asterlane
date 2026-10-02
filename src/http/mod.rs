@@ -3,6 +3,7 @@
 mod boundary;
 mod error;
 mod lifecycle;
+mod oauth_callback;
 mod request_id;
 mod routes;
 mod state;
@@ -79,6 +80,11 @@ pub fn build_app_with_ct(
             "/",
             get(|| async { axum::response::Redirect::permanent("/admin/ui") }),
         );
+        // 授权码流程的浏览器回调：顶层路由、不经 admin 认证，只靠 state 校验；
+        // 没有 admin 就没人能发起授权，也就不挂载
+        if state.upstream_oauth.is_some() {
+            api = api.route(boundary::OAUTH_CALLBACK_PATH, get(oauth_callback::callback));
+        }
     }
     api = boundary::with_request_timeout(api, http_cfg.request_timeout_secs);
 
@@ -88,7 +94,7 @@ pub fn build_app_with_ct(
         .route("/metrics", get(metrics_handler));
 
     boundary::with_global_guards(public.merge(api).merge(mcp_router), &http_cfg)
-        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(tower_http::trace::TraceLayer::new_for_http().make_span_with(boundary::request_span))
         .layer(axum::middleware::from_fn(request_id::attach_request_id))
         .with_state(state)
 }

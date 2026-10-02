@@ -136,7 +136,7 @@ CREATE TABLE tool_metadata (
 
 ## 6. Admin API 增量（wave 2 实现，JSON 形状钉死供控制台并行开发）
 
-所有端点 Bearer admin 认证；写操作落 `AdminAudit`；响应永不含明文密钥（auth 只回显 type 与脱敏 ref）。
+除浏览器回调 `GET /oauth/callback` 外，所有端点 Bearer admin 认证；写操作落 `AdminAudit`；响应永不含明文密钥（auth 只回显 type；OAuth server 的 `oauth` 段另回显 `client_secret_ref` 引用）。
 
 - `GET /admin/mcp-servers` → 数组，每项：
 
@@ -156,13 +156,25 @@ CREATE TABLE tool_metadata (
 }
 ```
 
-- OAuth server 的 `auth_type` 为 `"oauth"`，`requires_key` 为 `true`，`oauth` 为 `{"grant": "client_credentials" | "authorization_code"}`；非 OAuth 为 `null`。auth 视图只有类型与 grant，不出现 client id、scope、secret ref、token 与 refresh token。`PUT`/`POST` 的 body 可带 `auth: {type: oauth, ...}`（校验同配置）；控制台的编辑表单不支持 OAuth，OAuth server 的「编辑」按钮禁用（避免保存时丢失 OAuth 配置），请通过配置文件或 API 修改。`DELETE` 同时清除该 server 已存的 OAuth 凭据。
+- OAuth server 的 `auth_type` 为 `"oauth"`，`requires_key` 为 `true`，`oauth` 为下面的对象；非 OAuth 为 `null`：
+
+```json
+"oauth": {
+  "grant": "authorization_code",
+  "status": "authorized | authorization_required | automatic",
+  "expires_at": "RFC3339（可选，取不到则省略）",
+  "client_id": "...|null", "client_secret_ref": "secret://…|null", "scopes": ["read"]
+}
+```
+
+  `status`：`authorized`（网关持有可用凭据）、`authorization_required`（没有凭据、凭据无法解密，或健康状态为 `auth_required`）、`automatic`（`client_credentials`，网关自动换取，无需授权，连接是否成功看 `health`）。`expires_at` 是 access token 的到期时间（授权码类才有），到期前网关自动刷新。`client_id`、`client_secret_ref`（只是 `secret://` 引用）、`scopes` 供控制台编辑表单回显；`oauth` 段不出现 client secret、access token、refresh token 与授权 code。`PUT`/`POST` 的 body 可带 `auth: {type: oauth, ...}`（校验同配置）；原样保存时 auth 不变，不重连、不影响已存凭据。`DELETE /admin/mcp-servers/{id}` 同时清除该 server 已存的 OAuth 凭据。
+- `POST /admin/mcp-servers/{id}/oauth/authorize` → `{"authorization_url": "...", "expires_in": 600}`：为 `authorization_code` 的 server 发起一次性授权（其他授权方式 400 `admin.invalid_query`，不存在 404，授权服务器不支持动态注册且没配 `client_id` 时 409 `admin.conflict`）。`DELETE /admin/mcp-servers/{id}/oauth` → 撤销授权，返回更新后的单项视图（`oauth.status` 为 `authorization_required`、`health.status` 为 `auth_required`）。授权流程与浏览器回调 `GET /oauth/callback`（不经 admin 认证）见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)，控制台与 CLI 入口见 [Admin Console – C7](../admin/admin-console.md)。授权与撤销落 `AdminAudit`（`action` 为 `authorize`、`deauthorize`）。
 - `GET /admin/mcp-servers/{id}` → 上面单项 + `"tools": [{"wire_name", "upstream_name", "description", "description_override", "input_schema"}]`；不存在 404 `admin.not_found`。用量走既有 `/admin/usage?resource_id=`，详情端点不重复聚合。
 - `POST /admin/mcp-servers`、`PUT /admin/mcp-servers/{id}`：body = `{id?, domain, provider, url, description?, auth?, security?, limits?, health_check?}`（auth 形态同配置 schema，value 一律 secret ref）。POST 创建即尝试连接，失败仍保存配置并返回 `health.status = "unreachable"`（201）；PUT 在 url/auth 变更时重连。均触发 catalog 同步与配置快照原子替换（复用 C3 `swap_config_and_catalog` 模式）、DB 持久化（新 `mcp_servers` 表，`config_json` 模式同 `resources` 表）。
 - `DELETE /admin/mcp-servers/{id}` → 移除配置与 registry entry、清理 catalog 该 server 工具；204。
 - `POST /admin/mcp-servers/{id}/probe` → 立即探测，返回 `health` 对象。
 - 工具介绍：`GET /admin/tool-metadata`（全量列表）；`GET/PUT/DELETE /admin/tools/{name}/metadata`，PUT body `{"description": "..."}`（空串 400 `admin.invalid_query`；不存在 DELETE/GET 404）。
-- as-built 偏离（2026-07-06 交付）：POST 重复 id（含与 `api_resources` 撞 id）→ 400 `admin.invalid_query`（未启用 409）；MCP registry 始终初始化（2026-07-07：`main.rs` 不再按 `mcp_servers.is_empty()` gate，空配置也建空 registry，`connect_all(&[])`），零 MCP 配置启动后仍可经 admin API 在线添加/启用/probe 首个 server、无需重启（此前该场景报 registry unavailable 503，已消除）；列表/详情响应不回显 auth ref（控制台编辑 server 时 bearer/header 的 ref 需重新填写）。
+- as-built 偏离（2026-07-06 交付）：POST 重复 id（含与 `api_resources` 撞 id）→ 400 `admin.invalid_query`（未启用 409）；MCP registry 始终初始化（2026-07-07：`main.rs` 不再按 `mcp_servers.is_empty()` gate，空配置也建空 registry，`connect_all(&[])`），零 MCP 配置启动后仍可经 admin API 在线添加/启用/probe 首个 server、无需重启（此前该场景报 registry unavailable 503，已消除）；列表/详情响应不回显 bearer/header 的 auth ref（控制台编辑 server 时 bearer/header 的 ref 需重新填写；OAuth 的 `client_secret_ref` 例外，见上）。
 - `/admin/tools` 行扩展为 `{name, resource_id, description, description_override}`：`description` = 上游原始，`description_override` 可空；有效描述 = override ?? 原始（agent 可见路径同口径）。
 - proxy key CRUD（既有端点）输入/输出增加 `allowed_servers`、`allowed_tool_names`、`limits` 字段透传。
 - CLI（`asterlane admin`）提供：`mcp-servers`（列表）、`mcp-servers get <id>`、`mcp-servers probe <id>`，以及 `metadata list`、`metadata get <tool>`、`metadata set <tool> --description TEXT`、`metadata rm <tool>`。认证仍默认读取 `ASTERLANE_ADMIN_TOKEN`；成功输出支持 `json|yaml|markdown`，优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认，TTY 为 markdown、pipe 为 JSON。

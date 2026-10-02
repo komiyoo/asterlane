@@ -9,7 +9,7 @@
 ## 能力概览
 
 - **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（env / file；可选 Vault KV v2 与 Infisical），永不下发给代理
-- **上游 MCP OAuth** — 网关作为 OAuth 客户端接入需要授权的上游 MCP server：client-credentials 全自动（元数据发现、RFC 8707 `resource`、token 过期自动重新换取）；授权码类上游的 token 加密存入 SQLite（无数据库时只在内存），没有凭据或刷新被拒时显示 `auth_required`（管理员授权入口待后续版本）；token 永不离开网关，代理只用 gateway key
+- **上游 MCP OAuth** — 网关作为 OAuth 客户端接入需要授权的上游 MCP server：client-credentials 全自动（元数据发现、RFC 8707 `resource`、token 过期自动重新换取）；授权码类上游由管理员在控制台（或 `asterlane admin mcp-servers authorize <id>`）一次性授权，网关随后自己保存并刷新 token，整个网关共用这一个上游身份；token 加密存入 SQLite（无数据库时只在内存），没有凭据或刷新被拒时显示 `auth_required`，可在控制台撤销授权；未配置 `client_id` 时动态注册客户端，需在授权服务器登记回调地址 `{oauth.redirect_base_url}/oauth/callback`；token 永不离开网关，代理只用 gateway key
 - **内置 MCP preset** — 平台预集成免费 MCP server（exa / deepwiki / context7），一行启用
 - **工具命名与范围** — 稳定三段 wire name `domain__provider__tool`；per-key allow/deny 正则 scope 与结构化勾选
 - **Key 凭据化** — proxy key 真实 token（`alk_*`）签发/轮换/吊销/过期，SHA-256 摘要存储
@@ -19,7 +19,7 @@
 - **执行管线** — key pool 负载均衡、限流队列、失败重试、content defense、结果裁剪
 - **MCP 代理安全** — 上游工具指纹 baseline 与 drift 检测（warn/quarantine/block）
 - **观测** — 请求事件落 SQLite，负载捕获（参数/响应预览/耗时，截断+脱敏），Prometheus `/metrics`，OTLP 导出（feature `otlp`）
-- **调试与运维** — Web 管理控制台 + `asterlane admin` CLI（含 resources / proxy-keys / mcp-servers 的 create / update / rm）
+- **调试与运维** — Web 管理控制台 + `asterlane admin` CLI（含 resources / proxy-keys / mcp-servers 的 create / update / rm，以及 mcp-servers 的 authorize / deauthorize）
 
 ## 前置条件
 
@@ -164,7 +164,7 @@ src/
 ├── presets.rs       # 内置 MCP preset
 ├── admin/           # 管理 API + Web 控制台
 ├── cli/             # CLI 子命令
-├── http/            # Axum 路由与中间件
+├── http/            # Axum 路由与中间件（含 /oauth/callback 授权回调）
 ├── mcp/             # MCP 协议适配（含上游 OAuth：mcp/oauth）
 ├── proxy/           # 上游 HTTP 执行
 ├── store/           # 数据库抽象（SQLite）
@@ -172,7 +172,7 @@ src/
 ├── limits/          # 限流与配额
 ├── secrets/         # secret 引用解析、OAuth 凭据加解密
 ├── defense/         # content defense
-├── observability/   # 事件、指标、脱敏
+├── observability/   # 事件、指标、脱敏、凭据日志上限
 └── openapi/         # OpenAPI 自动发现
 ```
 

@@ -5,7 +5,8 @@
 //! 任何 MCP server 启动时（registry 不存在）health 全 `unknown`。
 //! 写路径流程：输入校验（400）→ registry 增删改 → `swap_config_and_catalog`
 //! 原子替换 → registry 快照同步 catalog + integrity baseline rebase →
-//! DB best-effort 持久化 → `AdminAudit`。响应永不含明文密钥或 secret ref。
+//! DB best-effort 持久化 → `AdminAudit`。响应永不含明文密钥；除 OAuth server 的
+//! `oauth` 段外也不含 secret ref（该段回显 `client_secret_ref` 供编辑表单使用）。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,6 +31,7 @@ use crate::store::{McpServerRecord, McpServerRepository};
 
 use super::auth::AdminKeyId;
 use super::crud::{record_audit, swap_config_and_catalog};
+use super::oauth::oauth_view;
 
 // ── request DTO 与输入校验 ──
 
@@ -171,12 +173,14 @@ fn unknown_health() -> Value {
     })
 }
 
-/// 契约 §6 列表项。auth 只回显 `auth_type`（OAuth 另带 `oauth.grant`），
-/// 绝不含 ref、client id、scope 或任何 token。
-fn server_json(
+/// 契约 §6 列表项。auth 只回显 `auth_type`；OAuth server 另带 `oauth` 段
+/// （由 [`super::oauth::oauth_view`] 构造：授权状态，以及控制台编辑表单用的 client id、
+/// client secret 的**引用**与 scopes）。绝不含明文密钥、client secret、token 或 code。
+pub(super) fn server_json(
     server: &McpServerConfig,
     config: &GatewayConfig,
     health: Option<&ServerHealth>,
+    oauth: Option<Value>,
 ) -> Value {
     let auth_type = match &server.auth {
         UpstreamAuth::None => "none",
@@ -184,10 +188,6 @@ fn server_json(
         UpstreamAuth::Header { .. } => "header",
         UpstreamAuth::OAuth { .. } => "oauth",
     };
-    let oauth = server
-        .auth
-        .oauth_grant()
-        .map(|grant| json!({ "grant": grant.as_str() }));
     json!({
         "id": server.id,
         "domain": server.domain,
@@ -235,11 +235,12 @@ fn health_by_id(state: &AppState) -> HashMap<String, ServerHealth> {
 pub(super) async fn list_servers(State(state): State<AppState>) -> Json<Value> {
     let config = state.config_snapshot().await;
     let health = health_by_id(&state);
-    let list: Vec<Value> = config
-        .mcp_servers
-        .iter()
-        .map(|s| server_json(s, &config, health.get(&s.id)))
-        .collect();
+    let mut list = Vec::with_capacity(config.mcp_servers.len());
+    for server in &config.mcp_servers {
+        let health = health.get(&server.id);
+        let oauth = oauth_view(&state, server, health).await;
+        list.push(server_json(server, &config, health, oauth));
+    }
     Json(json!(list))
 }
 
@@ -253,7 +254,8 @@ pub(super) async fn get_server(
         return Err(not_found(&id));
     };
     let health = health_by_id(&state);
-    let mut item = server_json(server, &config, health.get(&id));
+    let oauth = oauth_view(&state, server, health.get(&id)).await;
+    let mut item = server_json(server, &config, health.get(&id), oauth);
 
     let catalog = state.catalog.read().await;
     let tools: Vec<Value> = catalog
@@ -306,9 +308,10 @@ pub(super) async fn create_server(
     record_audit(&state, &admin.0, "create", "mcp_server", &server.id).await;
 
     let config = state.config_snapshot().await;
+    let oauth = oauth_view(&state, &server, Some(&health)).await;
     Ok((
         StatusCode::CREATED,
-        Json(server_json(&server, &config, Some(&health))),
+        Json(server_json(&server, &config, Some(&health), oauth)),
     ))
 }
 
@@ -341,7 +344,8 @@ pub(super) async fn update_server(
     record_audit(&state, &admin.0, "update", "mcp_server", &id).await;
 
     let config = state.config_snapshot().await;
-    Ok(Json(server_json(&server, &config, Some(&health))))
+    let oauth = oauth_view(&state, &server, Some(&health)).await;
+    Ok(Json(server_json(&server, &config, Some(&health), oauth)))
 }
 
 /// `DELETE /admin/mcp-servers/{id}` — 移除配置、registry entry 与 catalog
@@ -635,6 +639,8 @@ mcp_servers:
             ("PUT", "/admin/mcp-servers/exa"),
             ("DELETE", "/admin/mcp-servers/exa"),
             ("POST", "/admin/mcp-servers/exa/probe"),
+            ("POST", "/admin/mcp-servers/exa/oauth/authorize"),
+            ("DELETE", "/admin/mcp-servers/exa/oauth"),
         ] {
             let response = app
                 .clone()
@@ -763,22 +769,48 @@ mcp_servers:
 "#;
 
     #[tokio::test]
-    async fn list_oauth_server_reports_type_and_grant_without_secrets() {
+    async fn list_oauth_server_reports_grant_status_and_edit_fields_without_secrets() {
         let state = plain_state(OAUTH_YAML);
         let (status, body) = send(&state, "GET", "/admin/mcp-servers", None).await;
         assert_eq!(status, StatusCode::OK);
         let linear = &body.as_array().expect("array")[0];
         assert_eq!(linear["auth_type"], "oauth");
         assert_eq!(linear["requires_key"], true);
-        assert_eq!(linear["oauth"], json!({"grant": "client_credentials"}));
-        let raw = body.to_string();
-        for leaked in [
-            "secret://",
-            "client_secret_ref",
-            "client-id-visible-only-in-config",
-            "scopes",
+        // client_credentials 由网关自动换取，没有「授权」状态；没有 expires_at 时省略该字段
+        assert_eq!(
+            linear["oauth"],
+            json!({
+                "grant": "client_credentials",
+                "status": "automatic",
+                "client_id": "client-id-visible-only-in-config",
+                "client_secret_ref": "secret://env/LINEAR_SECRET",
+                "scopes": ["read"],
+            })
+        );
+        assert!(linear["oauth"].get("expires_at").is_none());
+        // 详情与列表同形
+        let (_, detail) = send(&state, "GET", "/admin/mcp-servers/linear", None).await;
+        assert_eq!(detail["oauth"], linear["oauth"]);
+    }
+
+    #[tokio::test]
+    async fn authorization_endpoints_reject_servers_without_authorization_code_grant() {
+        let state = plain_state(OAUTH_YAML);
+        for (method, uri) in [
+            ("POST", "/admin/mcp-servers/linear/oauth/authorize"),
+            ("DELETE", "/admin/mcp-servers/linear/oauth"),
         ] {
-            assert!(!raw.contains(leaked), "response leaks {leaked}: {raw}");
+            let (status, body) = send(&state, method, uri, None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{method} {uri}");
+            assert_eq!(body["error"]["code"], "admin.invalid_query");
+        }
+        for (method, uri) in [
+            ("POST", "/admin/mcp-servers/nope/oauth/authorize"),
+            ("DELETE", "/admin/mcp-servers/nope/oauth"),
+        ] {
+            let (status, body) = send(&state, method, uri, None).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
+            assert_eq!(body["error"]["code"], "admin.not_found");
         }
     }
 
@@ -827,11 +859,21 @@ mcp_servers:
         let (status, body) = send(&state, "POST", "/admin/mcp-servers", Some(input)).await;
         assert_eq!(status, StatusCode::CREATED, "{body}");
         assert_eq!(body["auth_type"], "oauth");
-        assert_eq!(body["oauth"], json!({"grant": "client_credentials"}));
+        // oauth 段回显编辑表单用的字段：client id、client secret 的引用（不是 secret）、scopes
+        assert_eq!(
+            body["oauth"],
+            json!({
+                "grant": "client_credentials",
+                "status": "automatic",
+                "client_id": "cid",
+                "client_secret_ref": "secret://env/LINEAR_SECRET",
+                "scopes": ["read"],
+            })
+        );
         // 测试环境没有该 secret：登记为 unreachable，配置仍保存；
         // 错误里的 ref 只有脱敏前缀，没有 ref 的路径段
         assert_eq!(body["health"]["status"], "unreachable");
-        assert!(!body.to_string().contains("LINEAR_SECRET"));
+        assert!(!body["health"].to_string().contains("LINEAR_SECRET"));
 
         // 落库的 config_json 只含 secret ref，反序列化后与配置一致（启动合并走同一条路径）
         let repo = state.event_repo.as_ref().unwrap();

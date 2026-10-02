@@ -185,6 +185,28 @@ async fn run_mcp_servers(
                 )
                 .await
         }
+        Some(McpServersCommand::Authorize { id }) => {
+            let result = client
+                .post_json(
+                    &format!(
+                        "/admin/mcp-servers/{}/oauth/authorize",
+                        encode_path_segment(&id)
+                    ),
+                    &[],
+                    &json!({}),
+                )
+                .await?;
+            eprintln!("{}", authorize_note(&result));
+            Ok(result)
+        }
+        Some(McpServersCommand::Deauthorize { id }) => {
+            client
+                .delete(&format!(
+                    "/admin/mcp-servers/{}/oauth",
+                    encode_path_segment(&id)
+                ))
+                .await
+        }
         Some(McpServersCommand::Create { body }) => {
             client
                 .post_json("/admin/mcp-servers", &[], &load_body(body)?)
@@ -204,6 +226,18 @@ async fn run_mcp_servers(
                 .await
         }
     }
+}
+
+/// `authorize` 的 stderr 提示：授权要在浏览器里完成，且有有效期。
+fn authorize_note(result: &Value) -> String {
+    let window = match result.get("expires_in").and_then(Value::as_u64) {
+        Some(secs) => format!("within {} minutes ({secs} seconds)", secs.div_ceil(60)),
+        None => "before it expires".to_string(),
+    };
+    format!(
+        "note: open authorization_url in a browser and finish the authorization {window}; \
+         the URL is single-use and should not be shared"
+    )
 }
 
 fn load_body(body: ObjectBodyArgs) -> Result<Value, CliError> {
@@ -412,6 +446,16 @@ mod tests {
                 ("to", "o".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn authorize_note_tells_the_admin_to_use_a_browser_and_states_the_window() {
+        let note = authorize_note(&json!({"authorization_url": "https://as/x", "expires_in": 600}));
+        assert!(note.contains("browser"));
+        assert!(note.contains("within 10 minutes (600 seconds)"));
+        // 不回显授权 URL（URL 在 stdout 的结果里）
+        assert!(!note.contains("https://as/x"));
+        assert!(authorize_note(&json!({})).contains("before it expires"));
     }
 
     #[test]

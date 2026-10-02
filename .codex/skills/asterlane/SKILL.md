@@ -134,6 +134,8 @@ cargo run -- admin tools --filter '^search__'   # client-side name regex filter
 cargo run -- admin mcp-servers                  # configured MCP servers with health status
 cargo run -- admin mcp-servers get exa          # one server detail incl. its tool list
 cargo run -- admin mcp-servers probe exa        # on-demand health probe
+cargo run -- admin mcp-servers authorize linear   # authorization_code OAuth upstream: prints the authorization URL; open it in a browser
+cargo run -- admin mcp-servers deauthorize linear # drop the stored OAuth credentials; the server goes back to auth_required
 cargo run -- admin mcp-servers create --from-file server.yaml
 cargo run -- admin resources create --json '{"id":"mock","domain":"search","base_url":"https://example.test"}'
 cargo run -- admin proxy-keys create --from-file key.yaml

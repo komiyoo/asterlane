@@ -6,6 +6,7 @@
 use tracing::{info, warn};
 
 use super::AppState;
+use crate::mcp::{McpError, ServerHealth, ToolDescriptor};
 use crate::store::ToolMetadataRepository;
 
 impl AppState {
@@ -33,6 +34,32 @@ impl AppState {
             Ok(_) => {}
             Err(e) => warn!(error = %e, "failed to load tool description overrides"),
         }
+    }
+
+    /// 丢弃某个 MCP server 的现有连接并重新建连，同步 catalog 与 integrity baseline，
+    /// 再通知下游工具列表变化。授权码凭据变化后用（授权完成、撤销授权）。
+    ///
+    /// baseline 随之重置：这是管理员的显式操作，新快照即受信基线，与 admin 的新增、
+    /// 修改 server 一致；否则授权后下一轮 refresh 会把该 server 的全部工具当作
+    /// 「新增」报 drift，并按 `integrity_policy` 隔离它们。
+    pub async fn reconnect_mcp_server(&self, server_id: &str) -> Result<ServerHealth, McpError> {
+        let registry = self
+            .mcp_registry
+            .as_ref()
+            .ok_or_else(|| McpError::unknown_server(server_id))?;
+        let health = registry.reconnect(server_id, self.secrets.as_ref()).await?;
+        self.catalog
+            .write()
+            .await
+            .replace_mcp_tools(registry.all_wrapped_tools(), &registry.mcp_resource_ids());
+        let descriptors: Vec<ToolDescriptor> = registry
+            .all_descriptors()
+            .into_iter()
+            .map(|(_, descriptor)| descriptor)
+            .collect();
+        self.integrity_baseline.write().await.rebase(&descriptors);
+        crate::mcp::notify_peers_tool_list_changed(&self.tool_list_changed_peers).await;
+        Ok(health)
     }
 
     /// 单次 MCP registry 刷新（后台 task 的一个 tick）。

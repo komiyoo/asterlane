@@ -1,7 +1,13 @@
 //! 进程内模拟「需要 OAuth 的上游 MCP server」：同一个 axum 服务提供
 //! - 受保护资源元数据（RFC 9728）与授权服务器元数据（RFC 8414）；
-//! - token 端点（client_credentials 与 refresh_token，记录收到的表单参数）；
+//! - 动态客户端注册端点（`/register`，RFC 7591，记录收到的注册请求）；
+//! - token 端点（client_credentials、authorization_code 与 refresh_token，记录收到的
+//!   表单参数）；
 //! - 要求 Bearer 的 MCP 端点（无 token 或 token 无效时 401 + `WWW-Authenticate`）。
+//!
+//! 授权端点不真的跳转：测试从网关返回的授权 URL 取出 `state`、`code_challenge` 等参数，
+//! 用 [`OAuthUpstream::issue_auth_code`] 模拟「用户同意后授权服务器签发了 code」，再自己
+//! 构造回调请求。token 端点会校验 code 的一次性、PKCE（S256）、`redirect_uri` 与客户端身份。
 //!
 //! 不连真实上游；token 与 client secret 都是测试值。
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
@@ -17,6 +23,7 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ListToolsResult,
     PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
@@ -27,6 +34,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use rmcp::{ErrorData, RoleServer, ServerHandler};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 pub const CLIENT_ID: &str = "gateway-client";
@@ -40,14 +48,29 @@ struct IssuedToken {
     revoked: bool,
 }
 
+/// 授权服务器签发的、等待客户端换 token 的授权 code。
+struct IssuedCode {
+    client_id: String,
+    redirect_uri: String,
+    code_challenge: String,
+}
+
 /// 可被测试读写的上游状态。
 pub struct UpstreamState {
     base: String,
     expires_in_secs: AtomicU64,
+    /// refresh_token 授权签发的 access token 生命周期；0 表示与 `expires_in_secs` 相同。
+    refresh_expires_in_secs: AtomicU64,
     serve_prm: AtomicBool,
     prm_resource: Mutex<Option<String>>,
     reject_refresh: AtomicBool,
     reject_all_bearers: AtomicBool,
+    /// 授权服务器元数据是否发布 `registration_endpoint`（动态客户端注册）。
+    registration_enabled: AtomicBool,
+    /// 动态注册收到的请求体。
+    registrations: Mutex<Vec<serde_json::Value>>,
+    /// 已签发、尚未换 token 的授权 code（一次性）。
+    auth_codes: Mutex<HashMap<String, IssuedCode>>,
     token_requests: Mutex<Vec<HashMap<String, String>>>,
     tokens: Mutex<Vec<IssuedToken>>,
     refresh_tokens: Mutex<HashSet<String>>,
@@ -64,9 +87,13 @@ pub struct UpstreamState {
 
 impl UpstreamState {
     fn issue(&self, with_refresh: Option<String>) -> serde_json::Value {
+        self.issue_with(with_refresh, self.expires_in_secs.load(Ordering::SeqCst))
+    }
+
+    /// 签发 access token（可带 refresh token），生命周期 `expires_in` 秒。
+    fn issue_with(&self, with_refresh: Option<String>, expires_in: u64) -> serde_json::Value {
         let n = self.counter.fetch_add(1, Ordering::SeqCst) + 1;
         let value = format!("tok_{n}_Zq81xK");
-        let expires_in = self.expires_in_secs.load(Ordering::SeqCst);
         self.tokens.lock().unwrap().push(IssuedToken {
             value: value.clone(),
             expires_at: Instant::now() + Duration::from_secs(expires_in),
@@ -116,10 +143,14 @@ impl OAuthUpstream {
         let state = Arc::new(UpstreamState {
             base: base.clone(),
             expires_in_secs: AtomicU64::new(3600),
+            refresh_expires_in_secs: AtomicU64::new(0),
             serve_prm: AtomicBool::new(true),
             prm_resource: Mutex::new(None),
             reject_refresh: AtomicBool::new(false),
             reject_all_bearers: AtomicBool::new(false),
+            registration_enabled: AtomicBool::new(true),
+            registrations: Mutex::new(Vec::new()),
+            auth_codes: Mutex::new(HashMap::new()),
             token_requests: Mutex::new(Vec::new()),
             tokens: Mutex::new(Vec::new()),
             refresh_tokens: Mutex::new(HashSet::new()),
@@ -149,6 +180,7 @@ impl OAuthUpstream {
                 get(authorization_server_metadata),
             )
             .route("/token", post(token_endpoint))
+            .route("/register", post(register_endpoint))
             .nest_service("/mcp", mcp)
             .layer(middleware::from_fn_with_state(state.clone(), guard))
             .with_state(state.clone());
@@ -174,6 +206,13 @@ impl OAuthUpstream {
         self.state.expires_in_secs.store(secs, Ordering::SeqCst);
     }
 
+    /// refresh_token 授权返回的 `expires_in`（秒）；缺省与 [`Self::set_expires_in`] 相同。
+    pub fn set_refresh_expires_in(&self, secs: u64) {
+        self.state
+            .refresh_expires_in_secs
+            .store(secs, Ordering::SeqCst);
+    }
+
     /// 不提供受保护资源元数据文档（404）。
     pub fn set_serve_prm(&self, serve: bool) {
         self.state.serve_prm.store(serve, Ordering::SeqCst);
@@ -186,6 +225,41 @@ impl OAuthUpstream {
 
     pub fn set_reject_refresh(&self, reject: bool) {
         self.state.reject_refresh.store(reject, Ordering::SeqCst);
+    }
+
+    /// 授权服务器元数据是否发布 `registration_endpoint`。
+    pub fn set_registration_enabled(&self, enabled: bool) {
+        self.state
+            .registration_enabled
+            .store(enabled, Ordering::SeqCst);
+    }
+
+    /// 动态注册收到的请求体（JSON）。
+    pub fn registrations(&self) -> Vec<serde_json::Value> {
+        self.state.registrations.lock().unwrap().clone()
+    }
+
+    /// 模拟「用户在授权页面同意后，授权服务器签发了 `code`」：按网关返回的授权 URL 里的
+    /// `client_id`、`redirect_uri` 与 `code_challenge` 登记这个一次性 code。token 端点之后
+    /// 只接受用匹配的 PKCE verifier、`redirect_uri` 与客户端身份来换它。
+    pub fn issue_auth_code(&self, code: &str, authorization_url: &str) {
+        let url = reqwest::Url::parse(authorization_url).unwrap();
+        let param = |name: &str| {
+            url.query_pairs()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.into_owned())
+                .unwrap_or_else(|| panic!("authorization url has no {name}"))
+        };
+        assert_eq!(param("response_type"), "code");
+        assert_eq!(param("code_challenge_method"), "S256");
+        self.state.auth_codes.lock().unwrap().insert(
+            code.to_string(),
+            IssuedCode {
+                client_id: param("client_id"),
+                redirect_uri: param("redirect_uri"),
+                code_challenge: param("code_challenge"),
+            },
+        );
     }
 
     /// MCP 端点拒绝所有 Bearer（模拟网关凭据被上游整体拒绝）。
@@ -323,7 +397,7 @@ async fn protected_resource_metadata(State(state): State<Arc<UpstreamState>>) ->
 async fn authorization_server_metadata(
     State(state): State<Arc<UpstreamState>>,
 ) -> Json<serde_json::Value> {
-    Json(json!({
+    let mut metadata = json!({
         "issuer": state.base,
         "authorization_endpoint": format!("{}/authorize", state.base),
         "token_endpoint": format!("{}/token", state.base),
@@ -331,7 +405,58 @@ async fn authorization_server_metadata(
         "grant_types_supported": ["client_credentials", "authorization_code", "refresh_token"],
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
         "code_challenge_methods_supported": ["S256"],
-    }))
+    });
+    if state.registration_enabled.load(Ordering::SeqCst) {
+        metadata["registration_endpoint"] = json!(format!("{}/register", state.base));
+    }
+    Json(metadata)
+}
+
+/// 动态客户端注册（RFC 7591）：记录请求体，签发一个公开客户端。
+async fn register_endpoint(
+    State(state): State<Arc<UpstreamState>>,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    if !state.registration_enabled.load(Ordering::SeqCst) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let n = {
+        let mut registrations = state.registrations.lock().unwrap();
+        registrations.push(request.clone());
+        registrations.len()
+    };
+    (
+        StatusCode::CREATED,
+        Json(json!({
+            "client_id": format!("dcr-client-{n}"),
+            "client_name": request["client_name"],
+            "redirect_uris": request["redirect_uris"],
+            "token_endpoint_auth_method": "none",
+        })),
+    )
+        .into_response()
+}
+
+/// 校验 authorization_code 授权：code 一次性、客户端身份、`redirect_uri` 与 PKCE（S256）。
+/// 预注册的机密客户端（`CLIENT_ID`）必须带 `client_secret`。成功则签发带 refresh token 的响应。
+fn exchange_auth_code(state: &UpstreamState, form: &HashMap<String, String>) -> Response {
+    let get = |name: &str| form.get(name).map(String::as_str).unwrap_or_default();
+    let Some(issued) = state.auth_codes.lock().unwrap().remove(get("code")) else {
+        return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
+    };
+    let verifier_hash = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(Sha256::digest(get("code_verifier").as_bytes()));
+    let confidential_ok = get("client_id") != CLIENT_ID || get("client_secret") == CLIENT_SECRET;
+    if get("client_id") != issued.client_id
+        || get("redirect_uri") != issued.redirect_uri
+        || verifier_hash != issued.code_challenge
+        || !confidential_ok
+    {
+        return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
+    }
+    let refresh = format!("refresh_ac_{}", state.counter.load(Ordering::SeqCst) + 1);
+    state.refresh_tokens.lock().unwrap().insert(refresh.clone());
+    Json(state.issue(Some(refresh))).into_response()
 }
 
 fn oauth_error(status: StatusCode, error: &str) -> Response {
@@ -356,6 +481,7 @@ async fn token_endpoint(
             }
             Json(state.issue(None)).into_response()
         }
+        Some("authorization_code") => exchange_auth_code(&state, &form),
         Some("refresh_token") => {
             let presented = form.get("refresh_token").cloned().unwrap_or_default();
             let known = state.refresh_tokens.lock().unwrap().remove(&presented);
@@ -365,7 +491,11 @@ async fn token_endpoint(
             // 轮换：旧 refresh token 作废，签发新的
             let rotated = format!("refresh_rot_{}", state.counter.load(Ordering::SeqCst) + 1);
             state.refresh_tokens.lock().unwrap().insert(rotated.clone());
-            Json(state.issue(Some(rotated))).into_response()
+            let lifetime = match state.refresh_expires_in_secs.load(Ordering::SeqCst) {
+                0 => state.expires_in_secs.load(Ordering::SeqCst),
+                secs => secs,
+            };
+            Json(state.issue_with(Some(rotated), lifetime)).into_response()
         }
         _ => oauth_error(StatusCode::BAD_REQUEST, "unsupported_grant_type"),
     }

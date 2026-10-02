@@ -9,6 +9,7 @@
 
 pub mod aggregation;
 pub mod capture;
+pub mod log_filter;
 pub mod metrics;
 pub mod model;
 #[cfg(feature = "otlp")]
