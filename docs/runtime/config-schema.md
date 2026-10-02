@@ -22,6 +22,7 @@ secrets: {}           # 可选；Vault / Infisical
 http: {}              # 可选；请求体上限与 REST/admin 超时
 observability: {}     # 可选；负载捕获与 request_events 保留
 mcp: {}               # 可选；多上游失败模式、刷新间隔、tools/list TTL
+oauth: {}             # 可选；上游 MCP OAuth 的回调地址与 token 加密密钥
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -117,12 +118,26 @@ mcp:
 
 - `failure_mode` 为枚举（serde snake_case）；非法值启动即失败。
 - **FailOpen**（缺省）：刷新失败保留 stale 快照，`tools/list` 与 REST `GET /v1/tools` 仍返回当前目录。
-- **FailClosed**：`McpServerRegistry::health_snapshot()` 中任一 `HealthStatus::Unreachable` 时，MCP `tools/list`（Full 与 lazy）与 REST `GET /v1/tools`（Full 与 lazy）返回 `mcp.upstream_unavailable`（HTTP 503 / JSON-RPC `-32603`），不把 stale 上游工具当权威目录。`Disabled` / `Unknown` / `Ok` 不阻塞。无 registry 或无 server 不阻塞。
-- `tools/call` 与 REST invoke **不株连**：只对所属上游失败；其它 server `Unreachable` 不拒绝调用。
+- **FailClosed**：`McpServerRegistry::health_snapshot()` 中任一 `HealthStatus::Unreachable` 或 `HealthStatus::AuthRequired`（OAuth 上游需要管理员授权，见 [OAuth](#oauth)）时，MCP `tools/list`（Full 与 lazy）与 REST `GET /v1/tools`（Full 与 lazy）返回 `mcp.upstream_unavailable`（HTTP 503 / JSON-RPC `-32603`），不把 stale 上游工具当权威目录。`Disabled` / `Unknown` / `Ok` 不阻塞。无 registry 或无 server 不阻塞。
+- `tools/call` 与 REST invoke **不株连**：只对所属上游失败；其它 server `Unreachable` / `AuthRequired` 不拒绝调用。
 - `GET /healthz` 不因 FailClosed 失败（Docker HEALTHCHECK 探它）。
 - 后台 refresh 在 FailClosed 下仍会 `replace_mcp_tools`（call 路径需要映射）；FailClosed 只挡 **list**。
 - `refresh_interval_secs: 0` 不跑周期 tick，但仍接收上游 `tools/list_changed` 并刷新；`tools_list_ttl_ms: 0` 时下游 `tools/list` 不设 `ttlMs`。
 - 上游若广告 `listChanged`，网关在握手后 best-effort `subscriptions/listen`；不支持则只靠周期 refresh。对照配置见 `examples/gateway-mcp.yaml`（Exa）与 `examples/gateway-rollinggo.yaml`（RollingGo Hotel）。
+
+## OAuth
+
+可选。上游 MCP server 用 OAuth 时的顶层设置，只影响 `mcp_servers[].auth.type: oauth`（见 [OAuth 认证](#oauth-认证)）。缺省（不写）与旧配置一致，没有 OAuth server 时可以完全省略。
+
+```yaml
+oauth:
+  redirect_base_url: https://gateway.example.com              # 管理员授权的回调地址前缀
+  token_encryption_key_ref: secret://env/ASTERLANE_OAUTH_KEY  # 32 字节、base64 编码
+```
+
+- `redirect_base_url`：回调 URI 固定为 `{redirect_base_url}/oauth/callback`（回调入口随管理员授权切片提供）。必须是 http(s) URL，除 `localhost` / `127.0.0.1` 外必须是 https，不得带 query 或 fragment。
+- `token_encryption_key_ref`：secret ref，解析结果必须是 base64 编码的 32 字节（例如 `openssl rand -base64 32`）。启动时解析，无效则启动失败。用于加密落库的授权码 token，见 [Key Credentials & Persistence](key-credentials-and-persistence.md#上游-oauth-凭据)。
+- 任一 `mcp_servers[]` 使用 `grant: authorization_code` 时两项都必填，缺任何一项启动失败。
 
 ## Observability
 
@@ -184,6 +199,30 @@ auth:
 ```
 
 Secret references are identifiers only. Implementations must resolve them on the gateway side and must not expose raw values in MCP tool schemas, agent prompts, logs, or responses. 详见 [Architecture – Credential Vault](../architecture/architecture.md)。
+
+### OAuth 认证
+
+`type: oauth` 让网关作为 OAuth 客户端访问上游 MCP server，**只允许用在 `mcp_servers[].auth`**；用在 `api_resources[].auth` 上启动失败（admin 写入同样 400）。token 永不离开网关，下游只用 gateway key。
+
+```yaml
+mcp_servers:
+  - id: linear
+    domain: pm
+    provider: linear
+    url: https://mcp.example.com/mcp
+    auth:
+      type: oauth
+      grant: client_credentials      # client_credentials | authorization_code
+      client_id: my-client           # client_credentials 必填；authorization_code 可选（缺省走动态客户端注册）
+      client_secret_ref: secret://env/LINEAR_CLIENT_SECRET  # client_credentials 必填；authorization_code 可选
+      scopes: [read]                 # 可选
+```
+
+- `grant: client_credentials`：全自动。连接时做元数据发现（RFC 9728 / RFC 8414）再换 token，token 临近过期或被上游 401 拒绝时在请求路径上自动重新换取，token 只放内存。
+- `grant: authorization_code`：管理员一次性授权后，网关保存并刷新 token。没有已存凭据、凭据无法解密或刷新被拒时，server 显示 `auth_required`。`client_secret_ref` 给预注册的机密客户端；有 `client_secret_ref` 必须同时有 `client_id`。
+- `client_secret_ref` 只接受 `secret://` 引用，不接受明文；`scopes` 的每一项非空且不含空白。
+- `url` 必须是 https（`localhost` / `127.0.0.1` 联调除外），避免 token 与 client secret 走明文链路。
+- 所有新字段都有默认值，旧配置照常加载；校验失败时启动直接报错。完整语义见 [MCP Protocol – 上游认证](../architecture/mcp-protocol.md#上游认证)。
 
 ## Key Pool
 

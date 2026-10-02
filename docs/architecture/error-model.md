@@ -50,7 +50,8 @@ timestamp: 2026-07-03T00:00:00Z
 | `limit.*` | `limit.daily_calls_exhausted` | per-key 当日调用配额 `max_calls_per_day` 耗尽（UTC 零点重置） | "daily call quota exhausted for this key" |
 | `mcp.*` | `mcp.invalid_tool_call` | 参数不合法 | "invalid tool call arguments" |
 | `mcp.*` | `mcp.upstream_mcp_failure` | 上游 MCP server 失败 | "upstream MCP server error" |
-| `mcp.*` | `mcp.upstream_unavailable` | FailClosed：至少一个 MCP 上游 `Unreachable`，拒绝把 stale 目录当权威结果 | "one or more MCP upstreams are unreachable" |
+| `mcp.*` | `mcp.upstream_unavailable` | FailClosed：至少一个 MCP 上游 `Unreachable` 或 `AuthRequired`，拒绝把 stale 目录当权威结果 | "one or more MCP upstreams are unreachable" |
+| `mcp.*` | `mcp.upstream_auth_required` | 授权码类 OAuth 上游需要管理员授权：没有已存凭据、凭据无法解密或刷新被拒（client-credentials 上游被拒是 `mcp.upstream_mcp_failure`） | "upstream MCP server requires administrator authorization" |
 | `admin.*` | `admin.unauthorized` | admin token 缺失或不匹配 | "missing or invalid admin token" |
 | `admin.*` | `admin.invalid_query` | admin 查询参数不合法 | "invalid group_by: {value}" |
 | `admin.*` | `admin.not_found` | admin 管理的实体未找到；`McpError::UnknownServer`（未知 MCP server id）也映射到此码 | "unknown MCP server: {server_id}" |
@@ -89,7 +90,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `catalog.unknown_tool` | 404 |
 | `store.*` | 503 |
 | `proxy.upstream_timeout` / `proxy.connection_failed` | 504 |
-| `mcp.upstream_mcp_failure` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
+| `mcp.upstream_mcp_failure` / `mcp.upstream_auth_required` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
 | `mcp.upstream_unavailable` | 503 |
 | `limit.quota_exceeded` / `limit.calls_exhausted` | 429（`calls_exhausted` 无 Retry-After） |
 | `limit.daily_calls_exhausted` | 429（Retry-After = 距下个 UTC 零点秒数） |
@@ -121,7 +122,7 @@ MCP 错误分两种承载方式，遵循社区共识：
 
 | 错误类别 | 承载方式 | 理由 |
 | --- | --- | --- |
-| 上游 4xx/5xx/超时、重试耗尽 | tool result `isError: true` | 给 LLM 看，让它调整策略 |
+| 上游 4xx/5xx/超时、重试耗尽、上游需要管理员授权（`mcp.upstream_auth_required`） | tool result `isError: true` | 给 LLM 看，让它调整策略 |
 | 未知工具、参数错误 | JSON-RPC error `-32602`（Invalid params）/ `-32601`（Method not found） | 给基础设施看 |
 | 网关自身故障 | JSON-RPC error `-32603`（Internal error） | 仅限网关内部错误 |
 | 配额/限流 | tool result `isError: true` + 文本说明 | 让 LLM 知道应等待 |
@@ -136,6 +137,7 @@ MCP 错误分两种承载方式，遵循社区共识：
 - 上游原始响应体（可能含密钥或敏感业务数据）。
 - secret ref 的完整 URI（只暴露 `secret://provider/` 前缀，不暴露具体路径段）。
 - upstream key 明文（只暴露 `upstream_key_ref` 的脱敏标识，如 `key:abcd…wxyz`）。
+- 上游 OAuth 的 access token、refresh token、client secret，以及 rmcp `AuthError` 与授权服务器返回的内容（错误描述、响应体）：只进 tracing 详情，用户可见错误只说哪一步失败（如 "OAuth token exchange failed"）。
 
 脱敏由 `src/observability` 模块的 redaction helper 统一处理（见 [Observability](observability.md)）。模块错误在构造时只携带引用类型（`KeyId`、`SecretRef`），不携带明文；边界转换时引用类型 `Display` 实现输出脱敏形式。
 

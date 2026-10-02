@@ -51,6 +51,8 @@ Asterlane 的护栏原则是"协议、服务端、数据库、tracing 和基础�
 | 随机数 | `rand` | 0.10 | key pool 加权选取与 token 生成。0.10 将原 `Rng` 扩展 trait 重命名为 `RngExt`。 |
 | 上游 OAuth 凭据加密 | `ring` | 0.17 | `aead::CHACHA20_POLY1305` 加密落库的 OAuth token（随机 nonce，AAD = server id），随机数用 `ring::rand::SystemRandom`。锁文件已有，提升为直接依赖。不再引入 `chacha20poly1305` 等 RustCrypto 实现，避免同一用途两套 AEAD。 |
 | base64 | `base64` | 0.22 | 加密密钥配置（base64 编码的 32 字节）与密文存储格式（nonce ‖ 密文）。锁文件已有（`reqwest`、`sqlx` 同版本），提升为直接依赖。 |
+| OAuth token 响应类型 | `oauth2` | 5.0 | 只用其 `TokenResponse` trait 读取 rmcp `auth` 返回的 `OAuthTokenResponse`（access token 与 `expires_in`），`default-features = false`，不使用其 client。rmcp `auth` 已将 5.0.0 引入依赖树，提升为直接依赖以便命名该 trait。 |
+| StreamableHttpClient 签名类型 | `futures` / `sse-stream` | 0.3 / 0.2 | 网关为 client-credentials 自己实现 rmcp 的 `StreamableHttpClient`（见 [MCP Protocol – 上游认证](mcp-protocol.md#上游认证)），trait 签名里的 `BoxStream` 与 `Sse` 类型分别来自这两个 crate，rmcp 不重导出。两者都已随 rmcp 的 client 特性在依赖树中，提升为直接依赖，不改变构建图。 |
 | async trait 宏 | `async-trait` | 0.1 | 只用于实现 rmcp `auth` 的 `CredentialStore`（该 trait 以 `#[async_trait]` 声明）。已随 rmcp `auth` 在依赖树中，提升为直接依赖；不用于本仓自有 trait（自有 trait 用 `impl Future + Send`）。 |
 
 ## 数据库

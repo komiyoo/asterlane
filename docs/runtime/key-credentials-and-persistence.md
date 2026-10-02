@@ -86,6 +86,20 @@ proxy_keys:
 - 控制台新「审计」tab：预置 kind=admin_audit，列 = 时间/admin_key_id/action/target；沿用事件页分页模式。
 - CLI：`admin security-events --kind KIND`。
 
+## 上游 OAuth 凭据
+
+上游 MCP server 用 `auth.type: oauth`（见 [Configuration Schema – OAuth 认证](config-schema.md#oauth-认证)）时，网关自己持有访问上游的 OAuth 凭据。它们与 proxy key、admin key、上游 API key、secret ref 相互独立，也不是 K1 的 gateway key。
+
+- **client-credentials**：token 只放内存，永不落库。client secret 只经 `client_secret_ref` 在建连时解析，不进日志、错误与 admin 响应。
+- **authorization_code**：管理员一次性授权后，access/refresh token 加密落库。表 `upstream_oauth_credentials(server_id PRIMARY KEY, sealed_credentials, updated_at)`（迁移 `20261001000001_upstream_oauth_credentials.sql`）。
+  - `sealed_credentials = base64(nonce ‖ 密文)`：明文是 rmcp `StoredCredentials` 的 JSON；`ring` 的 ChaCha20-Poly1305，每次加密随机 12 字节 nonce，AAD = server id（密文不能搬到另一个 server 名下解密）。数据库里不出现任何明文 token。
+  - 密钥来自 `oauth.token_encryption_key_ref`，启动时解析，必须是 base64 编码的 32 字节，否则启动失败。密钥类型的 `Debug` 不输出密钥。
+  - 启动和重连时从存储加载凭据，由 rmcp 自动刷新；刷新后轮换的 refresh token 经 `CredentialStore::save` 写回存储。
+  - 没有凭据、解密失败（例如密钥换了）、刷新被授权服务器拒绝时，server 进入健康状态 `auth_required` 并打一条不含 token 的 `warn`；管理员重新授权后恢复。密钥丢失只会让已存凭据作废（需要重新授权），不会泄露。
+- **无数据库**（未传 `--database-url`）：授权码凭据只保存在进程内存（rmcp 的内存存储），重启后需要重新授权。
+- 删除 MCP server（`DELETE /admin/mcp-servers/{id}`）时清除该 server 已存的凭据。
+- **已知限制**：刷新成功但写库失败时，本次请求报错并记 `error` 日志；若授权服务器已轮换 refresh token，需要重新授权。
+
 # 实施切片与文件归属
 
 | 切片 | 内容 | 拥有文件 |
@@ -104,6 +118,7 @@ proxy_keys:
 - 签发/轮换/吊销必审计（admin_key_id/action/target=proxy key id，不含 token 材料）。
 - `?key=` legacy 模式仅对无 token 的 key 有效；错误消息不区分「key 不存在」与「token 错误」（避免枚举探测），统一 `auth.invalid_gateway_key`。
 - 导出的 YAML 与 `/config` 端点同口径脱敏审查（只含 ref/摘要）。
+- 上游 OAuth 的 token、refresh token、client secret 不进日志、错误、admin 响应与导出；授权服务器返回的内容与 rmcp 的 `AuthError` 只进 tracing。
 
 # Citations
 
