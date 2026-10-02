@@ -5,7 +5,8 @@ use std::sync::Arc;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
     DiscoverResult, ErrorData, GetPromptRequestParams, GetPromptResponse, Implementation,
-    ListPromptsResult, ListToolsResult, PaginatedRequestParams, RequestMetaObject,
+    ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult, ListToolsResult,
+    PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResponse, RequestMetaObject,
     ServerCapabilities, ServerInfo, SubscriptionFilter, Tool,
 };
 use rmcp::service::{RequestContext, SubscriptionContext};
@@ -27,7 +28,6 @@ use crate::mcp::notify::{
     accepted_tools_list_changed_filter, is_legacy_protocol, listen_tools_list_changed,
     register_legacy_peer,
 };
-use crate::mcp::workflow_prompt::{get_workflow_prompt, list_workflow_prompts};
 use crate::proxy::ProxyExecutor;
 use crate::render::ResponseFormat;
 use crate::shaping::ShapingConfig;
@@ -76,7 +76,7 @@ impl AsterlaneToolServer {
     ///
     /// 开放模式（无 key 配置 token）无绑定 → 返回全放行 mcp_default_key；
     /// required 模式下缺绑定为防御分支（middleware 必已拦截）。
-    async fn resolve_proxy_key(
+    pub(super) async fn resolve_proxy_key(
         &self,
         config: &GatewayConfig,
         context: &RequestContext<RoleServer>,
@@ -183,6 +183,7 @@ impl ServerHandler for AsterlaneToolServer {
                 .enable_tools()
                 .enable_tool_list_changed()
                 .enable_prompts()
+                .enable_resources()
                 .build(),
         )
         .with_server_info(Implementation::new(
@@ -222,25 +223,41 @@ impl ServerHandler for AsterlaneToolServer {
     async fn list_prompts(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, ErrorData> {
-        Ok(list_workflow_prompts())
+        self.list_prompts_for(context).await
     }
 
     async fn get_prompt(
         &self,
         request: GetPromptRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<GetPromptResponse, ErrorData> {
-        get_workflow_prompt(&request.name)
-            .map(Into::into)
-            .ok_or_else(|| {
-                ErrorData::new(
-                    rmcp::model::ErrorCode::METHOD_NOT_FOUND,
-                    "unknown prompt",
-                    None,
-                )
-            })
+        self.get_prompt_for(request, context).await
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        self.list_resources_for(context).await
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        self.list_templates_for(context).await
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        self.read_resource_for(request, context).await
     }
 
     #[instrument(skip_all)]

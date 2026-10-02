@@ -11,7 +11,9 @@
 //! 用量面板展示；限额上限仍只来自配置。
 //!
 //! `admit` 是 REST invoke、MCP tools/call（含 lazy）与 admin 调试调用共用的
-//! 单一准入 choke point；配置热更新（CRUD）时整体重建并携带已用计数。
+//! 单一准入 choke point。`prompts/get` 与 `resources/read` 走 `admit_rate`：
+//! 同样的 key 与上游速率、并发检查，但不检查、不计入调用配额。
+//! 配置热更新（CRUD）时整体重建并携带已用计数。
 //! 准入通过后 `record_call`；invoke 最终失败由 [`CallQuotaGuard`] Drop 调用
 //! [`LimitRegistry::refund_call`] 退还累计/日配额。GCRA rps/rpm 不可退还。
 
@@ -195,6 +197,20 @@ impl LimitRegistry {
         self.admit_at(proxy_key_id, upstream_id, Utc::now()).await
     }
 
+    /// key rps/rpm 与上游 rps/rpm/并发。不检查 `max_calls` / `max_calls_per_day`，
+    /// 也不计入调用配额。供 MCP `prompts/get` 与 `resources/read` 使用。
+    ///
+    /// 返回的 [`QueuePermit`] 须在上游调用期间持有。被拒不写 `request_events`
+    /// （调用方负责；本方法本身不落事件）。
+    pub async fn admit_rate(
+        &self,
+        proxy_key_id: &str,
+        upstream_id: &str,
+    ) -> Result<Option<QueuePermit>, LimitError> {
+        self.check_key(proxy_key_id)?;
+        self.admit_upstream(upstream_id).await
+    }
+
     /// `admit` 的时间注入形态（测试直连；生产路径固定传 `Utc::now()`）。
     async fn admit_at(
         &self,
@@ -204,24 +220,26 @@ impl LimitRegistry {
     ) -> Result<Option<QueuePermit>, LimitError> {
         self.check_key(proxy_key_id)?;
         self.check_call_quotas(proxy_key_id, now)?;
-
-        let permit = match self.upstreams.get(upstream_id) {
-            Some(entry) => {
-                let dimension = LimiterKey::Endpoint(ApiId::new(upstream_id));
-                check_direct(&entry.rps, &dimension)?;
-                check_direct(&entry.rpm, &dimension)?;
-                match &entry.queue {
-                    Some(queue) => Some(queue.admit(Priority::Normal).await?),
-                    None => None,
-                }
-            }
-            None => None,
-        };
+        let permit = self.admit_upstream(upstream_id).await?;
 
         // ponytail: 配额检查与计数递增跨 await 非原子，并发边界可短暂超发
         // in-flight 数量；累计/日配额场景可接受，需精确预留时在锁内合并 check+incr
         self.record_call(proxy_key_id, now);
         Ok(permit)
+    }
+
+    /// 上游 rps → rpm → 并发队列。没有该上游的限额条目时放行。
+    async fn admit_upstream(&self, upstream_id: &str) -> Result<Option<QueuePermit>, LimitError> {
+        let Some(entry) = self.upstreams.get(upstream_id) else {
+            return Ok(None);
+        };
+        let dimension = LimiterKey::Endpoint(ApiId::new(upstream_id));
+        check_direct(&entry.rps, &dimension)?;
+        check_direct(&entry.rpm, &dimension)?;
+        match &entry.queue {
+            Some(queue) => Ok(Some(queue.admit(Priority::Normal).await?)),
+            None => Ok(None),
+        }
     }
 
     /// 退还一次累计调用计数；若计数所属 UTC 日与 `now` 相同则同时退还当日计数。
@@ -529,6 +547,24 @@ proxy_keys:
         let reg = registry("api_resources: []");
         assert!(reg.admit("any-key", "any-upstream").await.is_ok());
         assert!(reg.check_key("any-key").is_ok());
+    }
+
+    #[tokio::test]
+    async fn admit_rate_skips_call_quota_and_does_not_count() {
+        let reg = registry(
+            "proxy_keys: [{id: k, limits: {max_calls: 1}}]\n\
+             mcp_servers: [{id: docs, domain: d, provider: p, url: https://example.test, limits: {rps: 1}}]",
+        );
+        reg.seed_call_count("k", 1);
+        assert!(matches!(
+            reg.admit("k", "docs").await.unwrap_err(),
+            LimitError::CallsExhausted
+        ));
+        assert!(reg.admit_rate("k", "docs").await.is_ok());
+        assert_eq!(reg.key_usage("k").unwrap().calls_total, 1);
+        // 上游 rps 仍生效，且第二次被拒也不计入配额。
+        assert!(reg.admit_rate("k", "docs").await.is_err());
+        assert_eq!(reg.key_usage("k").unwrap().calls_total, 1);
     }
 
     // ── 0 值非法 fail fast ──

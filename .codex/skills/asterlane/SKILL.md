@@ -17,7 +17,7 @@ Before changing behavior, read only the closest documents needed for the task:
 - `docs/README.md` for the category index, then the closest concept document.
 - `docs/architecture/architecture.md` for boundaries, naming, and roadmap.
 - `docs/runtime/config-schema.md` before editing `examples/gateway.yaml` or config structs.
-- `src/config/`, `src/catalog.rs`, `src/policy.rs`, and `src/naming.rs` before changing core model behavior.
+- `src/config/`, `src/catalog/`, `src/policy.rs`, and `src/naming.rs` before changing core model behavior.
 
 ## Core Rules
 
@@ -37,7 +37,7 @@ Before changing behavior, read only the closest documents needed for the task:
 3. Add endpoint entries with stable `tool`, `method`, and `path` values.
 4. Set `ASTERLANE_CONFIG=examples/gateway.yaml` or pass `--config PATH`.
 5. Run `cargo run -- list-tools --key <key> --include '<domain-or-tool-regex>'`.
-6. Add tests in `src/catalog.rs` or the matching `src/config/` submodule when the change requires new behavior.
+6. Add tests in `src/catalog/` or the matching `src/config/` submodule when the change requires new behavior.
 
 ### Change A Proxy Key Scope
 

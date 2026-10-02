@@ -4,7 +4,7 @@ title: MCP 治理与 Key 限额
 description: MCP 供应商可观测/可管理（详情页、测活、工具介绍、上游限额）与 key 分发的结构化范围选择、rps/rpm/调用次数限额的需求梳理与设计契约。
 resource: docs/runtime/mcp-governance-and-key-limits.md
 tags: [mcp, admin, console, limits, keys, health, governance]
-timestamp: 2026-08-19T00:00:00+08:00
+timestamp: 2026-10-02T00:00:00+08:00
 ---
 
 # 背景
@@ -87,6 +87,8 @@ proxy_keys:
 
 请求级过滤仍只能收窄，不能扩权。控制台的「按 MCP/工具勾选」直接生成 `allowed_servers`/`allowed_tool_names`，正则作为高级选项保留。
 
+同一套规则覆盖上游 prompts、resources 与 resource templates，不新增配置字段。实现是 `key_can_use_name`：`key_can_use_tool` 把 wire name 交给它。prompt 的匹配名就是对下游暴露的 `domain__provider__<prompt>`。resource 与 template 的匹配名是 `domain__provider__<上游 name>`，只用于判权，不出现在 `resources/list` 或 `resources/templates/list` 里。`resource_id` 在这三类上都是 MCP server id。开放模式（无 key）与工具一样全部可见。
+
 ## 3. 限流语义（limits/）
 
 - **按实体独立 quota**：每个配置了 `limits` 的实体（proxy key / api resource / mcp server）拥有独立 governor GCRA 限流器实例；新增 `LimitRegistry` 持有 `实体 id → {rps 限流器, rpm 限流器, 并发队列}` 映射，从配置构建，配置热更新（CRUD）时重建。
@@ -97,6 +99,7 @@ proxy_keys:
   3. 上游 `max_concurrent` 队列准入（持 permit 执行）；
   4. key pool 选 key 与执行（既有）。
   admin 调试调用的合成 key 无 `limits` 配置，自然跳过第 1 步，仍受第 2、3 步保护上游。
+- MCP `prompts/get` 与 `resources/read` 只走 key rps/rpm 与上游 rps/rpm/并发（`LimitRegistry::admit_rate`）。不检查、不计入 `max_calls` / `max_calls_per_day`，也不写 `request_events`。网关自有的 `asterlane_tool_workflow` 不经这道准入。
 - **超限响应**：429，错误码 `limit.quota_exceeded`（既有），带 `Retry-After`（GCRA `reset_after` 秒）；`max_calls` 耗尽用新错误码 `limit.calls_exhausted`（429，无 Retry-After，需管理员调高配额）。命中照常落 request event（`status_kind` 沿用既有 rate-limited 口径）与 metrics。
 - **max_calls 计数口径**（as-built 2026-08-19）：累计/日配额计**成功完成**的 invoke。准入通过后 `record_call`；invoke 最终失败（上游 4xx/5xx/超时/连接失败、准入后 secret 解析失败、MCP 传输失败）由 `CallQuotaGuard` 调用 `refund_call` 退还这两项。被限流拒绝的尝试不计入、也不退还。GCRA rps/rpm 在 `check` 时消费且不可退还，故失败仍消耗速率令牌。远程 MCP 返回 `CallToolResult.is_error` 属于协议层完成，不退还。`request_events` 仍记录每一次尝试（含失败与 Limited）。启动回填：有 store 时 `summarize_by(ProxyKey)`，seed = `request_count − error_count`（成功次数；Limited 计入 `error_count` 且从未进入配额）。未配 store 时仅内存计数、重启归零。
 
@@ -105,9 +108,9 @@ proxy_keys:
 - 状态机：`ok`（最近一次探测成功）| `unreachable`（最近一次探测失败）| `auth_required`（授权码类 OAuth 上游需要管理员授权）| `unknown`（尚未探测）| `disabled`（`health_check.enabled: false`，不参与周期探测）。serde 为 snake_case，`auth_required` 在 admin JSON 与控制台（橙色状态灯）中可见。
 - **`auth_required`**：只出现在 `auth: {type: oauth, grant: authorization_code}` 的 server——没有已存凭据、凭据无法解密（例如加密密钥换了）或授权服务器拒绝刷新（见 [MCP Protocol – 上游认证](../architecture/mcp-protocol.md#上游认证)）。进入该状态时打一条不含 token 的 `warn`，`last_error` 只含固定的安全消息；没有凭据时不会去连上游。client-credentials 上游连不上或被拒是 `unreachable`，不是 `auth_required`。该状态下的上游工具调用返回 `mcp.upstream_auth_required`（HTTP 502 / MCP tool result `isError`）。从未连接成功的 server 没有工具快照，其工具名不在 catalog 中，调用得到的是 `catalog.unknown_tool` 而不是 `mcp.upstream_auth_required`，管理员通过健康状态发现。
 - 健康数据：`server_id, status, last_check_at, last_ok_at, latency_ms（最近成功探测耗时）, consecutive_failures, last_error（脱敏 message）, tool_count`。
-- 探测 = 未连接时先连接 + `tools/list`（与 refresh 同口径）；周期探测搭现有 refresh 任务（`disabled` 的 server 跳过，工具沿用 stale 快照）；按需探测 `probe(id)` 立即执行单服务器并更新健康与工具快照。
+- 探测 = 未连接时先连接 + `tools/list`（与 refresh 同口径）；周期探测搭现有 refresh 任务（`disabled` 的 server 跳过，工具沿用 stale 快照）；按需探测 `probe(id)` 立即执行单服务器并更新健康与工具快照。工具探测成功时，对声明了 prompts / resources capability 的上游一并拉取对应列表（连接、周期 refresh、上游 `tools/list_changed` 同一周期）。某类列表失败只保留该类的上一次快照，不把工具探测判失败。
 - **启动降级**：`connect_all` 不再整体失败——单服务器连接失败记 `unreachable`（entry 无 peer），网关照常启动；后续 refresh/probe 成功后自动转 `ok` 并合并其工具。
-- **目录失败模式**：`mcp.failure_mode: fail_closed` 时，`health_snapshot()` 中任一 `unreachable` 或 `auth_required` 会拒绝 MCP/REST `tools/list`（`mcp.upstream_unavailable`，两者同样视为不可用）；`tools/call` 与 `/healthz` 不株连。缺省 `fail_open` 仍返回 stale 快照。
+- **目录失败模式**：`mcp.failure_mode: fail_closed` 时，`health_snapshot()` 中任一 `unreachable` 或 `auth_required` 会拒绝 MCP/REST `tools/list`（`mcp.upstream_unavailable`，两者同样视为不可用）；`tools/call` 与 `/healthz` 不株连；`prompts/list`、`resources/list`、`resources/templates/list`、`prompts/get`、`resources/read` 同样不受影响（只拦 `tools/list`）。缺省 `fail_open` 仍返回 stale 快照。
 - registry 对外新 API（as-built，`src/mcp/health.rs` + `registry.rs`）：
   - `health_snapshot() -> Vec<ServerHealth>`
   - `probe<S: SecretStore>(server_id: &str, secrets: &S) -> Result<ServerHealth, McpError>`（重连需要 secrets；unknown id → `McpError::UnknownServer` → 404 `admin.not_found`）

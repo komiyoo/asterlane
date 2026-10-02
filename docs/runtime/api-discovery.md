@@ -4,7 +4,7 @@ title: API 自动发现与 MCP 转换
 description: 定义从 OpenAPI spec 自动生成 endpoint 目录、HTTP API 转 MCP tool、第三方 MCP server 代理发现与缓存失效的机制。
 resource: docs/runtime/api-discovery.md
 tags: [discovery, openapi, mcp, architecture]
-timestamp: 2026-08-19T00:00:00Z
+timestamp: 2026-10-02T00:00:00Z
 ---
 
 # 背景
@@ -136,7 +136,9 @@ api_resources:
 
 批量入口拒绝空数组与超过上限的数组；授权失败、上游失败和 MCP `input_required` 保留在对应结果项中，调用方可只重试该项。批量结果有总字节预算；超出的工具输出使用现有按 key 绑定的 `ResultCache` 与 `asterlane__fetch_result` 续取，不丢弃完整结果。单次请求只允许调用 catalog 中当前 key 获准的工具，不提供任意代码执行或任意上游 URL 请求。
 
-MCP 与 REST `/v1/tools` 保持相同的 key 范围与默认发现模式；新增 meta-tool 在两条入口提供相同的逐项语义。工具描述可独立引导“搜索 → 获取详情 → 调用”。网关自身还提供 MCP prompt `asterlane_tool_workflow` 作为可选示例；[MCP prompts](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts) 由客户端或用户选择，不能假设客户端会自动载入。这里不代理上游 MCP server 的 prompts。
+MCP 与 REST `/v1/tools` 保持相同的 key 范围与默认发现模式；新增 meta-tool 在两条入口提供相同的逐项语义。工具描述可独立引导“搜索 → 获取详情 → 调用”。网关自身还提供 MCP prompt `asterlane_tool_workflow` 作为可选示例；[MCP prompts](https://modelcontextprotocol.io/specification/2026-07-28/server/prompts) 由客户端或用户选择，不能假设客户端会自动载入。
+
+`discovery_mode` 只影响 `tools/list` 与 REST `GET /v1/tools`。`prompts/list`、`resources/list` 与 `resources/templates/list` 在 lazy 与 full 下都返回当前 key 可见的全部条目，包括上游 MCP server 的 prompts、resources 与 templates。可见范围与工具相同，见 [MCP Protocol](../architecture/mcp-protocol.md#prompts-与-resources)。
 
 ## `asterlane__call_tool` 参数
 

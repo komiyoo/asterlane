@@ -155,7 +155,7 @@ src/error.rs
 各模块：
 
 ```text
-src/catalog.rs -> CatalogError (thiserror)
+src/catalog/   -> CatalogError (thiserror)
 src/policy.rs  -> PolicyError
 src/proxy/     -> ProxyError
 src/store/     -> StoreError

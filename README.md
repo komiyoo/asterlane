@@ -8,7 +8,7 @@
 
 ## 能力概览
 
-- **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；上游凭据经 secret 引用解析（env / file；可选 Vault KV v2 与 Infisical），永不下发给代理
+- **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；远程上游的 prompts、resources 与 resource templates 一并代理，可见范围与工具相同；上游凭据经 secret 引用解析（env / file；可选 Vault KV v2 与 Infisical），永不下发给代理。stdio / 本地进程 MCP server 不是目标
 - **上游 MCP OAuth** — 网关作为 OAuth 客户端接入需要授权的上游 MCP server：client-credentials 全自动（元数据发现、RFC 8707 `resource`、token 过期自动重新换取）；授权码类上游由管理员在控制台（或 `asterlane admin mcp-servers authorize <id>`）一次性授权，网关随后自己保存并刷新 token，整个网关共用这一个上游身份；token 加密存入 SQLite（无数据库时只在内存），没有凭据或刷新被拒时显示 `auth_required`，可在控制台撤销授权；未配置 `client_id` 时动态注册客户端，需在授权服务器登记回调地址 `{oauth.redirect_base_url}/oauth/callback`；token 永不离开网关，代理只用 gateway key
 - **内置 MCP preset** — 平台预集成免费 MCP server（exa / deepwiki / context7），一行启用
 - **工具命名与范围** — 稳定三段 wire name `domain__provider__tool`；per-key allow/deny 正则 scope 与结构化勾选
@@ -70,13 +70,13 @@ cargo run -- tools search "web search" --format json | jq '.tools[].name'
 cargo run -- admin stats
 ```
 
-在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。`tools search` 输出 `{tools,next_cursor}`，可用 `--limit` 和 `--cursor` 翻页；省略 `discovery_mode` 的 key 现在默认 lazy，旧客户端需要完整列表时为该 key 配 `discovery_mode: full`。代理侧把网关当作 MCP server 接入：`http://127.0.0.1:3000/mcp`（Streamable HTTP），可主动获取 `asterlane_tool_workflow` prompt。
+在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。`tools search` 输出 `{tools,next_cursor}`，可用 `--limit` 和 `--cursor` 翻页；省略 `discovery_mode` 的 key 现在默认 lazy，旧客户端需要完整列表时为该 key 配 `discovery_mode: full`。代理侧把网关当作 MCP server 接入：`http://127.0.0.1:3000/mcp`（Streamable HTTP），可主动获取 `asterlane_tool_workflow` prompt，以及当前 key 可见的上游 prompts 与 resources。lazy 只收窄工具列表。
 
 ## 端点
 
 | 路径 | 说明 |
 |------|------|
-| `/mcp` | MCP Streamable HTTP（`tools/list` / `tools/call`） |
+| `/mcp` | MCP Streamable HTTP（tools、prompts、resources；resource URI 为 `asterlane://{server_id}/{上游原 URI}`） |
 | `/v1/tools`、`/v1/tools/{name}/invoke` | REST 工具发现与调用 |
 | `/admin/*` | 管理 API（Bearer admin key 认证） |
 | `/admin/ui` | Web 管理控制台 |
@@ -158,7 +158,7 @@ src/
 ├── config/          # 配置模型与加载后校验（按配置节拆分）
 ├── naming.rs        # MCP 工具命名解析
 ├── policy.rs        # key scope 与请求级收窄
-├── catalog.rs       # 工具目录、过滤、分页
+├── catalog/         # 工具目录、过滤、分页
 ├── error.rs         # 错误码与边界映射
 ├── gateway_auth.rs  # 网关认证
 ├── presets.rs       # 内置 MCP preset

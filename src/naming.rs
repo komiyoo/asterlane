@@ -70,6 +70,26 @@ impl FromStr for ToolName {
     }
 }
 
+/// 判权用的匹配名 `domain__provider__<name>`，给不对外暴露的条目（resource、
+/// resource template）。domain 与 provider 按 [`ToolName`] 同一规则规范化，`name`
+/// 原样保留：这类名称可以含 `.`、`/` 等 `ToolName` 不接受的字符，也没有长度预算。
+/// 对外暴露的名字（工具、prompt）一律走 [`ToolName`]。
+pub fn scope_match_name(
+    domain: impl Into<String>,
+    provider: impl Into<String>,
+    name: &str,
+) -> Result<String, ToolNameError> {
+    if name.is_empty() {
+        return Err(ToolNameError::EmptySegment);
+    }
+    Ok(format!(
+        "{}__{}__{}",
+        normalize_segment(domain.into())?,
+        normalize_segment(provider.into())?,
+        name
+    ))
+}
+
 fn normalize_segment(value: String) -> Result<String, ToolNameError> {
     let trimmed = value.trim().to_ascii_lowercase().replace(' ', "-");
     if trimmed.is_empty() {
@@ -136,6 +156,19 @@ mod tests {
             error,
             ToolNameError::InvalidShape("search__exa".to_string())
         );
+    }
+
+    #[test]
+    fn scope_match_name_keeps_the_raw_name() {
+        let name = scope_match_name("Docs", "Wiki", "guide/README.md v2").unwrap();
+        assert_eq!(name, "docs__wiki__guide/README.md v2");
+        // ToolName 不接受同一个名字：只有对外暴露的名字才受字符集约束
+        assert!(ToolName::new("docs", "wiki", "guide/README.md v2").is_err());
+        assert_eq!(
+            scope_match_name("docs", "wiki", ""),
+            Err(ToolNameError::EmptySegment)
+        );
+        assert!(scope_match_name("bad/domain", "wiki", "x").is_err());
     }
 
     #[test]
