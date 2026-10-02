@@ -105,11 +105,13 @@ flowchart LR
 
 `src/config.rs` 生产代码 768 行，S5 还要在这里加 OAuth 配置。
 
-- [ ] 晋升为 `src/config/` 目录，按内聚单元拆分，例如：上游与认证类型（`ApiResource`、`UpstreamAuth`、`McpServerConfig` 等）、proxy key 与 scope、各运行时节（`secrets`、`http`、`mcp`、`observability` 等）、加载与校验（含 `expand_builtin_mcp`）。具体边界由实现者按引用关系决定。
-- [ ] `crate::config::X` 路径不变（`mod.rs` re-export），serde 形状与 YAML 契约完全不变。
-- [ ] 顺手把 `expand_builtin_mcp`（约 96 行）和 `GatewayConfig` 的 `Default` 实现（约 83 行）降到 80 行以内。
+- [x] 晋升为 `src/config/` 目录，按内聚单元拆分，例如：上游与认证类型（`ApiResource`、`UpstreamAuth`、`McpServerConfig` 等）、proxy key 与 scope、各运行时节（`secrets`、`http`、`mcp`、`observability` 等）、加载与校验（含 `expand_builtin_mcp`）。具体边界由实现者按引用关系决定。
+- [x] `crate::config::X` 路径不变（`mod.rs` re-export），serde 形状与 YAML 契约完全不变。
+- [x] 顺手把 `expand_builtin_mcp`（约 96 行）和 `GatewayConfig` 的 `Default` 实现（约 83 行）降到 80 行以内。实测这两处本来就在预算内（见结果），未做额外改写。
 
 验收：每个文件的生产代码 ≤500 行；`examples/*.yaml` 加载结果不变；`just check` 全绿。
+
+结果（2026-10-01）：`src/config.rs`（生产 768 行）拆为 `src/config/` 下 9 个文件，生产行数最大 `upstream.rs` 242、`runtime.rs` 132、`post_load.rs` 125、`mod.rs` 98，均 ≤500；`crate::config::X` 路径与 YAML 契约不变。`expand_builtin_mcp` 实测 48 行，`GatewayConfig` 是 `#[derive(Default)]`，计划里的 96 行与 83 行与代码不符，原本就在 80 行预算内，未改写。`just check` 全绿，863 passed、2 ignored（与拆分前一致）；`cargo test --lib` 758 个测试，测名清单（忽略 `config::<子模块>::tests` 路径）一致；三个 `examples/*.yaml` 的加载结果逐字节一致。
 
 ## S4 拆分 invoke_call 与 serve
 

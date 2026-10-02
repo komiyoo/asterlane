@@ -113,7 +113,7 @@ timestamp: 2026-10-01T00:00:00Z
 
 | 模块 | 改动 |
 | --- | --- |
-| `src/config.rs` | `UpstreamLimits` 增加可选的 `per_key_rps`、`per_key_rpm`（对资源内每把 key 取相同额度；`serde(default)`，兼容既有配置）。每把 key 不同额度可以以后在 `PoolKeyConfig` 上叠加覆盖字段，本轮不做。 |
+| `src/config/upstream.rs` | `UpstreamLimits` 增加可选的 `per_key_rps`、`per_key_rpm`（对资源内每把 key 取相同额度；`serde(default)`，兼容既有配置）。每把 key 不同额度可以以后在 `PoolKeyConfig` 上叠加覆盖字段，本轮不做。 |
 | `src/limits/` | `UpstreamEntry` 增加 `per_key: Option<RateLimits>`；新增 `LimitRegistry::check_upstream_key(resource_id, KeyId)`，超限返回 `QuotaExceeded { dimension: "upstream_key", reset_after }`；0 值沿用 `config.invalid_yaml` 校验。`RateLimits::check` 改为同步。key 空间 = 池内 key 数，有界，不需要清理。 |
 | `src/proxy/retry.rs` | 在每次尝试 `acquire_pool_key` 选出 key 之后检查；超限则用 `reset_after` 调 `mark_cooling` 冷却该 key、释放租约并换一把，最多尝试池大小次；全部超限时返回 429 `limit.quota_exceeded`，`Retry-After` 取最短的 `reset_after`。复用冷却机制，不给 `keys` 模块增加对 `limits` 的依赖（编排由 proxy 层负责，对应 [Architecture](architecture.md) 里 keys/limits 边界独立的原则）。这一步没有发出上游请求，不计入重试次数。 |
 | `src/proxy/post.rs` | `ProxyError::Limit` 触发的事件要把 `rate_limited` 置 `true`，否则指标和用量里的限流命中会漏记这类拒绝。 |
@@ -185,7 +185,7 @@ timestamp: 2026-10-01T00:00:00Z
 | --- | --- |
 | `src/main.rs`（`serve`） | `axum::serve` 改用 `app.into_make_service_with_connect_info::<SocketAddr>()`，目前没有提取对端地址。注意 axum 文档说明，用 `ConnectInfo` 提取器而没有这样启动，会在运行时失败。[^axum] |
 | `src/http/` | 新增客户端地址解析（TCP 对端 + 可选的 `X-Forwarded-For`，见下一节）和一个中间件，挂在 `build_app_with_ct` 的合并路由上。缺少 `ConnectInfo` 时放行：`tests/` 里的 `Router::oneshot` 没有它，需要用请求扩展注入。 |
-| `src/config.rs` | `HttpServerConfig` 增加客户端地址与限额配置（草案见下一节），启动校验。 |
+| `src/config/runtime.rs` | `HttpServerConfig` 增加客户端地址与限额配置（草案见下一节），启动校验。 |
 | `src/limits/` | 把 `LimiterKey::Ip` 改成不带 `ApiId` 的形状（或直接用 `DefaultKeyedRateLimiter<IpAddr>`）；IPv6 聚合到 /64、IPv4-mapped 地址先 `to_canonical()`；定期 `retain_recent` 并设基数上限，否则轮换来源地址会让内存无界增长。 |
 | `src/http/state.rs` | 状态放在 `AppState` 里，不放进 `LimitRegistry`：后者每次 CRUD 都会重建，会重置 IP 状态。限额变更需要重启生效，或单独提供重建入口。 |
 | `src/main.rs` 后台任务 | 增加清理的定时调用（S4 之后每个 tick 应是某个模块公开函数的一次调用）。 |

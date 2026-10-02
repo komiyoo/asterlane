@@ -1,5 +1,13 @@
 # Documentation Update Log
 
+## 2026-10-01（拆分 config.rs）
+
+- **结论**：`src/config.rs` 生产代码 768 行超过 500 行预算，晋升为 `src/config/` 目录并按内聚单元纯移动拆分，不改 serde 属性、字段名、缺省值与校验逻辑。文件与生产行数：`mod.rs`（`GatewayConfig` 本体、`GatewayDefaults`、按 id 查找方法，98）、`upstream.rs`（`ApiResource`、`McpServerConfig`、key 池、OpenAPI discovery、`UpstreamLimits`、`HealthCheckConfig`、`HttpMethod`、`SecurityConfig`，242）、`auth.rs`（`UpstreamAuth`，40）、`proxy_key.rs`（`ProxyKey`、`KeyLimits`，71）、`runtime.rs`（`observability`、`http`、`mcp` 三节，132）、`secrets.rs`（91）、`admin.rs`（21）、`semantic_search.rs`（25）、`post_load.rs`（`validate_http`、`validate_key_credentials`、`expand_builtin_mcp`，125）。`auth.rs` 与 `mod.rs` 是 S5 加 `UpstreamAuth` 新变体和顶层 `oauth` 节的落点。
+- **路径**：`crate::config::X` 全部不变：子模块私有，类型由 `mod.rs` `pub use`，没有新增公开路径。原底部 26 个测试按被测类型分入各子模块，共用的 `parse` 夹具放进 `#[cfg(test)] mod test_support`。
+- **函数预算**：实施计划写的 `expand_builtin_mcp` 约 96 行、`GatewayConfig` 的 `Default` 实现约 83 行与代码不符：前者实测 48 行，后者是 `#[derive(Default)]`，没有手写实现（各节类型自带的 `Default` 各 8 到 9 行），两处原本就在 80 行预算内，未做额外改写。`validate_http` 的文档注释原先混进了 `validate_key_credentials` 的说明，搬移时各归各位，仅此一处注释调整。
+- **文档**：根 `README.md` 项目结构、`.codex/skills/asterlane/SKILL.md`、[Rate Limit Dimensions](architecture/rate-limit-dimensions.md)、[Key Credentials & Persistence](runtime/key-credentials-and-persistence.md)、[MCP Governance](runtime/mcp-governance-and-key-limits.md) 中的 `src/config.rs` 改为新位置；YAML 契约（[Configuration Schema](runtime/config-schema.md)）不变。
+- **验证**：本机 `just check` 通过，`cargo test` 共 863 passed、2 ignored，与拆分前一致；`cargo test --lib` 758 个测试，拆分前后测试名清单去掉 `config::<子模块>::tests` 路径差异后逐项一致。拆分前后对 `examples/*.yaml` 三个文件做解析、`validate_*`、`expand_builtin_mcp` 后的 `Debug`、JSON 与 YAML 输出逐字节比对，以及 `GatewayConfig::default()` 与空文档解析结果比对，全部一致；`list-tools` 输出一致（`gateway.yaml` 成功，`gateway-mcp.yaml` 与 `gateway-rollinggo.yaml` 无静态工具，拆分前后同样报 `no tools visible`）。
+
 ## 2026-10-01（删除请求变换）
 
 - **结论**：按 2026-10-01 产品决策删除请求变换。`src/transform/` 模块（546 行，含 15 个单测）整体移除，`src/lib.rs` 不再导出；该模块只有自己的单测调用，`proxy` 不引用，`GatewayConfig` 也没有 transforms 配置节。同时删除 `ErrorCode::TransformDangerousHeader` / `TransformInvalidPointer`（`transform.dangerous_header`、`transform.invalid_pointer`）、`transform` 分类，以及 `src/error.rs`、`src/cli/client.rs` 中退出码 8 与 HTTP 500 的映射。这两个错误码从未在生产路径发出，没有消费者，不走弃用周期。

@@ -36,7 +36,7 @@ MCP 治理交付（见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.
 
 ## K1 Proxy key 凭据化
 
-**配置（config.rs，W0 地基）**：`ProxyKey` 新增三个可选字段，全部 `serde(default)`：
+**配置（`src/config/proxy_key.rs`，W0 地基）**：`ProxyKey` 新增三个可选字段，全部 `serde(default)`：
 
 ```yaml
 proxy_keys:
@@ -90,7 +90,7 @@ proxy_keys:
 
 | 切片 | 内容 | 拥有文件 |
 | --- | --- | --- |
-| W0 地基（主代理，先行） | ProxyKey 三字段 + KeyLimits.max_calls_per_day + 校验 + 两个新错误码 + 全仓字面量 + config-schema.md | `src/config.rs`、`src/error.rs`、受字面量影响文件、`docs/runtime/config-schema.md` |
+| W0 地基（主代理，先行） | ProxyKey 三字段 + KeyLimits.max_calls_per_day + 校验 + 两个新错误码 + 全仓字面量 + config-schema.md | `src/config/`、`src/error.rs`、受字面量影响文件、`docs/runtime/config-schema.md` |
 | K-A 认证核心 | gateway_auth.rs、Bearer/legacy 解析、/v1 与 /mcp 绑定、main.rs 装配、e2e 测试 | `src/gateway_auth.rs`（新）、`src/lib.rs`、`src/http/*`、`src/mcp/server.rs`、`src/main.rs`、`tests/gateway_auth.rs`（新） |
 | K-B 持久化合并 | `merge_db_into_config` 纯函数 + 单测（不接线） | `src/store/*` |
 | K-C 日配额核心 | 日计数/翻转/回填 seed/getter/准入插桩 | `src/limits/*` |
