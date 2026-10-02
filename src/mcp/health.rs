@@ -25,6 +25,7 @@ use crate::mcp::dedup::{dedup_against_others, push_deduped_entry};
 use crate::mcp::error::McpError;
 use crate::mcp::peer::{PeerConnector, RemoteMcpPeer};
 use crate::mcp::registry::{McpServerEntry, McpServerRegistry, RefreshResult};
+use crate::mcp::surface::{self, SurfaceSnapshot};
 use crate::mcp::transport::connect_server;
 use crate::secrets::{SecretError, SecretRef, SecretStore, SecretString};
 
@@ -327,6 +328,7 @@ impl McpServerRegistry {
                     tools: old.tools,
                     descriptors: old.descriptors,
                     health: old.health,
+                    surface: old.surface,
                 };
                 probe_entry(entry, peer, Instant::now()).await
             }
@@ -380,6 +382,7 @@ pub(super) async fn establish_entry<S: SecretStore>(
                 tools: Vec::new(),
                 descriptors: Vec::new(),
                 health,
+                surface: SurfaceSnapshot::default(),
             };
             probe_entry(entry, peer, started).await
         }
@@ -397,6 +400,7 @@ pub(super) async fn establish_entry<S: SecretStore>(
                 tools: Vec::new(),
                 descriptors: Vec::new(),
                 health,
+                surface: SurfaceSnapshot::default(),
             }
         }
     }
@@ -417,9 +421,11 @@ pub(super) async fn probe_entry(
     };
     match outcome {
         Ok((tools, descriptors)) => {
+            let surface = surface::load_surface(&entry.config, peer.as_ref(), &entry.surface).await;
             let latency_ms = elapsed_ms(started);
             entry.tools = tools;
             entry.descriptors = descriptors;
+            entry.surface = surface;
             mark_ok(&mut entry.health, enabled, latency_ms, entry.tools.len());
             debug!(
                 server_id = %entry.config.id,

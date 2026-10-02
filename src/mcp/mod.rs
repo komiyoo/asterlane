@@ -26,6 +26,9 @@
 //!   tool name 写入 `WrappedTool.upstream_path`，转发时剥网关前缀。
 //! - [`upstream_notify`]：上游 `tools/list_changed`（listen + session 回调）。
 //! - [`server`]：下游 `/mcp` Streamable HTTP handler。
+//! - `surface`（私有）：上游 prompts / resources / templates 快照与
+//!   `asterlane://` URI 命名空间；判权复用 `policy::key_can_use_name`。
+//! - `downstream`（私有）：`AsterlaneToolServer` 的 prompts 与 resources handler。
 //!
 //! ## 设计要点
 //!
@@ -44,6 +47,7 @@
 pub(crate) mod call;
 mod convert;
 mod dedup;
+mod downstream;
 pub mod error;
 pub mod health;
 pub mod model;
@@ -53,6 +57,7 @@ pub mod peer;
 pub mod registry;
 mod result;
 pub mod server;
+mod surface;
 mod transport;
 pub mod upstream_notify;
 mod workflow_prompt;
