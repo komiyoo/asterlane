@@ -45,14 +45,13 @@ The original product requirements are preserved in [Product Requirements](../pro
 | `keys` | upstream key pool、冷却、健康、权重、registry。 | 已实现（pool + LB + 请求路径接线；admin CRUD 热更新） |
 | `routing` | 负载均衡与 failover 策略。 | 已实现（集成于 keys LB） |
 | `limits` | 限流、配额、队列准入。 | 已实现（GCRA + queue） |
-| `transform` | header/query/path/body 变换。 | 模块已实现（声明式 header/body 规则），未接入执行管线，无配置节，见 [Roadmap](../product/roadmap.md) |
 | `proxy` | 上游 HTTP 执行。 | 已实现（retry + failover） |
 | `mcp` | MCP 协议适配器与远程 MCP 代理。 | 已实现（rmcp 3.1 + `2026-07-28` 双栈） |
 | `observability` | 请求事件、指标、脱敏、聚合，见 [Observability](observability.md)。 | 已实现（metrics + store + Prometheus） |
 | `store` | 数据库抽象、迁移、仓库。 | 已实现（SQLite） |
 | `admin` | admin API 与管理 UI。 | 已实现（资源/key/MCP server CRUD + Bearer 认证 + Web 控制台） |
 
-模块编排关系：proxy 执行层编排 keys/limits/routing/transform/secrets，不反向依赖；observability 横切所有层；catalog 是 config→MCP/HTTP 的投影层。借鉴 NyaProxy 的 TrafficManager 三合一（key 池+限流+LB）反模式，Asterlane 保持 keys/limits/routing 边界独立。
+模块编排关系：proxy 执行层编排 keys/limits/routing/secrets，不反向依赖；observability 横切所有层；catalog 是 config→MCP/HTTP 的投影层。借鉴 NyaProxy 的 TrafficManager 三合一（key 池+限流+LB）反模式，Asterlane 保持 keys/limits/routing 边界独立。
 
 # Data Flow
 
@@ -65,7 +64,6 @@ Agent
   -> Gateway resolves secret ref -> injects upstream credential
   -> Upstream key pool selects key (LB strategy + health + cooldown)
   -> Rate limit / queue admission
-  -> Request transformation (header/query/path/body)
   -> Upstream HTTP API or remote MCP server
      (for MCP, strip {domain}__{provider}__ prefix to recover upstream tool name)
   -> Gateway records RequestEvent (proxy key, upstream key ref, tool, status, latency)
@@ -92,14 +90,6 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 - **限流维度**（类型化 `LimiterKey` 枚举替代字符串拼接）：生产在用 `Endpoint(ApiId)`（上游）与 `Principal(PrincipalId)`（gateway key）；`UpstreamKey`、`Ip`、`GatewayPrincipal` 与 `RateLimits` 尚未接线（截至 2026-10-01），来历、成本与接线或保留的推荐见 [Rate Limit Dimensions](rate-limit-dimensions.md)。
 - **算法**：`governor` GCRA（O(1) 内存）。整数配额可退还；GCRA 令牌不能退还。`Retry-After` 从 check 失败时的 `wait_time_from` 传递，不做非消费 peek（governor 不支持）。
 - **队列**：每个配置了 `max_concurrent` 的上游一个 tokio `Semaphore` 控制并发，`tokio::time::timeout` 包裹排队；排队超时返回 503 `limit.queue_timeout`。`Priority::{MasterKey, Retry}` 已实现但生产路径固定传 `Normal`，不存在优先级队列。
-
-# Request Transformation
-
-借鉴 NyaProxy（`utils/header.py`、`utils/substitution.py`）：
-
-- **header 模板**：`${{var}}` 变量替换，`key_variable` 解释为 secret ref，渲染结果标记为 `SecretString`。
-- **body 规则**：声明式 `set`/`remove` 操作 + 条件（`eq`/`gt`/`contains` 等 operator enum），路径求值用 `serde_json_path` 或 JSON Pointer。仅 `application/json` 生效，规则失败产生可观测告警（不静默）。
-- **安全护栏**：默认不允许 agent 写入危险 header（`Authorization`、`Host`、`Cookie` 等），变换规则显式配置。
 
 # Retry And Failover
 

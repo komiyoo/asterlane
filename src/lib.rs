@@ -22,7 +22,6 @@ pub mod secrets;
 pub mod semantic;
 pub mod shaping;
 pub mod store;
-pub mod transform;
 
 pub use catalog::{ParamLocations, ToolCatalog, ToolListQuery, ToolPage, WrappedTool};
 pub use config::{

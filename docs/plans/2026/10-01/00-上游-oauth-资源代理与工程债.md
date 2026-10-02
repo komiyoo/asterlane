@@ -92,12 +92,14 @@ flowchart LR
 
 ## S2 删除请求变换
 
-- [ ] 删除 `src/transform/` 与 `src/lib.rs` 的 `pub mod transform`。
-- [ ] 删除 `ErrorCode::TransformDangerousHeader` / `TransformInvalidPointer` 及 `transform` 分类映射，删除 `src/cli/client.rs` 中 `transform` → 退出码 8 的映射与测试。这些码从未在生产路径发出，没有消费者，不走弃用周期；在 [Error Model](../../../architecture/error-model.md) 注明退出码 8 已退役、不复用。
-- [ ] 同步撤回声明：[Product Requirements](../../../product/product-requirements.md)（借鉴清单、需求条目与 `Request Transformation` 节）、[Architecture](../../../architecture/architecture.md) 模块表与编排说明、[Engineering Conventions](../../../engineering/engineering-conventions.md) 分层表与 `transform` 豁免、[Development Workflow](../../../engineering/development-workflow.md) 模块表与借鉴清单、[Response Rendering](../../../runtime/response-rendering.md) 中的对照句、根 `README.md` 能力概览与项目结构、[Roadmap](../../../product/roadmap.md) 支柱四与 Phase 7 条目。
-- [ ] `rg -i "transform" src docs README.md` 只剩 CSS 与历史记录（`docs/log.md`、计划归档）。
+- [x] 删除 `src/transform/` 与 `src/lib.rs` 的 `pub mod transform`。
+- [x] 删除 `ErrorCode::TransformDangerousHeader` / `TransformInvalidPointer` 及 `transform` 分类映射，删除 `src/cli/client.rs` 中 `transform` → 退出码 8 的映射与测试。这些码从未在生产路径发出，没有消费者，不走弃用周期；在 [Error Model](../../../architecture/error-model.md) 注明退出码 8 已退役、不复用。
+- [x] 同步撤回声明：[Product Requirements](../../../product/product-requirements.md)（借鉴清单、需求条目与 `Request Transformation` 节）、[Architecture](../../../architecture/architecture.md) 模块表与编排说明、[Engineering Conventions](../../../engineering/engineering-conventions.md) 分层表与 `transform` 豁免、[Development Workflow](../../../engineering/development-workflow.md) 模块表与借鉴清单、[Response Rendering](../../../runtime/response-rendering.md) 中的对照句、根 `README.md` 能力概览与项目结构、[Roadmap](../../../product/roadmap.md) 支柱四与 Phase 7 条目。
+- [x] `rg -i "transform" src docs README.md` 只剩 CSS 与历史记录（`docs/log.md`、计划归档）。
 
 验收：`just check` 全绿；全库不再有请求变换的现行承诺。
+
+结果（2026-10-01）：删除 `src/transform/`（546 行，15 个单测）与两个 `transform.*` 错误码；退出码 8 退役，Error Model 已注明。`just check` 全绿，863 passed、2 ignored（基线 878 passed、2 ignored，差值 15 即被删模块的单测）。`src` 内 `transform` 只剩 CSS 与一条退出码退役注释；现行文档（PRD、Architecture、Engineering Conventions、Development Workflow、Response Rendering、Error Model、根 `README.md`、Roadmap）已撤回请求变换承诺，PRD 中仅由 `transform` 提供的「header/template 变量替换」条目一并移除。
 
 ## S3 拆分 config.rs
 
