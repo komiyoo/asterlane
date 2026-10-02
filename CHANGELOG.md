@@ -8,6 +8,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+- 删除未接入执行路径的请求变换模块（`transform`）及 `transform.*` 错误码；这些错误码从未在生产路径发出。CLI 退出码 8 曾对应 `transform.*`，已退役，不复用。
+
 ### Security
 
 - 升级 `rustls` 至 0.23.45，修复 RUSTSEC-2026-0285。

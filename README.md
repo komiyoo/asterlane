@@ -15,7 +15,7 @@
 - **细粒度限额** — per-key rps/rpm/累计/日配额 + per-上游 rps/rpm/并发上限
 - **MCP 治理** — 供应商 CRUD、健康状态机、降级启动、自动重连、工具介绍 override
 - **渐进式发现** — 默认 lazy，只列出六个网关工具；按 key 范围搜索、批量取详情和批量调用，显式 `discovery_mode: full` 保留完整列表
-- **执行管线** — key pool 负载均衡、限流队列、失败重试、content defense、结果裁剪（请求变换模块尚未接入执行路径）
+- **执行管线** — key pool 负载均衡、限流队列、失败重试、content defense、结果裁剪
 - **MCP 代理安全** — 上游工具指纹 baseline 与 drift 检测（warn/quarantine/block）
 - **观测** — 请求事件落 SQLite，负载捕获（参数/响应预览/耗时，截断+脱敏），Prometheus `/metrics`，OTLP 导出（feature `otlp`）
 - **调试与运维** — Web 管理控制台 + `asterlane admin` CLI（含 resources / proxy-keys / mcp-servers 的 create / update / rm）
@@ -171,7 +171,6 @@ src/
 ├── limits/          # 限流与配额
 ├── secrets/         # secret 引用解析
 ├── defense/         # content defense
-├── transform/       # 请求变换
 ├── observability/   # 事件、指标、脱敏
 └── openapi/         # OpenAPI 自动发现
 ```

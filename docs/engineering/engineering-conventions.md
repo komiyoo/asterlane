@@ -17,15 +17,14 @@ timestamp: 2026-07-05T00:00:00Z
 
 | 层 | 模块 | 允许依赖 |
 | --- | --- | --- |
-| 纯逻辑核心 | `naming` `policy` `catalog` `error` `config` `integrity` `transform` `render` `shaping` `defense` `discovery` `openapi` `observability`（模型/脱敏/metrics facade） | serde、regex、std、tokio 同步原语；禁止 axum / sqlx / rmcp / reqwest（豁免见下） |
+| 纯逻辑核心 | `naming` `policy` `catalog` `error` `config` `integrity` `render` `shaping` `defense` `discovery` `openapi` `observability`（模型/脱敏/metrics facade） | serde、regex、std、tokio 同步原语；禁止 axum / sqlx / rmcp / reqwest（豁免见下） |
 | IO 与协议适配 | `proxy`（reqwest）`mcp`（rmcp）`store`（sqlx）`secrets`（后端 HTTP）`keys` `limits` | 各自协议 crate + 纯逻辑核心 |
 | 边界 | `http` `admin`（axum）`main.rs`（CLI） | 一切；错误→输出转换只发生在这一层 |
 
 - 判据是 `src/error.rs` 模式：核心模块返回纯数据，由边界转换为 HTTP/MCP/CLI 输出（见 `src/http/error.rs`）。
 - 协议类型止步于适配层：rmcp 类型不出 `mcp/` 与 `http/`（server transport 装配）；`proxy::executor` 只消费 `mcp::model` 自有类型。
 - 现存豁免（新增同类豁免须在此登记）：
-  - `config::HttpMethod::to_reqwest`——类型转换 helper；
-  - `transform` 使用 `reqwest::header` 类型（实为 `http` crate 类型的 re-export）。
+  - `config::HttpMethod::to_reqwest`——类型转换 helper。
 
 # 组合根
 

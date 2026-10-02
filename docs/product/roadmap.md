@@ -75,7 +75,7 @@ timestamp: 2026-10-01T00:00:00Z
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| **请求变换完全未接线** | 兑现差（重） | `transform::apply_transforms` 只有模块内单测调用，`proxy` 不引用，`GatewayConfig` 无 transforms 配置节。根 `README.md` 已下调为「尚未接入执行路径」，接线 / 删除仍待产品决策 |
+| **已交付：删除请求变换**（2026-10-01） | 兑现差（已清） | 原 `transform` 模块无生产调用方，按「删除优先」移除 `src/transform` 与 `transform.*` 错误码（CLI 退出码 8 退役，不复用）；[Product Requirements](product-requirements.md)、[Architecture](../architecture/architecture.md)、根 `README.md` 等现行文档同步撤回承诺 |
 | 只代理上游 tools，不代理上游 resources / prompts | 定位缺口 | 网关已提供自有 workflow prompt；`RemoteMcpPeer` 仍只有 `list_tools` / `call_tool`，未代理上游 resources / prompts |
 | 无 stdio / 本地进程 MCP server | 待决策 | `mcp::peer` 仅用 `StreamableHttpClientTransport` |
 | 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口 | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建 |
@@ -84,7 +84,7 @@ timestamp: 2026-10-01T00:00:00Z
 | **已交付：非幂等方法不重试**（2026-08-20） | 生产就绪（已清） | `proxy::retry` 的 `is_idempotent_method`：仅 GET 参与状态码/超时/连接失败重试；POST/PUT/PATCH/DELETE 一次失败即返回 |
 | 每 endpoint 覆盖负载均衡策略 | 定位缺口（轻） | 策略只配在 resource 级 `key_pool.strategy`；[Product Requirements](product-requirements.md) 承诺可按 endpoint 覆盖 |
 
-**判断**：请求变换是从 NyaProxy 借鉴的既定能力，模块写完了却没接上任何调用方——这是全库最典型的兑现差，必须在下一阶段清账（接线或下线二选一，不留第三态）。多上游 MCP 失败语义已可配置：默认 FailOpen，FailClosed 避免把 stale 工具当权威目录。
+**判断**：请求变换曾是全库最典型的兑现差（从 NyaProxy 借鉴，模块写完却没接上任何调用方），2026-10-01 已通过删除清账。多上游 MCP 失败语义已可配置：默认 FailOpen，FailClosed 避免把 stale 工具当权威目录。
 
 ## 支柱五：使用日志与管理可见性
 
@@ -115,7 +115,7 @@ timestamp: 2026-10-01T00:00:00Z
 
 截至 2026-08-19 已清：删除 `PlaceholderAdapter` / `GatewayToolSource` / `UpstreamToolMapping`；`mcp` 模块注释对齐 rmcp 3.x；`handle_meta_tool_call` 对 invoke 管线名字返回 `mcp.invalid_tool_call`；PRD「当前实现状态」改为历史快照并指向本文件；[Admin Console](../admin/admin-console.md) 与 [MCP Governance & Key Limits](../runtime/mcp-governance-and-key-limits.md) 回填已交付现状；[Tool Debugging & CLI](../admin/tool-debugging-and-cli.md) 不再引用 gitignore 的 `task.md`。根 `README.md` 请求变换过声称已于同日下调。
 
-剩余兑现差只剩请求变换接线或删除（见 Phase 7）。
+原先剩余的最后一项兑现差（请求变换未接线）已于 2026-10-01 通过删除清账（见 Phase 7）。
 
 # 分阶段规划
 
@@ -126,7 +126,7 @@ timestamp: 2026-10-01T00:00:00Z
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
 - **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）；admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作；`request_events` 可配置保留窗口 + 后台清理；容器非 root + HEALTHCHECK；文档去腐（删除 MCP 占位死代码、回填 PRD/控制台/治理文档、去掉对 gitignore `task.md` 的现行引用）
-- 请求变换：2026-10-01 决定删除 `transform` 模块，并同步撤回 [Product Requirements](product-requirements.md) 与 [Architecture](../architecture/architecture.md) 的声明
+- **已交付（2026-10-01）**：请求变换——删除 `transform` 模块与 `transform.*` 错误码，并同步撤回 [Product Requirements](product-requirements.md) 与 [Architecture](../architecture/architecture.md) 等现行文档的声明
 
 **准出**：`rg` 全库无「文档承诺但生产路径零引用」的能力；容器以非 root 启动且 healthcheck 通过；连续写入压测下 `request_events` 表体积收敛。
 
@@ -173,7 +173,7 @@ timestamp: 2026-10-01T00:00:00Z
 
 | 决策 | 结论 | 影响 |
 | --- | --- | --- |
-| **请求变换是能力还是债务** | 2026-10-01：删除 | `transform` 模块无生产调用方，按「删除优先」移除；[Product Requirements](product-requirements.md) 同步撤回该承诺。`transform.*` 错误码从未在生产路径发出，随模块删除 |
+| **请求变换是能力还是债务** | 2026-10-01：删除（已完成） | `transform` 模块无生产调用方，按「删除优先」移除；[Product Requirements](product-requirements.md) 同步撤回该承诺。`transform.*` 错误码从未在生产路径发出，随模块删除 |
 | **是否支持 stdio / 本地进程 MCP server** | 2026-10-01：不支持，列为非目标 | 只对接远程（Streamable HTTP）上游，见「不变的非目标」 |
 | **是否代理 tools 之外的 MCP primitive** | 2026-10-01：代理 resources + prompts | 仅远程上游。key 可见范围沿用工具 scope 规则（以 `domain__provider__<上游名称>` 匹配），不新增配置字段；resource URI 由网关加命名空间以便路由 |
 | **上游 OAuth 是否另开用户委托模式** | 2026-10-01：只做网关持有 | 支持 client-credentials，以及管理员发起一次授权码（PKCE，必要时 DCR）后由网关保存并刷新 token。整个网关共用一个上游身份；按用户委托仍不做，下游仍只用 gateway key |

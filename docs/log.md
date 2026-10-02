@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-10-01（删除请求变换）
+
+- **结论**：按 2026-10-01 产品决策删除请求变换。`src/transform/` 模块（546 行，含 15 个单测）整体移除，`src/lib.rs` 不再导出；该模块只有自己的单测调用，`proxy` 不引用，`GatewayConfig` 也没有 transforms 配置节。同时删除 `ErrorCode::TransformDangerousHeader` / `TransformInvalidPointer`（`transform.dangerous_header`、`transform.invalid_pointer`）、`transform` 分类，以及 `src/error.rs`、`src/cli/client.rs` 中退出码 8 与 HTTP 500 的映射。这两个错误码从未在生产路径发出，没有消费者，不走弃用周期。
+- **影响面**：用户可见行为不变（该能力从未可用）。CLI 退出码 8 退役、不复用，[Error Model](architecture/error-model.md) 的退出码表已注明，`transform.*` 错误码行与 HTTP 映射行已删除。现行文档撤回请求变换承诺：[Product Requirements](product/product-requirements.md)（借鉴清单、JSON body 与 header 变量替换条目、HTTP API Wrapper 中的说法、`Request Transformation` 节）、[Architecture](architecture/architecture.md)（模块表、编排说明、数据流、`Request Transformation` 节）、[Engineering Conventions](engineering/engineering-conventions.md)（分层表与 `reqwest::header` 豁免）、[Development Workflow](engineering/development-workflow.md)（借鉴清单与模块表）、[Response Rendering](runtime/response-rendering.md)（不再与已删模块对照）、根 `README.md`（能力概览与项目结构）。[Roadmap](product/roadmap.md) 支柱四、Phase 7、技术债小节与产品决策表改记为已交付。`CHANGELOG.md` 的 `[Unreleased]` 新增 `Removed` 条目。
+- **验证**：本机 `just check` 通过：`cargo test` 共 863 passed、2 ignored（基线 878 passed、2 ignored），减少的 15 个正是被删模块的单测，CLI 退出码断言只是 `exit_codes_follow_error_model_categories` 中删掉一行，不改变测试数。`rg -n -i "transform" src` 只剩 `src/admin/ui/styles.css` 的 CSS 与 `src/error.rs` 中一条退出码 8 退役注释。`rg -n -i "transform|请求变换|变换" docs README.md`（不含 `docs/log.md`、`docs/plans/`）剩余命中均为本次删除的记录、退役说明或 2026-08-19 的历史记述，没有现行承诺。
+
 ## 2026-10-01（发布流程）
 
 - **新增**：根 `CHANGELOG.md`（Keep a Changelog 1.1.0，中文条目），`[Unreleased]` 先记入 rustls 升级；[Release Process](engineering/release-process.md)，覆盖版本策略（每次发布默认 patch +0.0.1）、CHANGELOG 约定、发布步骤、产物与首次发布注意事项；`.github/workflows/release.yml`，push `v*.*.*` tag 触发：校验 tag 与 `Cargo.toml`、`Cargo.lock`、CHANGELOG → 原生 runner 构建三个目标的二进制 → amd64 / arm64 镜像按摘要推送并合成 manifest（`ghcr.io/komiyoo/asterlane`，`X.Y.Z` 与 `latest`）→ 创建 GitHub Release。只用 `GITHUB_TOKEN`。

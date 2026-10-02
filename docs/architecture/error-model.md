@@ -51,8 +51,6 @@ timestamp: 2026-07-03T00:00:00Z
 | `mcp.*` | `mcp.invalid_tool_call` | 参数不合法 | "invalid tool call arguments" |
 | `mcp.*` | `mcp.upstream_mcp_failure` | 上游 MCP server 失败 | "upstream MCP server error" |
 | `mcp.*` | `mcp.upstream_unavailable` | FailClosed：至少一个 MCP 上游 `Unreachable`，拒绝把 stale 目录当权威结果 | "one or more MCP upstreams are unreachable" |
-| `transform.*` | `transform.dangerous_header` | 变换规则尝试设置危险 header | "transform rule targets protected header" |
-| `transform.*` | `transform.invalid_pointer` | JSON Pointer 路径不合法 | "invalid transform pointer: {detail}" |
 | `admin.*` | `admin.unauthorized` | admin token 缺失或不匹配 | "missing or invalid admin token" |
 | `admin.*` | `admin.invalid_query` | admin 查询参数不合法 | "invalid group_by: {value}" |
 | `admin.*` | `admin.not_found` | admin 管理的实体未找到；`McpError::UnknownServer`（未知 MCP server id）也映射到此码 | "unknown MCP server: {server_id}" |
@@ -74,7 +72,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `store.*` | 5 |
 | `proxy.*` | 6 |
 | `limit.*` | 7 |
-| `transform.*` | 8 |
+| 退出码 8 | 曾分配给 `transform.*`，已退役，不复用 |
 | 其他 | 1 |
 
 ## HTTP 边界
@@ -96,7 +94,6 @@ timestamp: 2026-07-03T00:00:00Z
 | `limit.quota_exceeded` / `limit.calls_exhausted` | 429（`calls_exhausted` 无 Retry-After） |
 | `limit.daily_calls_exhausted` | 429（Retry-After = 距下个 UTC 零点秒数） |
 | `limit.queue_full` / `limit.queue_timeout` | 503 |
-| `transform.*` | 500 |
 | `admin.unauthorized` | 401 |
 | `admin.invalid_query` | 400 |
 | `admin.not_found` | 404 |

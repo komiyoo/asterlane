@@ -21,7 +21,6 @@ The project should borrow NyaProxy's gateway primitives, but reinterpret them fo
 - upstream key pool and load balancing
 - rate limiting and queueing
 - retry, key rotation, and failover
-- request transformation
 - request history, metrics, key usage, and dashboard views
 
 # Starting A Development Task
@@ -95,7 +94,6 @@ The runtime should remain split by responsibility:
 | `keys` | Upstream key pool, cooldown, health, weights. |
 | `routing` | Load balancing and failover strategy. |
 | `limits` | Rate limits, quota, queue admission. |
-| `transform` | Header, query, path, and body transformations. |
 | `proxy` | Upstream HTTP execution. |
 | `mcp` | MCP protocol adapter and remote MCP proxy. |
 | `observability` | Request events, metrics, usage aggregation. |
