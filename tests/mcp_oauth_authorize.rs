@@ -7,10 +7,12 @@
 //! 取出 state，自己「签发」code，再直接调用回调。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "support/log_capture.rs"]
+mod log_capture;
 #[path = "support/oauth_upstream.rs"]
 mod oauth_upstream;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use asterlane::catalog::ToolCatalog;
@@ -22,7 +24,6 @@ use asterlane::http::{AppState, build_app};
 use asterlane::mcp::{
     HealthStatus, McpServerRegistry, ToolContent, UpstreamListChanged, UpstreamOAuth,
 };
-use asterlane::observability::log_filter::credential_log_cap;
 use asterlane::secrets::{
     DefaultSecretStore, SecretError, SecretRef, SecretStore, SecretString, TokenEncryptionKey,
 };
@@ -33,12 +34,11 @@ use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{HeaderMap, Request, StatusCode};
 use base64::Engine;
+use log_capture::LogCapture;
 use oauth_upstream::{AS_ERROR_DESCRIPTION, CLIENT_ID, CLIENT_SECRET, OAuthUpstream};
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::layer::SubscriberExt;
+use tracing::Level;
 
 const REDIRECT_BASE: &str = "https://gateway.example.com";
 const REDIRECT_URI: &str = "https://gateway.example.com/oauth/callback";
@@ -138,46 +138,11 @@ async fn file_repository(name: &str) -> (Arc<SqliteRequestEventRepository>, Stri
     (Arc::new(SqliteRequestEventRepository::new(pool)), path)
 }
 
-/// 捕获 tracing 输出，用来断言日志里没有 code、state 与 token。
-#[derive(Clone, Default)]
-struct LogBuffer(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for LogBuffer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> MakeWriter<'a> for LogBuffer {
-    type Writer = LogBuffer;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-impl LogBuffer {
-    fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
-    }
-}
-
-/// 以 `trace` 级捕获（相当于 `RUST_LOG=trace`）。`capped` 为真时叠加 `main.rs` 用的
-/// 凭据日志上限层。仅当前线程生效；测试用默认的 current-thread runtime。
-fn capture_logs(capped: bool) -> (LogBuffer, tracing::subscriber::DefaultGuard) {
-    let buffer = LogBuffer::default();
-    let subscriber = tracing_subscriber::registry()
-        .with(EnvFilter::new("trace"))
-        .with(capped.then(credential_log_cap))
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(buffer.clone())
-                .with_ansi(false),
-        );
-    (buffer, tracing::subscriber::set_default(subscriber))
+/// 以 `trace` 级捕获当前线程的日志（相当于 `RUST_LOG=trace`），用来断言日志里没有 code、
+/// state 与 token。`capped` 为真时叠加 `main.rs` 用的凭据日志上限层。捕获方式见
+/// `support/log_capture.rs`；测试用默认的 current-thread runtime，日志都在本线程产生。
+fn capture_logs(capped: bool) -> LogCapture {
+    log_capture::capture_logs(Level::TRACE, capped)
 }
 
 fn url_param(url: &str, name: &str) -> String {
@@ -416,7 +381,7 @@ fn assert_clean(haystack: &str, upstream: &OAuthUpstream, extra: &[&str]) {
 
 #[tokio::test]
 async fn full_flow_with_dynamic_registration_takes_the_server_from_auth_required_to_callable() {
-    let (logs, _guard) = capture_logs(true);
+    let logs = capture_logs(true);
     let upstream = OAuthUpstream::start().await;
     let gateway = Gateway::start(
         vec![authorization_code_server(&upstream, &Client::Dynamic)],
@@ -537,7 +502,7 @@ async fn full_flow_with_dynamic_registration_takes_the_server_from_auth_required
     // 日志里也没有 state
     let outputs = outputs.join("\n");
     assert_clean(&outputs, &upstream, &[code]);
-    let log_text = logs.text();
+    let log_text = logs.text_containing("upstream OAuth authorization completed");
     assert_clean(&log_text, &upstream, &[code, &state]);
     assert!(
         log_text.contains("/oauth/callback"),
@@ -549,7 +514,7 @@ async fn full_flow_with_dynamic_registration_takes_the_server_from_auth_required
 
 #[tokio::test]
 async fn preregistered_confidential_client_skips_registration_and_sends_its_secret() {
-    let (logs, _guard) = capture_logs(true);
+    let logs = capture_logs(true);
     let upstream = OAuthUpstream::start().await;
     let secret_ref = secret_file_ref("oauth-confidential-secret", CLIENT_SECRET);
     let gateway = Gateway::start(
@@ -591,7 +556,10 @@ async fn preregistered_confidential_client_skips_registration_and_sends_its_secr
             .unwrap()
             .starts_with("secret://file/")
     );
-    let everything = format!("{view}{page}{}", logs.text());
+    let everything = format!(
+        "{view}{page}{}",
+        logs.text_containing("upstream OAuth authorization completed")
+    );
     assert_clean(&everything, &upstream, &["auth-code-conf", &started.state]);
     upstream.shutdown();
 }
@@ -744,7 +712,7 @@ async fn replayed_callback_is_rejected_and_does_not_touch_the_stored_credentials
 
 #[tokio::test]
 async fn authorization_server_error_page_reflects_no_input_and_consumes_the_state() {
-    let (logs, _guard) = capture_logs(true);
+    let logs = capture_logs(true);
     let upstream = OAuthUpstream::start().await;
     let gateway = Gateway::start(
         vec![authorization_code_server(&upstream, &Client::Dynamic)],
@@ -783,7 +751,7 @@ async fn authorization_server_error_page_reflects_no_input_and_consumes_the_stat
     }
     assert!(upstream.token_requests().is_empty());
     // 授权服务器返回的细节只进 tracing（已去掉控制字符，限制长度）
-    let log_text = logs.text();
+    let log_text = logs.text_containing("authorization server returned an error");
     assert!(log_text.contains("authorization server returned an error"));
     assert!(log_text.contains("access_denied"));
     assert!(!log_text.contains(&started.state));
@@ -810,7 +778,7 @@ async fn authorization_server_error_page_reflects_no_input_and_consumes_the_stat
 
 #[tokio::test]
 async fn failed_token_exchange_shows_a_safe_error_page_and_keeps_the_server_unauthorized() {
-    let (logs, _guard) = capture_logs(true);
+    let logs = capture_logs(true);
     let upstream = OAuthUpstream::start().await;
     let gateway = Gateway::start(
         vec![authorization_code_server(&upstream, &Client::Dynamic)],
@@ -843,7 +811,7 @@ async fn failed_token_exchange_shows_a_safe_error_page_and_keeps_the_server_unau
     assert!(gateway.sealed_row().await.is_none());
     assert_eq!(gateway.health(SERVER_ID), HealthStatus::AuthRequired);
 
-    let log_text = logs.text();
+    let log_text = logs.text_containing("code exchange failed");
     assert!(log_text.contains("code exchange failed"));
     assert!(
         !log_text.contains("forged-code-31c"),
@@ -914,7 +882,7 @@ async fn restart_with_the_same_database_and_key_connects_without_reauthorizing()
 
 #[tokio::test]
 async fn rotated_refresh_token_of_a_fresh_authorization_is_written_back() {
-    let (logs, _guard) = capture_logs(true);
+    let logs = capture_logs(true);
     let upstream = OAuthUpstream::start().await;
     // 授权码换到的 access token 只剩 20 秒（rmcp 在不足 30 秒时提前刷新），刷新得到的是长期 token
     upstream.set_expires_in(20);
@@ -957,7 +925,14 @@ async fn rotated_refresh_token_of_a_fresh_authorization_is_written_back() {
         stored["token_response"]["access_token"],
         upstream.issued_tokens()[1]
     );
-    assert_clean(&format!("{page}{}", logs.text()), &upstream, &[]);
+    assert_clean(
+        &format!(
+            "{page}{}",
+            logs.text_containing("upstream OAuth authorization completed")
+        ),
+        &upstream,
+        &[],
+    );
     upstream.shutdown();
 }
 
@@ -1211,7 +1186,7 @@ async fn rmcp_prints_the_authorization_code_at_debug_and_the_log_cap_removes_it(
     // 若 rmcp 升级后不再打印，这条对照会失败，提示可以复核上限是否还需要。
     let uncapped_code = "uncapped-code-5e8a";
     {
-        let (logs, _guard) = capture_logs(false);
+        let logs = capture_logs(false);
         let upstream = OAuthUpstream::start().await;
         let gateway = Gateway::start(
             vec![authorization_code_server(&upstream, &Client::Dynamic)],
@@ -1237,7 +1212,7 @@ async fn rmcp_prints_the_authorization_code_at_debug_and_the_log_cap_removes_it(
 
     // 叠加上限后，同样的流程在 trace 级别下也不出现 code
     let capped_code = "capped-code-91bd";
-    let (logs, _guard) = capture_logs(true);
+    let logs = capture_logs(true);
     let upstream = OAuthUpstream::start().await;
     let gateway = Gateway::start(
         vec![authorization_code_server(&upstream, &Client::Dynamic)],
@@ -1249,7 +1224,7 @@ async fn rmcp_prints_the_authorization_code_at_debug_and_the_log_cap_removes_it(
     let started = gateway.authorize().await;
     let (status, _, _) = gateway.grant(&upstream, &started, capped_code).await;
     assert_eq!(status, StatusCode::OK);
-    let log_text = logs.text();
+    let log_text = logs.text_containing("upstream OAuth authorization completed");
     assert!(
         !log_text.contains(capped_code),
         "the cap removes rmcp's debug output"
