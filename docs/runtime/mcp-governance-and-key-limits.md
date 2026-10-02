@@ -43,7 +43,7 @@ timestamp: 2026-08-19T00:00:00+08:00
 
 以下形状为实现切片间的接口契约，实现不得偏离；有偏离需求先改本文档。
 
-## 1. 配置增量（config.rs / config-schema.md）
+## 1. 配置增量（`src/config/` / config-schema.md）
 
 ```yaml
 api_resources:
@@ -176,7 +176,7 @@ CREATE TABLE tool_metadata (
 
 | 切片 | 内容 | 拥有文件 |
 | --- | --- | --- |
-| W0 配置地基（主代理，先行） | 配置结构体新字段 + 全仓字面量修复 + config-schema.md | `src/config.rs`、受字面量影响的测试、`docs/runtime/config-schema.md` |
+| W0 配置地基（主代理，先行） | 配置结构体新字段 + 全仓字面量修复 + config-schema.md | `src/config/`、受字面量影响的测试、`docs/runtime/config-schema.md` |
 | W1-A 限额引擎与 key 范围 | `LimitRegistry`、`Principal` 维度、`max_calls` 计数、policy 结构化范围、入口管线 enforcement、CRUD 字段透传、示例配置 | `src/limits/*`、`src/policy.rs`、`src/http/routes.rs`、`src/mcp/server.rs`、`src/proxy/executor.rs`、`src/admin/crud.rs`、`src/main.rs`、`src/catalog.rs`（scope 调用点）、`examples/*` |
 | W1-B MCP 健康与降级 | 降级启动、健康快照、probe、add/update/remove server | `src/mcp/registry.rs`、`src/mcp/mod.rs`、`src/mcp/error.rs` |
 | W1-C 工具介绍存储 | `tool_metadata` 表 + repository | `src/store/*` |

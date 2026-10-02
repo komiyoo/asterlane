@@ -154,7 +154,7 @@ CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。�
 ```
 src/
 ├── main.rs          # 入口，装配不编排
-├── config.rs        # 配置加载与校验
+├── config/          # 配置模型与加载后校验（按配置节拆分）
 ├── naming.rs        # MCP 工具命名解析
 ├── policy.rs        # key scope 与请求级收窄
 ├── catalog.rs       # 工具目录、过滤、分页
