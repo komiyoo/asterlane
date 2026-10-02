@@ -124,6 +124,17 @@ struct SecurityEvent {
 
 预览仍不含 Authorization header，密钥模式一律脱敏。脱敏在写入 tracing 字段或 store 之前应用；模块内部错误携带引用类型（`KeyId`、`SecretRef`），其 `Display` 实现输出脱敏形式，避免脱敏遗漏。
 
+## 凭据日志上限
+
+第三方库自己打的日志不受网关的脱敏 helper 管。rmcp 3.1.2 的 OAuth 实现（tracing target `rmcp::transport::auth`）在 `debug` 级会打印：
+
+- 用授权 code 换 token 时的 `start exchange code for token: "<code>"`（授权 code 明文）；
+- 换到 token 后的 `exchange token result: {:?}` 与 client-credentials 的 `client credentials token result: {:?}`：access / refresh token 在 `Debug` 里是 `[redacted]`，但 token 响应里的非标准字段（例如 `id_token`）按原值输出。
+
+`info` 及以上（例如 `Refreshed access token.`）不含这些内容。所以 `serve` 的 tracing 初始化（`src/main.rs` 的 `init_tracing`）叠加一个固定的全局过滤层 `observability::log_filter::credential_log_cap`：target 以 `rmcp::transport::auth` 或 `rmcp::transport::common::auth` 开头的事件只放行 `info` 及以上。它与 `RUST_LOG` 的 `EnvFilter` 叠加，两者都放行才输出：`RUST_LOG=debug`、`rmcp=trace` 或 `rmcp::transport::auth=trace` 都抬不高它，`RUST_LOG=warn` 这类更严的设置照常生效；对 fmt 与 OTLP 输出一并生效。回归测试：`src/observability/log_filter.rs` 的单测，以及 `tests/mcp_oauth_authorize.rs` 在 `trace` 级捕获整个授权流程，对照「不加上限时 rmcp 会打印 code」与「加上限后不出现」。
+
+网关自己的日志（授权发起与完成、回调、凭据存储）同样不记录授权 code、state、授权 URL 与 token，见 [MCP Protocol – 授权码流程](mcp-protocol.md#授权码流程管理员一次性授权)。
+
 # 导出方式
 
 | 通道 | 用途 | 实现 |

@@ -135,7 +135,7 @@ oauth:
   token_encryption_key_ref: secret://env/ASTERLANE_OAUTH_KEY  # 32 字节、base64 编码
 ```
 
-- `redirect_base_url`：回调 URI 固定为 `{redirect_base_url}/oauth/callback`（回调入口随管理员授权切片提供）。必须是 http(s) URL，除 `localhost` / `127.0.0.1` 外必须是 https，不得带 query 或 fragment。
+- `redirect_base_url`：管理员授权的回调地址前缀。回调 URI 固定为 `{redirect_base_url}/oauth/callback`，**要在授权服务器上登记（或经动态客户端注册声明）的 redirect URI 就是这个值**，例如 `https://gateway.example.com/oauth/callback`。网关在 `GET /oauth/callback` 接收浏览器回调（顶层路由，不经 admin 认证，只靠一次性 state；配置了 admin key 才挂载）。必须是 http(s) URL，除 `localhost` / `127.0.0.1` 外必须是 https，不得带 query 或 fragment；网关在反向代理的子路径下时把前缀写进来（如 `https://example.com/asterlane`），代理需把 `/oauth/callback` 转发到网关。
 - `token_encryption_key_ref`：secret ref，解析结果必须是 base64 编码的 32 字节（例如 `openssl rand -base64 32`）。启动时解析，无效则启动失败。用于加密落库的授权码 token，见 [Key Credentials & Persistence](key-credentials-and-persistence.md#上游-oauth-凭据)。
 - 任一 `mcp_servers[]` 使用 `grant: authorization_code` 时两项都必填，缺任何一项启动失败。
 
@@ -219,7 +219,7 @@ mcp_servers:
 ```
 
 - `grant: client_credentials`：全自动。连接时做元数据发现（RFC 9728 / RFC 8414）再换 token，token 临近过期或被上游 401 拒绝时在请求路径上自动重新换取，token 只放内存。
-- `grant: authorization_code`：管理员一次性授权后，网关保存并刷新 token。没有已存凭据、凭据无法解密或刷新被拒时，server 显示 `auth_required`。`client_secret_ref` 给预注册的机密客户端；有 `client_secret_ref` 必须同时有 `client_id`。
+- `grant: authorization_code`：管理员一次性授权后，网关保存并刷新 token。没有已存凭据、凭据无法解密或刷新被拒时，server 显示 `auth_required`。授权由管理员发起（控制台「授权」、`asterlane admin mcp-servers authorize <id>` 或 `POST /admin/mcp-servers/{id}/oauth/authorize`），在浏览器里完成；见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)。没有 `client_id` 时向授权服务器动态注册客户端（redirect URI 即 `{oauth.redirect_base_url}/oauth/callback`；授权服务器不支持动态注册时发起授权返回 409，需配置 `client_id`）；`client_id` 是在授权服务器预先注册的客户端，且该客户端的 redirect URI 要登记为上面的回调地址；`client_secret_ref` 给预注册的机密客户端，有 `client_secret_ref` 必须同时有 `client_id`。`scopes` 留空时由授权服务器的元数据决定。
 - `client_secret_ref` 只接受 `secret://` 引用，不接受明文；`scopes` 的每一项非空且不含空白。
 - `url` 必须是 https（`localhost` / `127.0.0.1` 联调除外），避免 token 与 client secret 走明文链路。
 - 所有新字段都有默认值，旧配置照常加载；校验失败时启动直接报错。完整语义见 [MCP Protocol – 上游认证](../architecture/mcp-protocol.md#上游认证)。

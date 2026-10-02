@@ -66,9 +66,34 @@ Streamable HTTP POST 必须带 `MCP-Protocol-Version`、`Mcp-Method`，命名请
 - **元数据发现**：RFC 9728 受保护资源元数据 → RFC 8414 授权服务器元数据，由 rmcp 完成；上游没有发布 OAuth 元数据时不猜测端点，连接失败。授权服务器的 token 端点必须是 https（本机 loopback 联调除外）。
 - **RFC 8707 `resource`**：token 请求带 `resource`，取受保护资源元数据里的 `resource`（rmcp 3.1 不公开它读到的值，网关按同一顺序再读一次同源文档里的这个字段：401 的 `resource_metadata` 指针、路径插入式 well-known、根 well-known），发现不到就用 server URL。
 - **client-credentials**：连接时发现元数据、校验授权服务器支持 client secret 认证、换取 token。rmcp 的刷新只处理 refresh token，client-credentials 没有它，过期后 rmcp 不会重新换取，所以网关自己包了一层 `StreamableHttpClient`：每个请求取当前有效 token，距过期不足 `min(30s, 生命周期/2)` 时先换新，被上游 401 拒绝时换新并重试一次；并发请求只换取一次。授权服务器没给 `expires_in` 时只在被 401 拒绝后换取。token 只放内存。
-- **authorization_code**：启动和重连时从存储加载凭据，由 rmcp 自动刷新，轮换的 refresh token 写回存储（见 [Key Credentials & Persistence](../runtime/key-credentials-and-persistence.md#上游-oauth-凭据)）。没有凭据、解密失败或刷新被拒时 server 进入健康状态 `auth_required`（见 [MCP 治理](../runtime/mcp-governance-and-key-limits.md)）；该上游的工具调用返回 `mcp.upstream_auth_required`。管理员发起授权的入口属于后续切片。
+- **authorization_code**：启动和重连时从存储加载凭据，由 rmcp 自动刷新，轮换的 refresh token 写回存储（见 [Key Credentials & Persistence](../runtime/key-credentials-and-persistence.md#上游-oauth-凭据)）。没有凭据、解密失败或刷新被拒时 server 进入健康状态 `auth_required`（见 [MCP 治理](../runtime/mcp-governance-and-key-limits.md)）；该上游的工具调用返回 `mcp.upstream_auth_required`。管理员发起授权与浏览器回调见下节。
 - 401 的含义随授权方式不同：授权码上游被 401 且无法刷新 → 需要管理员授权；client-credentials 上游在重新换取后仍被 401 → 网关自己的凭据被拒，按普通上游失败处理（`mcp.upstream_mcp_failure`）。
 - **错误脱敏**：rmcp 的 `AuthError` 与授权服务器返回的内容（错误描述、响应体）只进 tracing，不原样进入用户可见的错误与 admin 响应；日志与错误不含 access token、refresh token、client secret。
+
+## 授权码流程（管理员一次性授权）
+
+授权码类上游由管理员授权一次，之后网关自己保存并刷新 token。整个网关共用这一个上游身份，不做按用户委托；Asterlane 不做授权服务器，不接人类 IdP。流程用 rmcp 的 `AuthorizationManager` / `AuthorizationSession`，实现在 `src/mcp/oauth/authorize.rs`（发起与完成）与 `pending.rs`（待完成授权）：
+
+```text
+管理员                  网关                                  授权服务器
+  | POST …/oauth/authorize |                                         |
+  |----------------------->| 元数据发现；没有 client_id 则动态注册 ---->|
+  |                        | 生成 PKCE（S256）与 state，按 state 暂存会话|
+  |<-----------------------| {authorization_url, expires_in}          |
+  | 在浏览器打开 authorization_url，登录并同意授权 ------------------->|
+  |<----------- 浏览器被重定向到 {redirect_base_url}/oauth/callback?code=&state= ---|
+  | GET /oauth/callback    | 校验 state（一次性、10 分钟）            |
+  |----------------------->| 用 code + PKCE verifier 换 token ------->|
+  |                        | token 经加密存储落库；重连该 server       |
+  |<-----------------------| 「授权完成，可以关闭页面」                |
+```
+
+- **发起**（`POST /admin/mcp-servers/{id}/oauth/authorize`，admin 认证）：仅对 `grant: authorization_code` 有效。元数据发现与 [上游认证](#上游认证) 一致，上游没有发布 OAuth 元数据时拒绝（不猜端点，免得把 code 与 client secret 发到猜测的地址）；授权、token 与注册端点必须是 https（loopback 联调除外）。客户端身份按 rmcp 的优先级：配置了 `client_id` 就用预注册客户端（有 `client_secret_ref` 时按机密客户端，secret 随 token 请求发送）；没有 `client_id` 时动态注册（RFC 7591，公开客户端，`client_name` 为 `Asterlane`，redirect URI 为回调地址，`application_type` 在回调为本机 loopback 时是 `native`，否则是 `web`），授权服务器没有注册端点则发起返回 409，提示配置 `client_id`。redirect URI 固定为 `{oauth.redirect_base_url}/oauth/callback`。授权请求带 `resource`（RFC 8707，与 token 请求同一个值）、配置的 `scopes`（留空由授权服务器元数据决定）、PKCE S256 challenge 与 state。
+- **state 与待完成授权**：授权会话（含 PKCE verifier 与已配置的客户端）按 state 放在内存表里，不落库；10 分钟过期、只能用一次。取出记录时无论成败都会移除它，所以重放与过期一样被拒；每次登记与取出都先清理已过期的记录，内存只随「10 分钟内发起的授权数」增长。rmcp 的 `InMemoryStateStore` 不带过期，这里不共享它：每次授权持有自己的 `AuthorizationManager`（其 state store 只含这一次授权），随表里的记录一起释放。撤销授权与删除 server 会丢弃该 server 尚未完成的授权。state 重启即失效，重启后需重新发起。
+- **完成**（`GET /oauth/callback`，顶层路由，**不经 admin 认证**，只靠 state；配置了 admin key 才挂载）：state 缺失、未知、已使用或过期、授权服务器返回 `error=`、缺少 `code`、换 token 失败，都返回固定文案的错误页并带 `request_id`（400；换 token 失败为 502），不触发（或不重复）token 请求；错误页不反射 query 参数或授权服务器返回的内容（页面文字固定，唯一的动态内容 `request_id` 与 server id 经 HTML 转义，页面带 CSP 与 `Cache-Control: no-store`）。成功后 token 由 rmcp 经该 server 的 `CredentialStore` 加密保存，然后重连该 server（丢弃旧连接，重新拉取工具，同步 catalog 与 integrity 基线，通知下游工具列表变化）；重连失败不撤销授权，页面会说明「已保存但暂时无法连接」。
+- **刷新与重启**：之后的刷新、轮换 refresh token 写回、重启后从存储加载，都是「authorization_code」一节描述的路径；同一个 SQLite 文件与加密密钥下重启不需要重新授权。动态注册得到的 `client_id` 随凭据保存。限制：rmcp 的动态注册请求声明公开客户端（`token_endpoint_auth_method: none`）；若授权服务器仍返回了 client secret，网关没有地方保存它，access token 到期后该客户端的刷新会被授权服务器拒绝，server 无法保持连接；此类授权服务器请改用预注册的 `client_id` 与 `client_secret_ref`。
+- **撤销**（`DELETE /admin/mcp-servers/{id}/oauth`）：清除已存凭据、丢弃未完成的授权、重连使当前连接失效（重连后 `auth_required`，工具从目录移除）。只清除网关保存的凭据，不通知授权服务器吊销 token。
+- **日志安全**：网关自己的日志永远不记录授权 code、state、授权 URL 与 token；授权服务器返回的错误文本写进 tracing 前先去掉控制字符、抹掉 code 与 state、限制长度（有的授权服务器会在错误描述里回显 code）。回调请求的 URI 在请求日志里只记路径，不记 query（tower-http 的默认 span 会把完整 URI 带进该请求内的每条日志）。rmcp 的 OAuth 实现自己在 `debug` 级会打印授权 code 与 token 响应的非标准字段（见 [Observability – 凭据日志上限](observability.md#凭据日志上限)），`serve` 的 tracing 初始化给它加了固定的 `info` 级上限，即使 `RUST_LOG=debug` 也不输出。
 
 # 明确不做
 

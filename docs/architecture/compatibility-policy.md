@@ -39,6 +39,7 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | `mcp` 节（失败模式、刷新间隔、`tools/list` TTL） | 新增（2026-08-20） | `#[serde(default)]`，缺省 `fail_open` / 60s / 60000ms；`0` 分别表示不启动 refresh、不设 `ttlMs`；非法 `failure_mode` 启动 fail fast |
 | `proxy_keys[].discovery_mode` 缺省值 | 2026-09-26 从 `full` 改为 `lazy` | 旧配置仍可加载，但省略模式的 MCP/REST 列表只返回六个网关工具；需要完整列表时显式配置 `discovery_mode: full`，非法值启动失败 |
 | `mcp_servers[].auth` 的 `type: oauth`（`grant`、`client_id`、`client_secret_ref`、`scopes`）与顶层 `oauth` 节（`redirect_base_url`、`token_encryption_key_ref`） | 新增（2026-10-01） | 全部为增量：不写 `oauth` 节、不用 `type: oauth` 的旧配置行为不变；`type: oauth` 只允许用在 `mcp_servers[].auth`，用在 `api_resources` 或字段不合法（缺必填项、非 https、明文 secret）启动 fail fast；新增健康状态 `auth_required`、错误码 `mcp.upstream_auth_required`、admin `mcp-servers` 响应的 `oauth` 字段与迁移 `upstream_oauth_credentials`，均为增量（见 [Configuration Schema](../runtime/config-schema.md#oauth)） |
+| 管理员一次性授权：`POST /admin/mcp-servers/{id}/oauth/authorize`、`DELETE /admin/mcp-servers/{id}/oauth`、顶层 `GET /oauth/callback`，admin `mcp-servers` 视图 `oauth` 段扩展（`status`、`expires_at`、`client_id`、`client_secret_ref`、`scopes`），CLI `admin mcp-servers authorize|deauthorize` | 新增（2026-10-01） | 全部为增量：新端点与新命令不影响既有调用方；`oauth` 段只在 `auth_type: oauth` 的 server 上出现，且是 S5 引入的 `oauth.grant` 的超集；`GET /oauth/callback` 只在配置了 admin key 时挂载。行为变化：控制台不再禁用 OAuth server 的「编辑」。无新增错误码、无迁移、无新依赖（见 [Configuration Schema](../runtime/config-schema.md#oauth)、[MCP Protocol](mcp-protocol.md#授权码流程管理员一次性授权)） |
 
 ## 配置版本字段
 

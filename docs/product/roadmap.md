@@ -47,7 +47,7 @@ timestamp: 2026-10-01T00:00:00Z
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| **已交付（2026-10-01）：上游 MCP OAuth 的 client-credentials 与加密凭据存储；管理员授权待交付** | 定位缺口（最重，剩管理员授权） | `UpstreamAuth::OAuth`（`grant: client_credentials \| authorization_code`）+ 顶层 `oauth` 节；`mcp::oauth` 基于 rmcp `auth`：RFC 9728 / 8414 元数据发现、RFC 8707 `resource`、client-credentials 在请求路径上自动重新换取；授权码凭据 ChaCha20-Poly1305 加密存入 SQLite（`upstream_oauth_credentials`，无数据库时只在内存），没有凭据、解密失败或刷新被拒时 server 显示 `auth_required`。**尚缺**：管理员发起授权码授权的入口（authorize / callback / 撤销，含 DCR）——下一个切片 |
+| **已交付（2026-10-01）：上游 MCP OAuth（client-credentials、授权码、动态客户端注册、加密凭据存储、管理员一次性授权）** | 定位缺口（最重，已清） | `UpstreamAuth::OAuth`（`grant: client_credentials \| authorization_code`）+ 顶层 `oauth` 节；`mcp::oauth` 基于 rmcp `auth`：RFC 9728 / 8414 元数据发现、RFC 8707 `resource`、client-credentials 在请求路径上自动重新换取；授权码凭据 ChaCha20-Poly1305 加密存入 SQLite（`upstream_oauth_credentials`，无数据库时只在内存），没有凭据、解密失败或刷新被拒时 server 显示 `auth_required`。管理员一次性授权：`POST /admin/mcp-servers/{id}/oauth/authorize`（元数据发现、未配 `client_id` 时动态注册、PKCE 与 state，state 只在内存、10 分钟、一次性）→ 浏览器回调 `GET /oauth/callback`（顶层路由，只靠 state）换 token、加密保存并重连 → `DELETE …/oauth` 撤销；admin 视图 `oauth: {grant, status, expires_at}`，控制台「授权 / 撤销授权」与可编辑 OAuth 字段的表单，CLI `admin mcp-servers authorize / deauthorize`；rmcp 在 debug 级会打印授权 code，`serve` 的 tracing 加了固定的 `info` 级上限。已用进程内模拟授权服务器端到端验证；**尚未对真实 OAuth 类上游验证**（见 Phase 8 准出） |
 | **已交付：Vault / Infisical 装配**（2026-08-19） | 兑现差（已清） | `GatewayConfig.secrets` + `secret_store_from_config`：serve 在 MCP connect 前装配；`token_ref` 仅 env/file；缺省探测 `/v1/sys/health` 与 `/api/status` |
 | **已交付：secret 缓存 / TTL / 重试**（2026-08-20） | 生产就绪（已清） | `secrets.cache_ttl_secs` 缺省 60（`0` 关闭），只缓存 vault/infisical；`remote_retries` 缺省 2，仅超时/连接失败/5xx。失败不入缓存。env/file 不缓存。轮换 = TTL 过期后重新拉取 |
 | 云 KMS 后端 | 定位缺口（轻） | [Architecture](../architecture/architecture.md) 的 Credential Vault 节列为方向，无代码 |
@@ -134,14 +134,16 @@ timestamp: 2026-10-01T00:00:00Z
 
 **目标**：让网关能接管需要 OAuth 的第三方 MCP server，这是支柱一的结构性补齐。
 
-- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数，基于 rmcp `auth` feature。2026-10-01 定范围：client-credentials + 管理员一次性授权码授权；授权码流程的 token 加密后存入 SQLite（无数据库时只在内存），永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器。**已交付（2026-10-01）**：配置、client-credentials（含请求路径上的重新换取）、加密凭据存储、授权码类上游的 `auth_required` 状态与 FailClosed 语义；**待交付**：管理员授权入口与 DCR
-- 动态客户端注册：仅用于授权码流程中未预置 `client_id` 的上游（rmcp 的 DCR 只注册 `authorization_code` 公开客户端）
+- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数，基于 rmcp `auth` feature。2026-10-01 定范围：client-credentials + 管理员一次性授权码授权；授权码流程的 token 加密后存入 SQLite（无数据库时只在内存），永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器。**已交付（2026-10-01）**：配置、client-credentials（含请求路径上的重新换取）、加密凭据存储、授权码类上游的 `auth_required` 状态与 FailClosed 语义、管理员一次性授权（authorize / 回调 / 撤销、控制台与 CLI 入口，见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)）
+- **已交付（2026-10-01）**：动态客户端注册，仅用于授权码流程中未预置 `client_id` 的上游（rmcp 的 DCR 只注册 `authorization_code` 公开客户端；授权服务器仍返回 client secret 时网关没有地方保存它，此类上游须配置预注册客户端）
 - **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
 - **已交付（2026-08-20）**：订阅上游 `tools/list_changed`（`subscriptions/listen` + session 回调）；周期 refresh 保留为兜底，不再是唯一失效路径
 - resources / prompts 代理（2026-10-01 决定做，仅远程上游）：扩 `RemoteMcpPeer` 与下游 capabilities；key 范围沿用工具 scope 规则
 - 上游形态扩展：multipart / form-urlencoded 请求，流式响应
 
 **准出**：至少一个真实 OAuth 类上游 MCP server 端到端可用，且代理侧只见 gateway key；上游工具变更在一次心跳内反映到下游 `tools/list_changed`。
+
+**进展（2026-10-01）**：OAuth 部分已用进程内模拟授权服务器和上游端到端走通——client-credentials；授权码类「需要授权 → 管理员授权 → 可调用 → 重启后无需重新授权 → 撤销后回到需要授权」；代理侧只见 gateway key，token、授权 code 与 client secret 不出现在响应、控制台、CLI 输出、回调页面与日志（`trace` 级也没有）。上游 `tools/list_changed` 已于 2026-08-20 交付。**尚缺**：对至少一个真实 OAuth 类上游 MCP server 的端到端验证，因此本阶段准出尚未满足。
 
 ## Phase 9：规模化与发布工程
 

@@ -94,10 +94,14 @@ proxy_keys:
 - **authorization_code**：管理员一次性授权后，access/refresh token 加密落库。表 `upstream_oauth_credentials(server_id PRIMARY KEY, sealed_credentials, updated_at)`（迁移 `20261001000001_upstream_oauth_credentials.sql`）。
   - `sealed_credentials = base64(nonce ‖ 密文)`：明文是 rmcp `StoredCredentials` 的 JSON；`ring` 的 ChaCha20-Poly1305，每次加密随机 12 字节 nonce，AAD = server id（密文不能搬到另一个 server 名下解密）。数据库里不出现任何明文 token。
   - 密钥来自 `oauth.token_encryption_key_ref`，启动时解析，必须是 base64 编码的 32 字节，否则启动失败。密钥类型的 `Debug` 不输出密钥。
+  - **写入**：管理员授权完成时（`GET /oauth/callback` 用 code 换到 token 后，rmcp 经 `CredentialStore::save` 保存），以及之后每次刷新。同一个 SQLite 文件加同一个加密密钥下重启，不需要重新授权（集成测试覆盖）。动态客户端注册得到的 `client_id` 随凭据一起保存，不另存。
   - 启动和重连时从存储加载凭据，由 rmcp 自动刷新；刷新后轮换的 refresh token 经 `CredentialStore::save` 写回存储。
   - 没有凭据、解密失败（例如密钥换了）、刷新被授权服务器拒绝时，server 进入健康状态 `auth_required` 并打一条不含 token 的 `warn`；管理员重新授权后恢复。密钥丢失只会让已存凭据作废（需要重新授权），不会泄露。
+  - **撤销**：`DELETE /admin/mcp-servers/{id}/oauth` 删除该 server 的行并重连（重连后 `auth_required`）；只清除网关保存的凭据，不通知授权服务器吊销 token。
+- **授权中的 state 不落库**：管理员发起授权到浏览器回调之间的 state 与 PKCE verifier 只放内存（10 分钟过期、只能用一次，见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)），重启即失效。
 - **无数据库**（未传 `--database-url`）：授权码凭据只保存在进程内存（rmcp 的内存存储），重启后需要重新授权。
-- 删除 MCP server（`DELETE /admin/mcp-servers/{id}`）时清除该 server 已存的凭据。
+- 删除 MCP server（`DELETE /admin/mcp-servers/{id}`）时清除该 server 已存的凭据与尚未完成的授权。
+- admin 的 server 视图（列表与详情）里 `oauth.status` 反映「网关是否持有可用凭据」，`oauth.expires_at` 是 access token 的到期时间；视图不含任何 token（见 [Admin Console – C7](../admin/admin-console.md)）。`GET /admin/config/export` 导出的是配置快照，只含 `client_secret_ref` 引用，不含凭据表内容。
 - **已知限制**：刷新成功但写库失败时，本次请求报错并记 `error` 日志；若授权服务器已轮换 refresh token，需要重新授权。
 
 # 实施切片与文件归属
@@ -118,7 +122,7 @@ proxy_keys:
 - 签发/轮换/吊销必审计（admin_key_id/action/target=proxy key id，不含 token 材料）。
 - `?key=` legacy 模式仅对无 token 的 key 有效；错误消息不区分「key 不存在」与「token 错误」（避免枚举探测），统一 `auth.invalid_gateway_key`。
 - 导出的 YAML 与 `/config` 端点同口径脱敏审查（只含 ref/摘要）。
-- 上游 OAuth 的 token、refresh token、client secret 不进日志、错误、admin 响应与导出；授权服务器返回的内容与 rmcp 的 `AuthError` 只进 tracing。
+- 上游 OAuth 的 token、refresh token、client secret、授权 code 与 state 不进日志、错误、admin 响应、CLI 输出、回调页面与导出；授权服务器返回的内容与 rmcp 的 `AuthError` 只进 tracing（先抹掉 code 与 state）。rmcp 自己在 debug 级打印授权 code 的问题由固定的日志上限解决，见 [Observability – 凭据日志上限](../architecture/observability.md#凭据日志上限)。
 
 # Citations
 
