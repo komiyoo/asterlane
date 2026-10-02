@@ -167,6 +167,9 @@ fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(true);
+    // 固定上限：rmcp 的 OAuth 实现在 debug 级会打印授权 code，即使 RUST_LOG=debug 也不输出
+    // （见 observability::log_filter）。与 env_filter 叠加，对 fmt 与 OTLP 一并生效。
+    let log_cap = asterlane::observability::log_filter::credential_log_cap();
 
     #[cfg(feature = "otlp")]
     let guard: Option<Box<dyn std::any::Any>> =
@@ -175,6 +178,7 @@ fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
                 let otlp_layer = asterlane::observability::otlp::layer(&provider);
                 tracing_subscriber::registry()
                     .with(env_filter)
+                    .with(log_cap)
                     .with(fmt_layer)
                     .with(otlp_layer)
                     .init();
@@ -184,6 +188,7 @@ fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
             Err(e) => {
                 tracing_subscriber::registry()
                     .with(env_filter)
+                    .with(log_cap)
                     .with(fmt_layer)
                     .init();
                 tracing::warn!("otlp setup failed, falling back to fmt-only: {e}");
@@ -195,6 +200,7 @@ fn init_tracing() -> Result<Option<Box<dyn std::any::Any>>> {
     let guard: Option<Box<dyn std::any::Any>> = {
         tracing_subscriber::registry()
             .with(env_filter)
+            .with(log_cap)
             .with(fmt_layer)
             .init();
         None
