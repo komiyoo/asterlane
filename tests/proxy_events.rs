@@ -8,7 +8,8 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::ThreadId;
 use std::time::Duration;
 
 use asterlane::keys::KeyPoolRegistry;
@@ -160,6 +161,8 @@ async fn harness_tuned<S: SecretStore>(
     peers: Vec<Arc<dyn RemoteMcpPeer>>,
     tune: impl FnOnce(Executor<S>) -> Executor<S>,
 ) -> Harness<S> {
+    // 所有用例都经此装配后才调用 `invoke`：保证全局 span 收集器先于任何线程触发 `invoke` 的 callsite。
+    install_invoke_span_capture();
     let config: GatewayConfig = serde_norway::from_str(yaml).expect("valid test yaml");
     let mut catalog = ToolCatalog::from_config(&config).unwrap();
     let registry = if config.mcp_servers.is_empty() {
@@ -749,14 +752,30 @@ async fn remote_limited_event_has_rejection_fields() {
 
 // ── `invoke` span 字段 ──
 
-/// 收集名为 `invoke` 的 span 在关闭时的全部字段（含 `Span::record` 追加的字段）。
+type SpanFields = HashMap<String, String>;
+
+/// 收集名为 `invoke` 的 span 的全部字段（含 `Span::record` 追加的字段），
+/// 并记下创建该 span 的线程。
+///
+/// 全进程只装这一个收集器（见 [`install_invoke_span_capture`]），各用例按线程取回自己的 span。
+/// `#[tokio::test]` 用单线程运行时，一个用例的 `invoke` 都在该用例所在线程上创建。
+///
+/// 字段在 span 创建与 `record` 时就写入，不等 span 关闭：`invoke` 返回时字段已齐全，
+/// 但 span 可能还没关闭。sqlx 的 SQLite 连接线程会随每条命令拿到调用方当前 span 的一份
+/// 克隆，回复之后才释放；落库是 `invoke` 的最后一步，所以关闭可能发生在 `invoke` 返回之后、
+/// 另一个线程上。
 #[derive(Clone, Default)]
-struct InvokeSpans {
-    open: Arc<Mutex<HashMap<u64, HashMap<String, String>>>>,
-    closed: Arc<Mutex<Vec<HashMap<String, String>>>>,
+struct InvokeSpans(Arc<Mutex<SpanRecords>>);
+
+#[derive(Default)]
+struct SpanRecords {
+    /// 全部 `invoke` span，按创建顺序。
+    created: Vec<(ThreadId, SpanFields)>,
+    /// 尚未关闭的 span id 到 `created` 下标。
+    live: HashMap<u64, usize>,
 }
 
-struct FieldCollector<'a>(&'a mut HashMap<String, String>);
+struct FieldCollector<'a>(&'a mut SpanFields);
 
 impl Visit for FieldCollector<'_> {
     fn record_str(&mut self, field: &Field, value: &str) {
@@ -774,40 +793,89 @@ impl<S: tracing::Subscriber> Layer<S> for InvokeSpans {
         if attrs.metadata().name() == "invoke" {
             let mut fields = HashMap::new();
             attrs.record(&mut FieldCollector(&mut fields));
-            self.open.lock().unwrap().insert(id.into_u64(), fields);
+            let mut records = self.0.lock().unwrap();
+            let index = records.created.len();
+            records.created.push((std::thread::current().id(), fields));
+            records.live.insert(id.into_u64(), index);
         }
     }
 
     fn on_record(&self, id: &Id, values: &Record<'_>, _ctx: Context<'_, S>) {
-        if let Some(fields) = self.open.lock().unwrap().get_mut(&id.into_u64()) {
-            values.record(&mut FieldCollector(fields));
+        let mut records = self.0.lock().unwrap();
+        if let Some(index) = records.live.get(&id.into_u64()).copied() {
+            values.record(&mut FieldCollector(&mut records.created[index].1));
         }
     }
 
     fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
-        if let Some(fields) = self.open.lock().unwrap().remove(&id.into_u64()) {
-            self.closed.lock().unwrap().push(fields);
-        }
+        self.0.lock().unwrap().live.remove(&id.into_u64());
     }
 }
 
-/// 在当前线程安装 span 收集器；返回值需持有到断言完成。
-fn capture_invoke_spans() -> (InvokeSpans, tracing::subscriber::DefaultGuard) {
-    let spans = InvokeSpans::default();
-    let guard =
-        tracing::subscriber::set_default(tracing_subscriber::registry().with(spans.clone()));
-    (spans, guard)
+/// 安装全进程唯一的 `invoke` span 收集器（只装一次），并返回它。
+///
+/// 不能改回在每个用例里用 `set_default` 装线程级 subscriber：tracing 在只有一个线程级
+/// subscriber 存活时，首次触发某个 callsite 的线程只按自己线程的 subscriber 计算并缓存
+/// 关注度。并行时没装 subscriber 的用例若先触发 `invoke` 的 callsite，会把它缓存为 never，
+/// 之后装了收集器的用例就收不到 span（`tracing::callsite::rebuild_interest_cache()` 在装好
+/// 之后立即调用也无济于事，缓存是在那之后才写入的）。全局 subscriber 对所有线程一致，
+/// 不依赖线程间的触发顺序。
+fn install_invoke_span_capture() -> &'static InvokeSpans {
+    static SPANS: OnceLock<InvokeSpans> = OnceLock::new();
+    SPANS.get_or_init(|| {
+        let spans = InvokeSpans::default();
+        tracing::subscriber::set_global_default(tracing_subscriber::registry().with(spans.clone()))
+            .expect("本测试文件内不应有其他全局 subscriber");
+        spans
+    })
 }
 
-fn only_span(spans: &InvokeSpans) -> HashMap<String, String> {
-    let closed = spans.closed.lock().unwrap();
-    assert_eq!(closed.len(), 1, "应恰好一个 invoke span: {closed:?}");
-    closed[0].clone()
+impl InvokeSpans {
+    /// 在 `thread` 上创建的 `invoke` span 的字段，按创建顺序。
+    fn created_on(&self, thread: ThreadId) -> Vec<SpanFields> {
+        let records = self.0.lock().unwrap();
+        records
+            .created
+            .iter()
+            .filter(|(t, _)| *t == thread)
+            .map(|(_, fields)| fields.clone())
+            .collect()
+    }
+}
+
+/// 当前用例（线程）从 [`capture_invoke_spans`] 起新创建的 `invoke` span。
+struct SpanCapture {
+    spans: &'static InvokeSpans,
+    thread: ThreadId,
+    /// 此前本线程已创建的 span 数，取回时跳过。
+    already_created: usize,
+}
+
+/// 从当前时刻起记录本线程的 `invoke` span。
+fn capture_invoke_spans() -> SpanCapture {
+    let spans = install_invoke_span_capture();
+    let thread = std::thread::current().id();
+    SpanCapture {
+        spans,
+        thread,
+        already_created: spans.created_on(thread).len(),
+    }
+}
+
+fn only_span(capture: &SpanCapture) -> SpanFields {
+    let created: Vec<_> = capture
+        .spans
+        .created_on(capture.thread)
+        .into_iter()
+        .skip(capture.already_created)
+        .collect();
+    assert_eq!(created.len(), 1, "应恰好一个 invoke span: {created:?}");
+    created[0].clone()
 }
 
 #[tokio::test]
 async fn span_records_canonical_resource_and_request_id_for_http() {
-    let (spans, _guard) = capture_invoke_spans();
+    let spans = capture_invoke_spans();
     let server = mock_upstream("POST", ResponseTemplate::new(200)).await;
     let h = harness(&http_yaml(&server.uri(), "POST", "", ""), NoSecrets, vec![]).await;
 
@@ -824,7 +892,7 @@ async fn span_records_canonical_resource_and_request_id_for_http() {
 
 #[tokio::test]
 async fn span_records_canonical_resource_and_request_id_for_remote_mcp() {
-    let (spans, _guard) = capture_invoke_spans();
+    let spans = capture_invoke_spans();
     let h = harness(
         &remote_yaml(""),
         NoSecrets,
@@ -851,7 +919,7 @@ async fn span_records_request_id_of_limited_event() {
     )
     .await;
     h.exec.invoke(HTTP_TOOL, json!({}), &h.key).await.unwrap();
-    let (spans, _guard) = capture_invoke_spans();
+    let spans = capture_invoke_spans();
 
     h.exec
         .invoke(HTTP_TOOL, json!({}), &h.key)
@@ -872,7 +940,7 @@ async fn span_records_request_id_of_limited_event() {
 
 #[tokio::test]
 async fn span_leaves_resolution_fields_empty_for_unknown_tool() {
-    let (spans, _guard) = capture_invoke_spans();
+    let spans = capture_invoke_spans();
     let server = mock_upstream("POST", ResponseTemplate::new(200)).await;
     let h = harness(&http_yaml(&server.uri(), "POST", "", ""), NoSecrets, vec![]).await;
 
