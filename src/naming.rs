@@ -40,7 +40,7 @@ impl ToolName {
     ///（双下划线 `__` 分段，段内单词用单下划线如 `web_search`）。
     ///
     /// 注意：段内本身可能含 `__`——`normalize_segment` 不拒绝下划线，
-    /// MCP 上游工具原名（registry `wrap_tools` 原样入 tool 段）就常带 `__`。
+    /// MCP 上游工具原名（`mcp::convert::wrap_tools` 原样入 tool 段）就常带 `__`。
     /// 因此 wire name **不保证**能按 `__` 切回三段（`FromStr` 无法 round-trip）。
     /// 运行时按 wire name 定位工具一律对 catalog 查表（字符串相等），
     /// 见 `ToolCatalog::resolve_for_key` / `find_by_wire_name`。

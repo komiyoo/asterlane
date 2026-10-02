@@ -533,7 +533,8 @@ mod tests {
 
     use crate::catalog::ToolCatalog;
     use crate::config::{GatewayConfig, HealthCheckConfig, McpServerConfig, UpstreamAuth};
-    use crate::mcp::registry::{McpFuture, McpServerRegistry, RemoteMcpPeer};
+    use crate::mcp::peer::{McpFuture, RemoteMcpPeer};
+    use crate::mcp::registry::McpServerRegistry;
     use rmcp::ServiceExt;
     use rmcp::model::CallToolRequestParams;
     use std::sync::Mutex;

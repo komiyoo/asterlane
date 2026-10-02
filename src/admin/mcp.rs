@@ -446,7 +446,7 @@ mod tests {
     use crate::GatewayConfig;
     use crate::admin::auth::AdminAuth;
     use crate::catalog::ToolCatalog;
-    use crate::mcp::registry::McpFuture;
+    use crate::mcp::peer::McpFuture;
     use crate::mcp::{McpError, RemoteMcpPeer};
     use crate::observability::SecurityEventKind;
     use crate::store::SqliteRequestEventRepository;
