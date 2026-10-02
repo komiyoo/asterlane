@@ -82,11 +82,11 @@ flowchart LR
 
 `src/mcp/registry.rs` 生产代码 639 行。按内聚单元拆分，纯移动、不改行为：
 
-- [ ] 上游 peer 层（`RemoteMcpPeer`、`RmcpRemoteMcpPeer`、`serve_upstream`、`PeerConnector`、`RmcpConnector`）移到 `src/mcp/peer.rs`。
-- [ ] transport 构造与 secret 解析（`transport_config`、`resolve_secret`）移到 `src/mcp/transport.rs`；S5 的 OAuth 接线落在这里。
-- [ ] 上游结果转换（`wrap_tools`、`arguments_to_object`、`convert_call_*`、`content_block_to_tool_content`）移到 `src/mcp/convert.rs`。
-- [ ] `registry.rs` 只保留 `McpServerRegistry`、`McpServerEntry`、`RefreshResult`；测试跟随被测代码迁移。
-- [ ] `crate::mcp::*` 的公开路径（`McpServerRegistry`、`RemoteMcpPeer`、`RmcpRemoteMcpPeer`、`RefreshResult`）保持不变；更新 `src/mcp/mod.rs` 模块说明。
+- [x] 上游 peer 层（`RemoteMcpPeer`、`RmcpRemoteMcpPeer`、`serve_upstream`、`PeerConnector`、`RmcpConnector`）移到 `src/mcp/peer.rs`。
+- [x] transport 构造与 secret 解析（`transport_config`、`resolve_secret`）移到 `src/mcp/transport.rs`；S5 的 OAuth 接线落在这里。
+- [x] 上游结果转换（`wrap_tools`、`arguments_to_object`、`convert_call_*`、`content_block_to_tool_content`）移到 `src/mcp/convert.rs`。
+- [x] `registry.rs` 只保留 `McpServerRegistry`、`McpServerEntry`、`RefreshResult`；测试跟随被测代码迁移（原 20 个测试都测 registry 与健康行为，没有直接测 peer 或转换函数的用例，全部留在 `registry.rs`）。
+- [x] `crate::mcp::*` 的公开路径（`McpServerRegistry`、`RemoteMcpPeer`、`RmcpRemoteMcpPeer`、`RefreshResult`）保持不变；更新 `src/mcp/mod.rs` 模块说明。`McpFuture` 路径改为 `mcp::peer`。
 
 验收：每个文件的生产代码 ≤500 行；测试数量与拆分前一致；`just check` 全绿。
 

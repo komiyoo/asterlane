@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-10-01（拆分 mcp/registry.rs）
+
+- **结论**：`src/mcp/registry.rs` 生产代码 639 行超过 500 行预算，按内聚单元纯移动拆为四个文件，不改行为：`registry.rs`（`McpServerRegistry`、`McpServerEntry`、`RefreshResult`，生产 259 行）、`peer.rs`（`RemoteMcpPeer`、`RmcpRemoteMcpPeer`、`PeerConnector`，262 行）、`transport.rs`（`transport_config`、`resolve_secret`，50 行；上游 OAuth 接线的落点）、`convert.rs`（`wrap_tools` 与调用结果转换，108 行）。
+- **路径**：`mcp::{McpServerRegistry, RefreshResult, RemoteMcpPeer, RmcpRemoteMcpPeer}` 不变。`McpFuture` 由 `mcp::registry` 移到 `mcp::peer`（crate 内测试替身已改引用）。`convert`、`transport` 为 `mcp` 私有模块，其 `pub(super)` 函数只对 `mcp` 可见；`convert_call_result`、`convert_call_response`、`arguments_to_object` 因被 `peer` 调用，由模块私有改为 `pub(super)`。
+- **文档**：[Roadmap](product/roadmap.md) 与 [Naming Convention](architecture/naming-convention.md) 中指向 `mcp::registry` 的 `transport_config`、`wrap_tools` 引用改到新位置；`src/mcp/mod.rs` 模块说明列出新模块。
+- **验证**：本机 `just check` 通过（878 passed，2 ignored，与拆分前一致）；`cargo test --lib` 773 个测试，拆分前后测试名清单逐项一致。
+
 ## 2026-10-01（产品决策与实施计划）
 
 - **决策**：删除请求变换；成本核算暂缓；存储维持 SQLite，Postgres 与共享状态本轮不做；代理上游 resources 与 prompts，key 范围沿用工具 scope，stdio 定为非目标；上游 MCP OAuth 只做网关持有（client-credentials + 管理员一次性授权码）；限流维度先出设计；每次发布默认 patch +0.0.1。多租户与 RBAC 仍未定。
