@@ -2,6 +2,7 @@
 
 mod boundary;
 mod error;
+mod lifecycle;
 mod request_id;
 mod routes;
 mod state;
