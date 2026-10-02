@@ -2,12 +2,12 @@
 
 ## 2026-10-02（修复 proxy_events 偶发失败）
 
-- **结论**：只改了 `tests/proxy_events.rs`，生产代码不动。`invoke` span 用例并行时偶发失败，是测试收集 span 的方式有两处竞争，不是 `ProxyExecutor::invoke` 的问题。基线上循环 24 次 `cargo test --test proxy_events` 失败 2 次（`span_leaves_resolution_fields_empty_for_unknown_tool`、`span_records_canonical_resource_and_request_id_for_remote_mcp`，均为「应恰好一个 invoke span: []」）。
+- **结论**：只改了测试代码（`tests/proxy_events.rs`，以及下面「同类问题」里的两个 OAuth 用例文件与 `tests/support/log_capture.rs`），生产代码不动。`invoke` span 用例并行时偶发失败，是测试收集 span 的方式有两处竞争，不是 `ProxyExecutor::invoke` 的问题。基线上循环 24 次 `cargo test --test proxy_events` 失败 2 次（`span_leaves_resolution_fields_empty_for_unknown_tool`、`span_records_canonical_resource_and_request_id_for_remote_mcp`，均为「应恰好一个 invoke span: []」）。
 - **根因 1：tracing 回调点关注度缓存**。各用例在自己线程用 `set_default` 装收集器。tracing-core 0.1.36 在只有一个线程级 subscriber 存活时，首次触发某个回调点的线程只按自己线程的 subscriber 计算并缓存关注度（`callsite.rs` 的 `Rebuilder::JustOne`）。没装收集器的用例若先触发 `invoke` 的回调点，会把它缓存为 never，之后装了收集器的用例就收不到 span。用临时测试确定性复现：线程 A 装好 subscriber，线程 B 先触发回调点，A 再触发，A 收到 0 个 span；A 装好后立刻调用 `rebuild_interest_cache()` 没有用（缓存是之后才写入的），B 触发之后再调用才有用，而这一点在并行用例里无法控制。
 - **根因 2：span 在 `invoke` 返回之后才关闭**。sqlx-sqlite 0.9 给每条命令附带调用方当前 span 的克隆，连接线程回复之后才释放（`sqlx-sqlite/src/connection/worker.rs`）。落库是 `invoke` 的最后一步，所以 `invoke` span 可能在 `invoke` 返回之后、在另一个线程上才关闭；原先按「已关闭」取 span 的收集方式会偶发取空。这是 sqlx 的行为，对生产无害，只影响测试读取时机。
 - **修法**：全进程装一个全局收集器（`OnceLock` + `set_global_default`，在 `harness_tuned` 里先于任何 `invoke` 安装），回调点关注度对所有线程一致；span 按创建线程归属，各用例只取本线程的 span，第三个用例用「创建前已有数量」跳过它自己第一次 `invoke` 的 span。字段在创建与 `record` 时即写入，不再等 span 关闭。断言一条未删，没有重试与 `#[ignore]`。
 - **验证**：修复后循环 100 次 `cargo test --test proxy_events` 全部通过（19 passed），另用 4 个进程并发各跑 40 轮共 160 次无失败；本机 `just check` 通过。
-- **发现（未处理）**：`tests/mcp_oauth_authorize.rs` 与 `tests/mcp_upstream_oauth.rs` 也用线程级 `set_default` 捕获日志，理论上有根因 1 同样的竞争：否定断言（日志里不含 token）漏掉日志会让断言变弱，肯定断言（如 `mcp_upstream_oauth.rs` 里日志应含 `authorization required`）则会失败。尚未观察到这两个文件偶发失败，本次没有改。
+- **同类问题：OAuth 用例的日志捕获**。`tests/mcp_oauth_authorize.rs` 与 `tests/mcp_upstream_oauth.rs` 原先也用线程级 `set_default` 捕获日志，有根因 1 同样的竞争：「日志里不含 token / code / client secret」这类否定断言在什么都没捕获时会空过（安全断言失效），肯定断言（如日志应含 `authorization required`）则会偶发失败。基线上这两个文件各循环 30 次、再各以 16 个测试线程跑 40 次均未失败，没有观察到实际发生，但机制与 `proxy_events` 相同。已改为共用 `tests/support/log_capture.rs`：全进程一个全局 subscriber，回调点缓存与线程无关；`enabled` 里按当前线程是否在捕获、级别与是否叠加凭据日志上限（仍用生产的 `credential_log_cap`）放行，输出写进当前线程的缓冲区。每个否定断言改用 `LogCapture::text_containing(marker)` 取日志，同时断言日志非空且含该路径上必然出现的一条日志（例如 `upstream OAuth authorization completed`、`OAuth client-credentials token obtained`），失败信息不打印日志内容。反向验证：临时让捕获丢弃所有日志，11 个用到日志的用例全部失败（原先这些否定断言会通过）。验证：两个文件各循环 30 次、再各以 16 个测试线程跑 40 次全部通过；`just check` 通过。
 
 ## 2026-10-01（上游 OAuth：管理员一次性授权）
 

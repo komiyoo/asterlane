@@ -4,11 +4,13 @@
 //! MCP 端点），不连真实上游。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "support/log_capture.rs"]
+mod log_capture;
 #[path = "support/oauth_upstream.rs"]
 mod oauth_upstream;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use asterlane::catalog::ToolCatalog;
@@ -27,10 +29,11 @@ use asterlane::store::{
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use base64::Engine;
+use log_capture::LogCapture;
 use oauth_upstream::{AS_ERROR_DESCRIPTION, CLIENT_ID, CLIENT_SECRET, OAuthUpstream};
 use serde_json::json;
 use tower::ServiceExt;
-use tracing_subscriber::fmt::MakeWriter;
+use tracing::Level;
 
 // ── 测试辅助 ──
 
@@ -136,42 +139,11 @@ fn last_error_of(registry: &McpServerRegistry, id: &str) -> String {
         .unwrap_or_default()
 }
 
-/// 捕获 tracing 输出（DEBUG 及以上），用来断言日志里没有 token 与 client secret。
-#[derive(Clone, Default)]
-struct LogBuffer(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for LogBuffer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> MakeWriter<'a> for LogBuffer {
-    type Writer = LogBuffer;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-impl LogBuffer {
-    fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
-    }
-}
-
-/// 仅当前线程生效；测试用默认的 current-thread runtime，上游与 rmcp 的任务都在本线程。
-fn capture_logs() -> (LogBuffer, tracing::subscriber::DefaultGuard) {
-    let buffer = LogBuffer::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buffer.clone())
-        .with_ansi(false)
-        .with_max_level(tracing::Level::DEBUG)
-        .finish();
-    (buffer, tracing::subscriber::set_default(subscriber))
+/// 捕获当前线程的 tracing 输出（DEBUG 及以上），用来断言日志里没有 token 与 client secret。
+/// 捕获方式见 `support/log_capture.rs`；测试用默认的 current-thread runtime，上游与 rmcp 的
+/// 任务都在本线程。
+fn capture_logs() -> LogCapture {
+    log_capture::capture_logs(Level::DEBUG, false)
 }
 
 fn assert_no_secrets(haystack: &str, upstream: &OAuthUpstream, extra: &[&str]) {
@@ -301,7 +273,7 @@ async fn http_json(
 
 #[tokio::test]
 async fn client_credentials_handshake_lists_and_calls_tools_without_leaking() {
-    let (logs, _guard) = capture_logs();
+    let logs = capture_logs();
     let upstream = OAuthUpstream::start().await;
     let servers = [server(
         "oauthmock",
@@ -336,7 +308,11 @@ async fn client_credentials_handshake_lists_and_calls_tools_without_leaking() {
         0
     );
 
-    assert_no_secrets(&logs.text(), &upstream, &[]);
+    assert_no_secrets(
+        &logs.text_containing("OAuth client-credentials token obtained"),
+        &upstream,
+        &[],
+    );
     upstream.shutdown();
 }
 
@@ -520,7 +496,7 @@ async fn upstream_that_keeps_rejecting_the_token_is_a_plain_failure_not_auth_req
 
 #[tokio::test]
 async fn failed_token_exchange_is_unreachable_and_hides_authorization_server_details() {
-    let (logs, _guard) = capture_logs();
+    let logs = capture_logs();
     let upstream = OAuthUpstream::start().await;
     let servers = [server(
         "oauthmock",
@@ -541,7 +517,11 @@ async fn failed_token_exchange_is_unreachable_and_hides_authorization_server_det
     ] {
         assert!(!error.contains(hidden), "{hidden} leaked into: {error}");
     }
-    assert_no_secrets(&logs.text(), &upstream, &[wrong_secret]);
+    assert_no_secrets(
+        &logs.text_containing("OAuth client-credentials token exchange failed"),
+        &upstream,
+        &[wrong_secret],
+    );
     upstream.shutdown();
 }
 
@@ -572,7 +552,7 @@ async fn oauth_server_without_the_oauth_service_is_unreachable() {
 
 #[tokio::test]
 async fn authorization_code_without_credentials_is_auth_required_and_fail_closed_blocks_list() {
-    let (logs, _guard) = capture_logs();
+    let logs = capture_logs();
     let upstream = OAuthUpstream::start().await;
     let servers = vec![server(
         "oauthmock",
@@ -619,7 +599,7 @@ async fn authorization_code_without_credentials_is_auth_required_and_fail_closed
 
 #[tokio::test]
 async fn stored_credentials_connect_and_rotated_refresh_token_is_written_back() {
-    let (logs, _guard) = capture_logs();
+    let logs = capture_logs();
     let upstream = OAuthUpstream::start().await;
     let repo = repository().await;
     let key = encryption_key(3);
@@ -692,7 +672,7 @@ async fn stored_credentials_connect_and_rotated_refresh_token_is_written_back() 
     assert_eq!(upstream.token_requests().len(), 1);
 
     assert_no_secrets(
-        &logs.text(),
+        &logs.text_containing("MCP 探测成功"),
         &upstream,
         &["refresh_seed_1", "refresh_rot_1", "stored_access_Ab12"],
     );
@@ -701,7 +681,7 @@ async fn stored_credentials_connect_and_rotated_refresh_token_is_written_back() 
 
 #[tokio::test]
 async fn wrong_encryption_key_degrades_to_auth_required_with_a_warning() {
-    let (logs, _guard) = capture_logs();
+    let logs = capture_logs();
     let upstream = OAuthUpstream::start().await;
     let repo = repository().await;
     store_credentials(
@@ -727,7 +707,7 @@ async fn wrong_encryption_key_degrades_to_auth_required_with_a_warning() {
         status_of(&registry, "oauthmock"),
         HealthStatus::AuthRequired
     );
-    let log_text = logs.text();
+    let log_text = logs.text_containing("credentials_unreadable");
     assert!(log_text.contains("WARN"));
     assert!(log_text.contains("credentials_unreadable"), "{log_text}");
     assert_no_secrets(
