@@ -7,6 +7,13 @@
 - **文档**：[Compatibility Policy](architecture/compatibility-policy.md) 的语义化版本节写入同一策略，并把两处「下一个 minor 移除」改为「至少经过一次发布后再移除」，避免与 patch 默认节奏矛盾；[Roadmap](product/roadmap.md) Phase 9 与生产就绪表记发布工程已交付，`cargo-semver-checks` 本轮不做（兼容策略规定发布到 crates.io 时才启用）；根 `README.md` 的 CI 表改为六个 job 并新增「发布」节；[Development Workflow](engineering/development-workflow.md) 的 CI job 描述同步；[工程与文档](engineering/README.md) 索引加一行。
 - **验证**：workflow YAML 可解析；`actionlint` 1.7.12（含 shellcheck 0.11.0）0 错误；校验、抽取说明与打包脚本在本机用样例文件模拟通过；`python3 scripts/check_okf_docs.py`、`git diff --check` 通过。未运行 GitHub Actions 和 `cargo build --locked`，流水线首次真实运行待维护者推 tag 验证。
 
+## 2026-10-01（限流维度设计）
+
+- **结论**：新增 [Rate Limit Dimensions](architecture/rate-limit-dimensions.md)，只出设计、不改代码。生产在用 `Endpoint`（上游）与 `Principal`（gateway key）两个维度；`RateLimits`、`UpstreamKey`、`GatewayPrincipal`、`Ip` 自 2026-07-04 原型后一直未接线。逐项给出接线、保留不接、删除三个选项与推荐：`UpstreamKey` 推荐接线（补上 POST 类上游收到 429 时 key 不冷却的缺口，前提是产品确认有按 key 计量的上游），`RateLimits` 随 `UpstreamKey` 走，`GatewayPrincipal` 与 `Ip` 推荐保留不接并写明触发条件与复审时点。`X-Forwarded-For` 信任边界列为待决项，推荐默认不信任、需要时用可信代理 CIDR 列表并取从右向左第一个非可信地址，不采用固定跳数与无条件信任；是否接线与采用何种方案由产品评审决定。多副本共享计数不在范围内（存储维持 SQLite）。
+- **影响面**：仅文档。[Architecture](architecture/architecture.md) 的 Rate Limit And Queue 一节更正：维度列表区分在用与未接线，队列描述改为实际的信号量加超时（排队超时为 503，不存在优先级队列）。[Roadmap](product/roadmap.md) Phase 10 的 IP 维度条目链接到新文档；[Architecture 索引](architecture/README.md)加一行。[Product Requirements](product/product-requirements.md) 中对 upstream key 与 client IP 限流的承诺未改，待评审结论落地时与 S2 的改动一并处理。
+- **发现（未处理）**：非 GET 请求收到上游 429 时 `execute_with_retry` 不冷却该 key；`proxy/post.rs` 的 `record_event` 把 `rate_limited` 固定写成 `false`；指标 `asterlane_rate_limit_hits_total` 的 `dimension` 标签固定为 `request`；`RequestEvent.queued_ms` 恒为 0。均记入新文档，不在本次改动内。
+- **验证**：`python3 scripts/check_okf_docs.py` 与 `git diff --check` 通过；未运行 cargo 与 `just check`（本切片不改代码，且本机资源由编码切片占用）。
+
 ## 2026-10-01（产品决策与实施计划）
 
 - **决策**：删除请求变换；成本核算暂缓；存储维持 SQLite，Postgres 与共享状态本轮不做；代理上游 resources 与 prompts，key 范围沿用工具 scope，stdio 定为非目标；上游 MCP OAuth 只做网关持有（client-credentials + 管理员一次性授权码）；限流维度先出设计；每次发布默认 patch +0.0.1。多租户与 RBAC 仍未定。

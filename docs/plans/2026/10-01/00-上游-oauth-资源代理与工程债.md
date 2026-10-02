@@ -189,11 +189,13 @@ oauth:                               # 顶层，可选；任一 server 用 autho
 
 ## D1 限流维度设计（只出设计，不改代码）
 
-- [ ] 新建 `docs/architecture/rate-limit-dimensions.md`（`type: Design`），覆盖：生产在用的维度（`LimitRegistry` 的 `Endpoint`、`Principal`）；未接线的 `RateLimits` 与 `LimiterKey::{Ip, UpstreamKey, GatewayPrincipal}` 的原始意图、接线成本、与现有维度的重叠；每个维度给出「接线 / 保留 / 删除」选项和推荐。
-- [ ] `X-Forwarded-For` 信任边界列为待决项：默认不信任、可信代理 CIDR 列表、跳数等方案的取舍。多副本共享计数不在范围内。
-- [ ] 更新 `docs/architecture/README.md` 索引、[Roadmap](../../../product/roadmap.md) Phase 10 条目链接、`docs/log.md`。
+- [x] 新建 `docs/architecture/rate-limit-dimensions.md`（`type: Design`），覆盖：生产在用的维度（`LimitRegistry` 的 `Endpoint`、`Principal`）；未接线的 `RateLimits` 与 `LimiterKey::{Ip, UpstreamKey, GatewayPrincipal}` 的原始意图、接线成本、与现有维度的重叠；每个维度给出「接线 / 保留 / 删除」选项和推荐。
+- [x] `X-Forwarded-For` 信任边界列为待决项：默认不信任、可信代理 CIDR 列表、跳数等方案的取舍。多副本共享计数不在范围内。
+- [x] 更新 `docs/architecture/README.md` 索引、[Roadmap](../../../product/roadmap.md) Phase 10 条目链接、`docs/log.md`。
 
 验收：OKF 检查通过；文档足以支撑「接线或保留」的评审决定。
+
+结果（2026-10-01）：推荐 `UpstreamKey` 接线（前提：确认有按 key 计量的上游），`RateLimits` 随之保留；`GatewayPrincipal`、`Ip` 保留不接并写明触发条件；`X-Forwarded-For` 推荐默认不信任、需要时用可信代理 CIDR。另更正 [Architecture](../../../architecture/architecture.md) 中队列与维度的过时描述。等待评审决定。
 
 ## D2 发布设置
 

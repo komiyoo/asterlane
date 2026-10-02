@@ -161,7 +161,7 @@ timestamp: 2026-10-01T00:00:00Z
 
 - 成本核算（2026-10-01：暂缓）：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
 - usage 分钟/日桶、上游耗时维度
-- IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（2026-10-01：先出模块设计，评审后再定接线或保留）
+- IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（2026-10-01：先出模块设计，评审后再定接线或保留；设计与推荐见 [Rate Limit Dimensions](../architecture/rate-limit-dimensions.md)）
 - **已交付（2026-08-20）**：key pool 热更新；upstream keys 经 resource CRUD 同步进 `upstream_keys`（不新开 `/admin/upstream-keys` REST）
 - circuit breaker、跨 provider failover
 - 告警规则与 Grafana dashboard 示例
