@@ -73,7 +73,7 @@ timestamp: 2026-10-02T00:00:00Z
   - `warn!`：自动降级、重试后成功、配额/隔离触发、观测写入失败。
   - `info!`：生命周期事件（启动、shutdown、refresh、baseline pin）；每请求路径禁用 info。
   - `debug!`：每请求决策点（key 选取、重试、限流等待、格式协商）。
-- 请求路径必须在 span 内：`ProxyExecutor::invoke`、MCP `tools/list` / `call_tool`、registry refresh 须 `#[instrument(skip_all, fields(request_id, wire_name, resource_id, proxy_key_id))]`。`request_id` 是全链路关联键，HTTP 层的 `TraceLayer` 不能替代（MCP 单 endpoint 下 method/path 无区分度）。
+- 请求路径必须在 span 内：`ProxyExecutor::invoke`、MCP `tools/list` / `call_tool` / `prompts/get` / `resources/read`、registry refresh 须 `#[instrument(skip_all, fields(request_id, wire_name, resource_id, proxy_key_id))]`。`request_id` 是全链路关联键，HTTP 层的 `TraceLayer` 不能替代（MCP 单 endpoint 下 method/path 无区分度）。
 - 双写口径：`RequestEvent` → metrics + store 是历史事实源；tracing 是实时诊断。三者字段名保持一致。
 - 密钥零泄漏：span/event 字段禁止明文密钥；upstream key 只用 `redact_secret_key` 后的形式。
 

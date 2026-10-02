@@ -4,7 +4,7 @@ title: Asterlane Original Product Requirements
 description: Captures the original product intent for Asterlane as an agent-native third-party resource and MCP credential gateway.
 resource: docs/product/product-requirements.md
 tags: [requirements, product, agent-native, mcp, credentials]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-10-02T00:00:00Z
 ---
 
 # 背景
@@ -181,6 +181,8 @@ gateway-facing key 是 agent 或应用身份。每个 key 有自己的 tool scop
 
 支持代理第三方 MCP server。Asterlane 负责上游 MCP 鉴权、tool name namespace 包装、tool list 过滤、tool call 转发、错误归一化和使用日志。
 
+代理范围是远程 MCP server 的 tools、resources 与 prompts。stdio / 本地进程 MCP server 不是目标：网关只对接 Streamable HTTP 上游，不管理本地进程。resource 与 prompt 的可见范围沿用工具 scope，不另设配置字段。
+
 ## Rate Limit And Queue
 
 限流维度至少包括 gateway key、upstream key、resource、endpoint/tool、client IP 或调用主体。队列用于平滑突发流量，并暴露 queue depth、等待时间和丢弃原因。
@@ -325,7 +327,7 @@ Meta-tool 设计（Asterlane 版）：
 | Toolport 功能 | 不借鉴原因 |
 | --- | --- |
 | Tauri 桌面 UI / OS keychain 集成 | Asterlane 是 headless server，不需要桌面壳 |
-| stdio transport（sidecar 模式） | Asterlane 走 HTTP/MCP streamable HTTP |
+| stdio transport（sidecar 模式） | 非目标。Asterlane 只对接远程 Streamable HTTP 上游，代理其 tools、resources 与 prompts |
 | 20 AI client 配置自动检测 | 不在 Asterlane 产品范围 |
 | auto-updater / 签名分发 | 服务端部署，不做客户端自更新 |
 | human-in-the-loop 审批队列 | 架构上可以做但优先级低于 key scope + rate limit；后续按需追加 |

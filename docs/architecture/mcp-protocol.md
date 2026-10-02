@@ -4,7 +4,7 @@ title: MCP 协议版本与网关适配
 description: 将 Asterlane 对齐 MCP 2026-07-28，同时双栈兼容 2025-11-25 客户端与上游。
 resource: docs/architecture/mcp-protocol.md
 tags: [mcp, protocol, rmcp, compatibility]
-timestamp: 2026-08-17T00:00:00Z
+timestamp: 2026-10-02T00:00:00Z
 ---
 
 # 背景
@@ -94,6 +94,22 @@ Streamable HTTP POST 必须带 `MCP-Protocol-Version`、`Mcp-Method`，命名请
 - **刷新与重启**：之后的刷新、轮换 refresh token 写回、重启后从存储加载，都是「authorization_code」一节描述的路径；同一个 SQLite 文件与加密密钥下重启不需要重新授权。动态注册得到的 `client_id` 随凭据保存。限制：rmcp 的动态注册请求声明公开客户端（`token_endpoint_auth_method: none`）；若授权服务器仍返回了 client secret，网关没有地方保存它，access token 到期后该客户端的刷新会被授权服务器拒绝，server 无法保持连接；此类授权服务器请改用预注册的 `client_id` 与 `client_secret_ref`。
 - **撤销**（`DELETE /admin/mcp-servers/{id}/oauth`）：清除已存凭据、丢弃未完成的授权、重连使当前连接失效（重连后 `auth_required`，工具从目录移除）。只清除网关保存的凭据，不通知授权服务器吊销 token。
 - **日志安全**：网关自己的日志永远不记录授权 code、state、授权 URL 与 token；授权服务器返回的错误文本写进 tracing 前先去掉控制字符、抹掉 code 与 state、限制长度（有的授权服务器会在错误描述里回显 code）。回调请求的 URI 在请求日志里只记路径，不记 query（tower-http 的默认 span 会把完整 URI 带进该请求内的每条日志）。rmcp 的 OAuth 实现自己在 `debug` 级会打印授权 code 与 token 响应的非标准字段（见 [Observability – 凭据日志上限](observability.md#凭据日志上限)），`serve` 的 tracing 初始化给它加了固定的 `info` 级上限，即使 `RUST_LOG=debug` 也不输出。
+
+## prompts 与 resources
+
+下游 `/mcp` 广告 `prompts` 与 `resources` capability，不广告 `resources.subscribe`，也不向下游推送 prompts 或 resources 的 list changed。`prompts/list` 合并网关自有 `asterlane_tool_workflow` 与当前 key 可见的上游 prompts。这三份列表（`prompts/list`、`resources/list`、`resources/templates/list`）不受 `discovery_mode` 影响：lazy 只收窄 `tools/list`。
+
+上游 prompt 包装为 `domain__provider__<prompt>`（与工具相同的 `ToolName` 规则，见 [Naming Convention](naming-convention.md#上游-prompts-与-resources-的名字)）。名字不合法就跳过并告警；重名先到先得，后来者告警后丢弃。`prompts/get` 转发时剥掉前缀，用上游原名调用，参数原样转发。
+
+resource 与 resource template 对下游的 URI 一律是 `asterlane://{server_id}/{上游原 URI}`，直接拼接，不做百分号编码。template 里的变量原样保留。`resources/read` 按这个前缀找到上游，再把 URI 还原后读取；读回内容里的 `uri` 同样放进该命名空间。这个命名空间是稳定契约，见 [Compatibility Policy](compatibility-policy.md)。icons、annotations、`_meta` 等其余字段原样转发。
+
+判权与工具是同一套规则（deny 优先；`allowed_tools` 正则、`allowed_servers`、`allowed_tool_names` 任一命中即允许），见 [MCP Governance §2](../runtime/mcp-governance-and-key-limits.md)。resource 与 template 的匹配名是 `domain__provider__<上游 name>`（上游 name 原样保留，可以含 `.`、`/` 等字符），只用于判权，不出现在下游响应里。查 resource 快照未命中时，再按 template 第一个 `{` 之前的字面前缀匹配，取最长的一条。resource 已经命中但当前 key 无权时，不再改用 template 放行。未命中或无权限都返回 resource not found，handler 发出 JSON-RPC `-32002`，不访问上游，也不区分「不存在」和「无权限」。协商到 `2026-07-28` 的客户端会被 rmcp 按 SEP-2164 改写成 `-32602`；更早的客户端仍看到 `-32002`。
+
+只对声明了对应 capability 的上游拉取。没声明的上游不报错、快照为空。快照与工具同一周期刷新：连接、周期 refresh、上游 `tools/list_changed`。某类列表拉取失败时保留该类的上一次快照，不把这次工具探测判失败。
+
+`prompts/get` 与 `resources/read` 走和 `tools/call` 相同的 key 级与上游级速率、并发准入（同一个 `LimitRegistry`），不计入调用配额，不写 `request_events`（已知缺口，见 [Roadmap](../product/roadmap.md) 支柱五）。被拒时返回 JSON-RPC `-32603`，消息是脱敏的限额说明，并记一条 `warn`。无权限、不存在的请求在准入之前就返回，不消耗限额。请求路径各有一个 span（`get_prompt_for`、`read_resource_for`），字段与 `tools/call` 同名：`wire_name`（仅 prompt）、`proxy_key_id`、`resource_id`（上游 server id）、`request_id`。网关自有的 `asterlane_tool_workflow` 是本地内容，不经这道准入。
+
+`mcp.failure_mode: fail_closed` 只拦 `tools/list`，三份列表与 `prompts/get`、`resources/read` 不受影响（上游不可达时列表沿用上一次快照）。多轮输入（MRTR）不代理：上游对 `prompts/get` 或 `resources/read` 返回 input required 时，网关返回上游失败。
 
 # 明确不做
 

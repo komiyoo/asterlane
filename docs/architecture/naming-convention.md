@@ -4,7 +4,7 @@ title: MCP 工具命名约定
 description: 基于 MCP 规范与 LLM API 实际约束，确定 Asterlane 对外暴露的工具命名格式与映射规则。
 resource: docs/architecture/naming-convention.md
 tags: [naming, mcp, architecture, compatibility]
-timestamp: 2026-07-07T00:00:00Z
+timestamp: 2026-10-02T00:00:00Z
 ---
 
 # 背景
@@ -103,6 +103,15 @@ Claude Code 的 64 字符限制作用于 `mcp__<server>__<tool>` 全名。假设
 ## 上游转发剥前缀
 
 网关在 `tools/call` 转发到上游 MCP server 前，必须剥掉命名空间前缀，恢复上游原始工具名。Docker mcp-gateway 曾因原样转发带前缀名导致上游 "tool not found"（PR #278 修复）。真实映射在 `mcp::convert` 的 `wrap_tools`：上游原始名写入 `WrappedTool.upstream_path`，invoke 时按该字段调用，不从 wire name 拆段猜测。
+
+## 上游 prompts 与 resources 的名字
+
+远程上游的 prompts、resources 与 resource templates 复用同一套三段名，规则只有两条：
+
+- **prompt 对外暴露包装名** `domain__provider__<上游 prompt 名>`，与工具一样走 `ToolName`（规范化、字符集、64 字符预算）。名字不合法的 prompt 跳过并告警；包装名与已有 prompt 重复时先到先得，后来者告警后丢弃（同一 server 内与跨 server 同口径）。`prompts/get` 转发时按快照里的上游原名调用，不从包装名拆段猜测。
+- **resource 与 template 不改名**，只用 `domain__provider__<上游 name>` 判权：domain 与 provider 按 `ToolName` 规范化，`<上游 name>` 原样保留，所以可以含 `.`、`/` 等 `ToolName` 不接受的字符，也没有长度预算。这个名字只在网关内部参与 key scope 匹配，不出现在任何响应里。对下游暴露的是改写后的 URI，格式见 [MCP Protocol](mcp-protocol.md#prompts-与-resources)。
+
+key scope 的匹配规则与工具相同，包括配置里的冒号形式正则（`^docs:wiki:` 与 `^docs__wiki__` 等价）。
 
 ## discovery alias
 

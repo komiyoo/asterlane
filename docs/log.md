@@ -1,5 +1,17 @@
 # Documentation Update Log
 
+## 2026-10-02（代理上游 resources 与 prompts）
+
+- **结论**：落地计划 S7。远程 MCP 上游的 prompts、resources 与 resource templates 与 tools 同一周期刷新（连接、周期 refresh、上游 `tools/list_changed`）。可见范围沿用工具 scope，没有新配置字段。stdio / 本地进程仍是非目标。
+- **命名与判权**：prompt 对外名是 `domain__provider__<prompt>`（`ToolName`），`prompts/get` 转发时剥前缀；不合法的名字跳过并告警，重名先到先得。resource 与 template 的判权名 `domain__provider__<上游 name>` 由 `naming::scope_match_name` 生成，上游 name 原样保留（可含 `.`、`/`），只用于判权，不出现在响应里。规则在 `policy::key_can_use_name`（deny 优先；正则、`allowed_servers`、`allowed_tool_names` 任一命中即允许；三个允许列表全空则拒绝），`key_can_use_tool` 委托给它，prompts 与 resources 共用这一个函数。开放模式全部可见。
+- **URI**：下游一律 `asterlane://{server_id}/{上游原 URI}`（直接拼接，不做百分号编码），template 变量原样保留。`resources/read` 按前缀还原，读回内容的 `uri` 也放进该命名空间。先查 resource 快照，没有再按 template 第一个 `{` 之前的字面前缀匹配（取最长）。命中但无权限不改用 template。格式错误、server 不存在、未命中、无权限都是同一条 resource not found（`-32002`），不访问上游、不消耗限额。协商到 `2026-07-28` 的客户端由 rmcp 按 SEP-2164 改写为 `-32602`。
+- **范围**：只拉取声明了对应 capability 的上游；没声明的不报错、不被请求。列表失败保留该类上一次快照，不把工具探测判失败；连接断开（无 peer）时快照清空。下游开启 resources capability。`prompts/list` 含网关自有 `asterlane_tool_workflow`。三份列表不受 `discovery_mode` 影响；`failure_mode: fail_closed` 只拦 `tools/list`，也不影响它们。
+- **限额**：`prompts/get` 与 `resources/read` 走新增的 `LimitRegistry::admit_rate`（key 与上游的速率、并发，复用 `admit` 的同一批检查），不计入 `max_calls` / `max_calls_per_day`，不写 `request_events`。这个缺口记在 [Roadmap](product/roadmap.md) 支柱五。被拒返回 `-32603`，并记 `warn`。请求路径各有一个 span（`get_prompt_for`、`read_resource_for`），字段与 `tools/call` 同名。workflow prompt 不经这道准入。
+- **不做**：resource 订阅、向下游推送 prompts/resources 的 list changed、REST 与 CLI 入口、prompts/resources 的 integrity drift、MRTR 多轮输入。
+- **代码**：`src/mcp/surface.rs`（快照与 URI）、`src/mcp/downstream.rs`（下游 handler）、`RemoteMcpPeer` 增加 5 个带默认实现的方法与 2 个 capability 判断。`src/mcp/peer.rs` 因新增方法超 500 行，先拆为 `peer/mod.rs` 与 `peer/methods.rs`（纯移动）。
+- **文档**：[Product Requirements](product/product-requirements.md)、[MCP Protocol](architecture/mcp-protocol.md#prompts-与-resources)、[Naming Convention](architecture/naming-convention.md#上游-prompts-与-resources-的名字)、[MCP Governance](runtime/mcp-governance-and-key-limits.md)、[API Discovery](runtime/api-discovery.md)、[Compatibility Policy](architecture/compatibility-policy.md)、[Roadmap](product/roadmap.md)、[Engineering Conventions](engineering/engineering-conventions.md)（span 范围）、根 `README.md`、`CHANGELOG.md`。
+- **验证**：本机 `just check` 通过，`cargo test` 共 1024 passed、2 ignored（S6 后基线 994 passed、2 ignored；新增 30 个：进程内集成 12、surface 7、`key_can_use_name` 5、registry 快照 4、`scope_match_name` 1、`admit_rate` 1）。旧测试无删减。无新依赖。
+
 ## 2026-10-02（超预算文件与债务台账）
 
 - **结论**：落地计划 S8 的拆分与台账部分，不改行为。`catalog` 的列表、名字解析和搜索到 `src/catalog/query.rs`；`/v1/tools` 列表与 invoke 到 `src/http/tools.rs`；admin 的事件、用量、安全事件、统计和 key pool 到 `src/admin/observe.rs`；rmcp 的协议方法到 `src/mcp/peer/methods.rs`（S7 需要）。以上四处都是纯移动，只改了可见性与 `use`。
