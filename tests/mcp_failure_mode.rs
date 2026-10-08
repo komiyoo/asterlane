@@ -430,7 +430,7 @@ async fn mcp_list_fail_open_still_returns_when_unreachable() {
         result
             .tools
             .iter()
-            .any(|t| t.name.contains("ping") || t.name.starts_with("asterlane__"))
+            .any(|t| t.name.contains("ping") || t.name.starts_with("asl__"))
     );
 
     let _ = client.cancel().await;
@@ -475,7 +475,7 @@ async fn mcp_list_fail_closed_ok_when_all_upstreams_ok() {
         result
             .tools
             .iter()
-            .all(|tool| tool.name.starts_with("asterlane__"))
+            .all(|tool| tool.name.starts_with("asl__"))
     );
 
     let _ = client.cancel().await;

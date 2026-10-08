@@ -1,6 +1,6 @@
 //! Semantic tool search：OpenAI-compatible embeddings 端点 + 进程内向量缓存。
 //!
-//! 配置 `semantic_search` 后，`asterlane__search_tools` 按查询与工具文本
+//! 配置 `semantic_search` 后，`asl__search` 按查询与工具文本
 //! （wire name + description）的余弦相似度排序；端点故障时调用方回退关键词
 //! 打分（`ToolCatalog::search_for_key`），发现路径不因 embedding 依赖不可用。
 //!

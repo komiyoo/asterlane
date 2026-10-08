@@ -45,7 +45,7 @@ pub struct LazyToolEntry {
 }
 
 /// Full 模式响应：catalog 分页 + 始终可发现的 meta-tool。
-/// meta-tool 是扁平名（`asterlane__*`），与结构化 `WrappedTool` 形状不同，
+/// meta-tool 是扁平名（`asl__*`），与结构化 `WrappedTool` 形状不同，
 /// 放独立字段而非混入 `tools` 数组。
 #[derive(Debug, Serialize)]
 pub struct FullToolPage {
@@ -132,7 +132,7 @@ pub async fn list_tools(
 
 /// 装配完整执行管线并调用工具。
 ///
-/// `/v1/tools/{name}/invoke`、meta-tool `asterlane__call_tool` 透传与
+/// `/v1/tools/{name}/invoke`、meta-tool `asl__call` 透传与
 /// admin 调试调用（`POST /admin/tools/{name}/invoke`）共用此路径，
 /// 保证 limits / key pool / 隔离 / content defense / shaping / 事件记录口径一致
 /// （见 docs/admin/tool-debugging-and-cli.md 第 3 节）。
@@ -188,7 +188,7 @@ fn json_response(body: Vec<u8>) -> Response {
 ///
 /// gateway key 认证与 `/v1/tools` 同口径：Bearer 优先，legacy `?key=` 兼容。
 ///
-/// Meta-tool 调用（`asterlane__*`）在此层拦截并直接处理，不转发上游。
+/// Meta-tool 调用（`asl__*`）在此层拦截并直接处理，不转发上游。
 pub async fn invoke_tool(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -281,7 +281,7 @@ async fn handle_meta_tool_with_proxy(
 ) -> Result<MetaToolInvokeResult, AsterlaneError> {
     let config = state.config_snapshot().await;
     match name {
-        "asterlane__get_tools" => {
+        "asl__describe" => {
             let catalog = state.catalog.read().await;
             let response =
                 crate::mcp::call::get_tools(args, &catalog, proxy_key, &state.result_cache)
@@ -296,7 +296,7 @@ async fn handle_meta_tool_with_proxy(
                 rendered_format: None,
             })
         }
-        "asterlane__call_tools" => {
+        "asl__batch" => {
             let response = crate::mcp::call::call_tools(args, state, proxy_key, format)
                 .await
                 .map_err(|e| AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e))?;
@@ -310,16 +310,16 @@ async fn handle_meta_tool_with_proxy(
                 rendered_format: None,
             })
         }
-        "asterlane__call_tool" => {
+        "asl__call" => {
             let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
                 AsterlaneError::internal(
                     ErrorCode::McpInvalidToolCall,
-                    "missing 'name' in asterlane__call_tool arguments",
+                    "missing 'name' in asl__call arguments",
                 )
             })?;
             let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
             // 可选 domain/provider 限定字段，与 MCP server 层同口径
-            // （见 docs/runtime/api-discovery.md「asterlane__call_tool 参数」）：
+            // （见 docs/runtime/api-discovery.md「asl__call 参数」）：
             // 先解析出 canonical，remote MCP 判定与 invoke 都用 canonical。
             let qualifiers = ToolQualifiers {
                 domain: args.get("domain").and_then(|v| v.as_str()),
@@ -380,11 +380,11 @@ async fn handle_meta_tool_with_proxy(
                 rendered_format: invoke_result.rendered_format,
             })
         }
-        "asterlane__fetch_result" => {
+        "asl__fetch" => {
             let cursor = args.get("cursor").and_then(|v| v.as_str()).ok_or_else(|| {
                 AsterlaneError::internal(
                     ErrorCode::McpInvalidToolCall,
-                    "missing 'cursor' in asterlane__fetch_result arguments",
+                    "missing 'cursor' in asl__fetch arguments",
                 )
             })?;
             let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
@@ -417,13 +417,13 @@ async fn handle_meta_tool_with_proxy(
                 }),
             }
         }
-        // status / search_tools — delegate to existing handler
+        // asl__status / asl__search — delegate to existing handler
         _ => {
             let catalog = state.catalog.read().await.clone();
-            // 语义搜索：配置了 semantic_search 时 search_tools 走余弦排序，
+            // 语义搜索：配置了 semantic_search 时 asl__search 走余弦排序，
             // 端点故障在 handler 内回退关键词
             let result = match &state.semantic {
-                Some(semantic) if name == "asterlane__search_tools" => {
+                Some(semantic) if name == "asl__search" => {
                     discovery::handle_search_semantic(args, &catalog, proxy_key, semantic).await
                 }
                 _ => discovery::handle_meta_tool_call(name, args, &catalog, &config, proxy_key),

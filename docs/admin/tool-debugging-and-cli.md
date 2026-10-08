@@ -73,7 +73,7 @@ observability:
   - `response_preview: Option<String>` —— 响应体前缀预览；
   - `upstream_latency_ms: Option<u32>` —— 最后一次上游尝试的服务端响应耗时（发出上游请求到响应完成），与既有 `latency_ms`（网关端到端，含排队/重试）区分；传输失败为 `None`（`status=0` 哨兵照旧）。per-attempt 计时已存在于 key pool EWMA 反馈路径，事件只需带出最终尝试值。
   - 前两者写入前先截断到 `capture_max_bytes` 再经既有 redaction helper（`sk-`/`secret://`/auth header 模式）脱敏；上游状态沿用既有 `status_kind`/`status_code`。
-- 覆盖面（「所有请求」口径）：HTTP API 工具（`ProxyExecutor`）与 remote MCP 工具（`McpServerRegistry` 转发）两条执行路径都必须落 `request_events` 并捕获负载；remote MCP 路径此前若未记录事件，本设计要求补齐（args = `tools/call` arguments、预览 = `ToolCallResult` 序列化、状态 = `is_error`/传输结果映射、上游耗时 = registry 调用计时）。REST invoke 与 MCP `tools/call`（含 lazy discovery `asterlane__call_tool`）两个入口共享上述路径。
+- 覆盖面（「所有请求」口径）：HTTP API 工具（`ProxyExecutor`）与 remote MCP 工具（`McpServerRegistry` 转发）两条执行路径都必须落 `request_events` 并捕获负载；remote MCP 路径此前若未记录事件，本设计要求补齐（args = `tools/call` arguments、预览 = `ToolCallResult` 序列化、状态 = `is_error`/传输结果映射、上游耗时 = registry 调用计时）。REST invoke 与 MCP `tools/call`（含 lazy discovery `asl__call`）两个入口共享上述路径。
 - tracing：落库同时在请求 span 内输出 `info!` 事件（截断脱敏后的 `request_args`/`response_preview` 与 `upstream_latency_ms` 字段），日志与 DB 口径一致。
 - metrics：新增第八项指标族 `asterlane_upstream_duration_seconds` histogram（标签 `resource_id`, `tool`），观测上游服务端耗时分布（与既有端到端 `asterlane_request_duration_seconds` 区分）。
 - migration：`request_events` 追加 `request_args TEXT`、`response_preview TEXT`、`upstream_latency_ms INTEGER` 三列 nullable，向后兼容；`RequestEventFilter` 增加 `tool_name` 过滤（`/admin/events?tool_name=` 同步支持）。`usage_buckets` 暂不加上游耗时维度（控制台出现聚合需求时再扩）。

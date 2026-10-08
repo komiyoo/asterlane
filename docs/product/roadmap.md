@@ -62,7 +62,7 @@ timestamp: 2026-10-02T00:00:00Z
 
 ## 支柱三：渐进式工具发现
 
-**主路径已对齐**：`mcp::server` 的 `list_tools` 与 REST `GET /v1/tools` 一样读 `DiscoveryMode`；2026-09-26 起默认 lazy，只返回六个 `asterlane__*` meta-tool，显式 `full` 才列出 catalog。开放 MCP 模式也默认 lazy；call 路径仍按 key scope 执行，不受列表收窄影响。
+**主路径已对齐**：`mcp::server` 的 `list_tools` 与 REST `GET /v1/tools` 一样读 `DiscoveryMode`；2026-09-26 起默认 lazy，只返回六个 `asl__*` meta-tool，显式 `full` 才列出 catalog。开放 MCP 模式也默认 lazy；call 路径仍按 key scope 执行，不受列表收窄影响。
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |

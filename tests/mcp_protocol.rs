@@ -110,7 +110,7 @@ async fn tools_call_header_mismatch_is_rejected() {
                         "id": 1,
                         "method": "tools/call",
                         "params": {
-                            "name": "asterlane__status",
+                            "name": "asl__status",
                             "arguments": {},
                             "_meta": {
                                 "io.modelcontextprotocol/protocolVersion": "2026-07-28",

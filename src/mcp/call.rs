@@ -49,7 +49,7 @@ pub(super) async fn invoke_meta_call_tool(
 ) -> Result<CallToolResponse, crate::proxy::ProxyError> {
     let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
         crate::proxy::ProxyError::InvalidToolCall(
-            "missing 'name' in asterlane__call_tool arguments".to_string(),
+            "missing 'name' in asl__call arguments".to_string(),
         )
     })?;
     let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
@@ -149,7 +149,8 @@ pub(crate) fn get_tools(
             tool: tool.filter(|_| visible).map(|tool| ToolDescriptor {
                 name: tool.name.to_wire_name(),
                 description: tool.description.clone(),
-                input_schema: tool.input_schema.clone(),
+                // 响应里的 schema 是投影。catalog 原文留给 tools/list、管理面和完整性指纹。
+                input_schema: crate::schema_view::project_schema(&tool.input_schema),
             }),
             error: (!visible).then_some("not_found"),
             cursor: None,
@@ -320,7 +321,7 @@ pub(super) fn fetch_result_meta_tool(
 ) -> CallToolResult {
     let Some(cursor) = args.get("cursor").and_then(|v| v.as_str()) else {
         return CallToolResult::error(vec![ContentBlock::text(
-            "missing 'cursor' in asterlane__fetch_result arguments",
+            "missing 'cursor' in asl__fetch arguments",
         )]);
     };
     let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
@@ -478,7 +479,7 @@ mod batch_tests {
             "properties": {
                 "outer": {
                     "type": "object",
-                    "properties": {"inner": {"type": "string", "description": "x".repeat(50_000)}}
+                    "properties": {"inner": {"type": "string", "pattern": "x".repeat(50_000)}}
                 }
             }
         });
@@ -518,6 +519,54 @@ mod batch_tests {
         assert_eq!(recovered["name"], "test__one__large");
         assert_eq!(recovered["input_schema"], large_schema);
         assert!(cache.fetch(cursor, "key-b", 0, 60_000).is_none());
+    }
+
+    #[test]
+    fn get_tools_returns_projected_schema_without_mutating_catalog() {
+        let mut catalog = ToolCatalog::from_config(&GatewayConfig::default()).unwrap();
+        let raw = json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "title": "query",
+                    "description": "The query. Hidden.",
+                    "examples": ["rust"]
+                }
+            },
+            "required": ["query"]
+        });
+        catalog.extend_with_mcp_tools([WrappedTool {
+            name: "test__one__shaped".parse().unwrap(),
+            resource_id: "resource".to_string(),
+            description: "Full description. Still here.".to_string(),
+            upstream_path: "path".to_string(),
+            http_method: HttpMethod::Post,
+            input_schema: raw.clone(),
+            param_locations: None,
+            exposed_name: None,
+        }]);
+        let key: ProxyKey = serde_json::from_value(json!({
+            "id": "key-a",
+            "allowed_tool_names": ["test__one__shaped"]
+        }))
+        .unwrap();
+        let response = get_tools(
+            json!({"names": ["test__one__shaped"]}),
+            &catalog,
+            &key,
+            &ResultCache::new(),
+        )
+        .unwrap();
+        let tool = response.results[0].tool.as_ref().unwrap();
+        assert_eq!(tool.description, "Full description. Still here.");
+        assert_eq!(tool.input_schema, crate::schema_view::project_schema(&raw));
+        assert!(tool.input_schema.get("$schema").is_none());
+        let stored = catalog.find_by_wire_name("test__one__shaped").unwrap();
+        assert_eq!(stored.input_schema, raw);
+        assert_eq!(stored.description, "Full description. Still here.");
     }
 
     #[tokio::test]

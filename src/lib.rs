@@ -18,6 +18,7 @@ pub mod policy;
 pub mod presets;
 pub mod proxy;
 pub mod render;
+mod schema_view;
 pub mod secrets;
 pub mod semantic;
 pub mod shaping;

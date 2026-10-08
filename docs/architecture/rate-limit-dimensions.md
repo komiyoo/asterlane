@@ -40,7 +40,7 @@ timestamp: 2026-10-01T00:00:00Z
 
 被拒绝的尝试不计数。准入通过后若调用最终失败，`CallQuotaGuard` 在 Drop 时调用 `refund_call`，只退还第 2 步的两个整数计数；GCRA 令牌不可退还（governor 没有 un-consume），并发槽由 `QueuePermit` Drop 归还。
 
-调用位置：`ProxyExecutor::invoke_call` 经私有方法 `admit_or_record`，在 scope 校验之后、secret 解析之前；HTTP API 上游与远程 MCP 上游两条分支都走。REST `/v1/tools/{name}/invoke`、MCP `tools/call`（含 lazy 模式的 meta tool）和 admin 调试调用共用这一处。另有 `GET /config` 调用 `LimitRegistry::check_key`，只检查第 1 步，与 invoke 共用同一个 key 桶。`/v1/tools` 列表、MCP `tools/list` 与 `search_tools` 不经限流。
+调用位置：`ProxyExecutor::invoke_call` 经私有方法 `admit_or_record`，在 scope 校验之后、secret 解析之前；HTTP API 上游与远程 MCP 上游两条分支都走。REST `/v1/tools/{name}/invoke`、MCP `tools/call`（含 lazy 模式的 meta tool）和 admin 调试调用共用这一处。另有 `GET /config` 调用 `LimitRegistry::check_key`，只检查第 1 步，与 invoke 共用同一个 key 桶。`/v1/tools` 列表、MCP `tools/list` 与 `asl__search` 不经限流。
 
 拒绝后的表现：429 + `limit.quota_exceeded`（带 `Retry-After`）、`limit.calls_exhausted`、`limit.daily_calls_exhausted`；队列满或排队超时是 503。被拒请求照常写一条 `request_events`（状态 `Limited`、`rate_limited: true`）。用户可见错误只含维度名与 `Retry-After`，不含内部计数（[Error Model](error-model.md) 的 `limit.*` 一节）。
 

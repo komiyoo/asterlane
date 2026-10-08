@@ -695,7 +695,7 @@ mod tests {
         assert!(tools.iter().all(|tool| {
             tool["name"]
                 .as_str()
-                .is_some_and(|name| name.starts_with("asterlane__"))
+                .is_some_and(|name| name.starts_with("asl__"))
         }));
         assert!(!tools.is_empty());
     }
@@ -710,7 +710,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__get_tools/invoke?key=agent-search")
+                    .uri("/v1/tools/asl__describe/invoke?key=agent-search")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"names":["search__exa__neural_search","search__tavily__web_search","missing__tool__name"]}"#,
@@ -737,9 +737,9 @@ mod tests {
     async fn invalid_batch_arguments_return_400() {
         let app = build_app(test_state());
         for (name, arguments) in [
-            ("asterlane__get_tools", serde_json::json!({"names": []})),
+            ("asl__describe", serde_json::json!({"names": []})),
             (
-                "asterlane__call_tools",
+                "asl__batch",
                 serde_json::json!({"calls": [{"name": "search__tavily__web_search", "arguments": []}]}),
             ),
         ] {
@@ -845,7 +845,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__call_tools/invoke?key=agent-test")
+                    .uri("/v1/tools/asl__batch/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"calls":[{"name":"search__mock__search","arguments":{"query":"first"}},{"name":"unknown__tool__name","arguments":{}},{"name":"search__mock__search","arguments":{"query":"last"}}]}"#,
@@ -882,7 +882,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__call_tools/invoke?key=agent-test")
+                    .uri("/v1/tools/asl__batch/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"calls":[{"name":"search__mock__search","arguments":{}},{"name":"search__mock__search","arguments":{}}]}"#,
@@ -906,7 +906,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__fetch_result/invoke?key=agent-test")
+                    .uri("/v1/tools/asl__fetch/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::json!({"cursor": cursor}).to_string(),
@@ -1121,7 +1121,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__call_tool/invoke?key=agent-test")
+                    .uri("/v1/tools/asl__call/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"name":"search__mock__search","arguments":{"query":"hello"}}"#,
@@ -1160,7 +1160,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__call_tool/invoke?key=agent-test")
+                    .uri("/v1/tools/asl__call/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"name":"search__mock__search","arguments":{"query":"hello"}}"#,
@@ -1219,7 +1219,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__call_tool/invoke?key=agent-test")
+                    .uri("/v1/tools/asl__call/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"name":"tools__remote__failingtool","arguments":{}}"#,
@@ -1241,7 +1241,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/v1/tools/asterlane__call_tools/invoke?key=agent-test")
+                    .uri("/v1/tools/asl__batch/invoke?key=agent-test")
                     .header(CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         r#"{"calls":[{"name":"tools__remote__failingtool","arguments":{}}]}"#,

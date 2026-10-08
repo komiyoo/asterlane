@@ -482,7 +482,7 @@ async fn batch_calls_count_each_success_and_continue_after_failure() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/v1/tools/asterlane__call_tools/invoke?key=agent")
+                .uri("/v1/tools/asl__batch/invoke?key=agent")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::json!({"calls": [

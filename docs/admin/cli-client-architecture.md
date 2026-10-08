@@ -22,7 +22,7 @@ timestamp: 2026-07-23T00:00:00+08:00
 3. CLI 成功输出支持 `json|yaml|markdown`；优先级为 `--format`、`ASTERLANE_FORMAT`、TTY 默认。TTY 默认 markdown，非 TTY 默认 JSON；错误仍以稳定 JSON 或安全文本写入 stderr。
 4. MCP `tools/call` 固定以 `ResponseFormat::Json` 执行，不再消费 `_meta["asterlane.dev/format"]`，也不应用 proxy key 或全局 response format。MCP 层不做 YAML/markdown 展示转换；原本就是非 JSON 的上游文本仍按既有边界透传。
 5. REST 保留已有 `?format=`、`Accept`、proxy key `response_format` 和全局默认格式。这是现有公开契约；本次不做破坏性删除。CLI 的 invoke/search 请求显式发送 `format=json`，覆盖 key/global 默认后在本地展示。
-6. `tools search` 复用 `POST /v1/tools/asterlane__search_tools/invoke`，不扩展 `ToolsQuery`。这样关键词/语义排序、key scope 与回退逻辑仍只有 `discovery`/`catalog` 一套实现。
+6. `tools search` 复用 `POST /v1/tools/asl__search/invoke`，不扩展 `ToolsQuery`。这样关键词/语义排序、key scope 与回退逻辑仍只有 `discovery`/`catalog` 一套实现。
 
 # 命令契约
 
@@ -98,10 +98,10 @@ src/mcp/result.rs          # 内部/执行结果到 MCP CallToolResult 的转换
 | 命令 | 请求 | 本地处理 |
 | --- | --- | --- |
 | `list` | `GET /v1/tools` + 已有过滤/分页 query | 直接交给输出层 |
-| `search` | `POST /v1/tools/asterlane__search_tools/invoke?format=json`，body 含 `query` 与可选分页参数 | 从 `content[0].Text` 解析 `{tools,next_cursor}`；响应形状不符时返回本地错误 |
-| `get` | `POST /v1/tools/asterlane__get_tools/invoke?format=json`，body 为 `{ "names": [...] }` | 解析有序 `results`，单次最多 10 个名称 |
+| `search` | `POST /v1/tools/asl__search/invoke?format=json`，body 含 `query` 与可选分页参数 | 从 `content[0].Text` 解析 `{tools,next_cursor}`；响应形状不符时返回本地错误 |
+| `get` | `POST /v1/tools/asl__describe/invoke?format=json`，body 为 `{ "names": [...] }` | 解析有序 `results`，单次最多 10 个名称 |
 | `call` | `POST /v1/tools/{name}/invoke?format=json`，body 为参数 object | 直接交给输出层 |
-| `call-batch` | `POST /v1/tools/asterlane__call_tools/invoke?format=json`，body 为 `{ "calls": [...] }` | 解析有序 `results`，单次最多 10 个独立调用 |
+| `call-batch` | `POST /v1/tools/asl__batch/invoke?format=json`，body 为 `{ "calls": [...] }` | 解析有序 `results`，单次最多 10 个独立调用 |
 
 路径中的工具名必须进行 URL path-segment 编码，不能直接插值未经编码的用户输入。查询参数继续复用 `client.rs` 的 RFC 3986 编码逻辑。
 

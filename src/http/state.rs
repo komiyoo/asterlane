@@ -67,7 +67,7 @@ pub struct AppState {
     /// `RwLock<Option<Arc<>>>` 与 `limit_registry` 同模式：CRUD 热更新重建后原子替换，
     /// 读路径克隆快照后立即释放锁。
     pub key_pools: Arc<RwLock<Option<Arc<KeyPoolRegistry>>>>,
-    /// 语义索引；`None` 时 `asterlane__search_tools` 走关键词打分。
+    /// 语义索引；`None` 时 `asl__search` 走关键词打分。
     pub semantic: Option<Arc<SemanticIndex>>,
     /// gateway key 认证状态（Bearer 摘要表 + legacy 集合，见 gateway_auth 模块）。
     /// `RwLock` 供 wave 2 签发/吊销路径原子更新（set_token/clear_token）。

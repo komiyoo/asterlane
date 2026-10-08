@@ -128,7 +128,7 @@ async fn bearer_token_defaults_to_lazy_tools() {
     assert!(
         tools
             .iter()
-            .all(|tool| tool["name"].as_str().unwrap().starts_with("asterlane__"))
+            .all(|tool| tool["name"].as_str().unwrap().starts_with("asl__"))
     );
 }
 
@@ -333,12 +333,12 @@ fn open_mode_with_lazy_key_yaml() -> String {
 
 fn expected_meta_tool_names() -> [&'static str; 6] {
     [
-        "asterlane__call_tool",
-        "asterlane__call_tools",
-        "asterlane__fetch_result",
-        "asterlane__get_tools",
-        "asterlane__search_tools",
-        "asterlane__status",
+        "asl__batch",
+        "asl__call",
+        "asl__describe",
+        "asl__fetch",
+        "asl__search",
+        "asl__status",
     ]
 }
 
@@ -446,11 +446,9 @@ async fn mcp_lazy_mode_narrows_list_not_call() {
     let mut search_args = serde_json::Map::new();
     search_args.insert("query".into(), json!("search"));
     let searched = lazy
-        .call_tool(
-            CallToolRequestParams::new("asterlane__search_tools").with_arguments(search_args),
-        )
+        .call_tool(CallToolRequestParams::new("asl__search").with_arguments(search_args))
         .await
-        .expect("search_tools");
+        .expect("asl__search");
     assert_ne!(searched.is_error, Some(true));
     let search_text = searched.content[0]
         .as_text()
@@ -459,7 +457,7 @@ async fn mcp_lazy_mode_narrows_list_not_call() {
         .as_str();
     assert!(
         search_text.contains("search__mock__search"),
-        "search_tools 仍按 key scope 发现 catalog 工具: {search_text}"
+        "asl__search 仍按 key scope 发现 catalog 工具: {search_text}"
     );
     let search_page: serde_json::Value = serde_json::from_str(search_text).unwrap();
     assert_eq!(search_page["tools"][0]["parameters"], json!([]));
@@ -505,7 +503,7 @@ async fn mcp_full_list_paginates_catalog_before_meta_tools() {
             .expect("full page");
         assert_eq!(page.tools.len(), 1 + if offset == 2 { 6 } else { 0 });
         let name = page.tools[0].name.to_string();
-        assert!(!name.starts_with("asterlane__"));
+        assert!(!name.starts_with("asl__"));
         assert!(
             !name.contains("lookup"),
             "scope-excluded tool on page {offset}"
@@ -554,7 +552,7 @@ async fn mcp_batch_meta_tools_use_bound_key_scope() {
 
     let details = client
         .call_tool(
-            CallToolRequestParams::new("asterlane__get_tools").with_arguments(
+            CallToolRequestParams::new("asl__describe").with_arguments(
                 json!({"names": ["docs__mock__lookup", "search__mock__search"]})
                     .as_object()
                     .unwrap()
@@ -562,7 +560,7 @@ async fn mcp_batch_meta_tools_use_bound_key_scope() {
             ),
         )
         .await
-        .expect("get_tools");
+        .expect("asl__describe");
     let details: serde_json::Value =
         serde_json::from_str(&details.content[0].as_text().unwrap().text).unwrap();
     assert_eq!(details["results"][0]["error"], "not_found");
@@ -574,7 +572,7 @@ async fn mcp_batch_meta_tools_use_bound_key_scope() {
 
     let calls = client
         .call_tool(
-            CallToolRequestParams::new("asterlane__call_tools").with_arguments(
+            CallToolRequestParams::new("asl__batch").with_arguments(
                 json!({"calls": [
                     {"name": "docs__mock__lookup", "arguments": {}},
                     {"name": "search__mock__search", "arguments": {}}
@@ -585,7 +583,7 @@ async fn mcp_batch_meta_tools_use_bound_key_scope() {
             ),
         )
         .await
-        .expect("call_tools");
+        .expect("asl__batch");
     let calls: serde_json::Value =
         serde_json::from_str(&calls.content[0].as_text().unwrap().text).unwrap();
     assert!(

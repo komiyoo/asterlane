@@ -61,31 +61,32 @@ Asterlane 默认不把目录放进列表。`tools/list` 只返回六个固定的
 
 ```text
 tools/list
-→ asterlane__status          这个 key 能看见多少工具
-→ asterlane__search_tools    按任务搜索，先给短摘要
-→ asterlane__get_tools       只为选中的名字取完整参数
-→ asterlane__call_tool       调用一个
-→ asterlane__call_tools      一次调用最多 10 个，各自返回
-→ asterlane__fetch_result    续取被截断的长结果
+→ asl__status    这个 key 能看见多少工具
+→ asl__search    按任务搜索，先给短摘要
+→ asl__describe  只为选中的名字取完整参数
+→ asl__call      调用一个
+→ asl__batch     一次调用最多 10 个，各自返回
+→ asl__fetch     续取被截断的长结果
 ```
 
-一次任务只把用到的工具定义拿进来。搜索默认不含完整 schema；一次最多取 10 个工具的详情。
+一次任务只把用到的工具定义拿进来。搜索默认不含完整 schema；每条带封顶描述和顶层参数签名。一次最多取 10 个工具的详情，详情里的 schema 去掉样板，类型、必填项和约束还在。
 
 ```text
-asterlane__search_tools { query: "网页搜索", limit: 5 }
+asl__search { query: "网页搜索", limit: 5 }
 → {
     tools: [
       { name: "search__exa__neural_search",
         description: "Search the web with Exa.",
+        signature: "query: string",
         parameters: ["query"], required: ["query"] }
     ],
     next_cursor
   }
 
-asterlane__get_tools { names: ["search__exa__neural_search"] }
+asl__describe { names: ["search__exa__neural_search"] }
 → { results: [ { tool: { name, description, input_schema } } ] }
 
-asterlane__call_tool {
+asl__call {
     name: "search__exa__neural_search",
     arguments: { query: "rust mcp" }
   }
@@ -94,7 +95,7 @@ asterlane__call_tool {
 
 范围外的名字搜不到，直接调用也会被拒绝。列表变短并不扩大权限。
 
-工具的稳定全名是 `domain__provider__tool`，三段用 `__` 连接。`search__exa__neural_search` 表示 search 域、exa 这个 provider、工具 `neural_search`。配置、权限和调用记录都使用这个全名。已经知道全名时，把它交给 `asterlane__call_tool` 或 `tools/call`，搜索可以跳过。
+工具的稳定全名是 `domain__provider__tool`，三段用 `__` 连接。`search__exa__neural_search` 表示 search 域、exa 这个 provider、工具 `neural_search`。配置、权限和调用记录都使用这个全名。已经知道全名时，把它交给 `asl__call` 或 `tools/call`，搜索可以跳过。
 
 provider 写在中间一段。要列出 exa 的全部工具，用正则对准这一段，或对准整条全名：
 
@@ -105,20 +106,20 @@ include: ^[a-z0-9_]+__exa__
 
 `^search__` 列出整个 search 域。这些过滤按名字匹配，结果按全名顺序返回。客户端把它们放进 `tools/list` 的过滤参数，只在该 key 配置了 `discovery_mode: full` 时作用到目录。默认 lazy 下，`tools/list` 仍只返回上面六个网关工具。
 
-还不知道名字时，用 `asterlane__search_tools` 的 `query`。它在全名和描述上打分：全名完全相同优先，其次是全名以这段文字开头，然后是名字中包含，最后是描述中包含。以前缀开头的工具排在前面；名字其余部分或描述里出现同一段文字的工具也会进入结果，排在后面。网关另外配置了语义搜索时，非空查询改为按相似度排序。空查询仍按全名顺序列出这个 key 能看见的工具。
+还不知道名字时，用 `asl__search` 的 `query`。它在全名和描述上打分：全名完全相同优先，其次是全名以这段文字开头，然后是名字中包含，最后是描述中包含。以前缀开头的工具排在前面；名字其余部分或描述里出现同一段文字的工具也会进入结果，排在后面。网关另外配置了语义搜索时，非空查询改为按相似度排序。空查询仍按全名顺序列出这个 key 能看见的工具。
 
 搜索结果里的 `name` 始终是三段全名。`discovery_mode: full` 的 `tools/list` 返回当前 key 下最短、且只会解析回这一个工具的名字，有时是 `neural_search` 或 `exa__neural_search`。调用时用搜索返回的全名。
 
 全名一旦暴露就保持不变。分段、别名和过滤字段见 [命名约定](docs/architecture/naming-convention.md)。
 
-结果超过该上游的字节预算时，网关先交回开头一段和 cursor，完整内容留在网关，用 `asterlane__fetch_result` 按段续取：
+结果超过该上游的字节预算时，网关先交回开头一段和 cursor，完整内容留在网关，用 `asl__fetch` 按段续取：
 
 ```text
 call → 前一段文本
        [Result truncated. Total 200000 bytes.
-        Use asterlane__fetch_result with cursor "…" to get more.]
+        Use asl__fetch with cursor "…" to get more.]
 
-asterlane__fetch_result { cursor: "…", offset: <已经交给模型的字节数> }
+asl__fetch { cursor: "…", offset: <已经交给模型的字节数> }
 → 下一段；后面还有时，响应里写出下一次的 offset
 ```
 

@@ -47,7 +47,7 @@ pub struct GatewayConfig {
     #[serde(default)]
     pub admin: AdminConfig,
     /// Semantic search：OpenAI-compatible embeddings 端点；`None` 时
-    /// `asterlane__search_tools` 走关键词打分（见 docs/runtime/api-discovery.md）。
+    /// `asl__search` 走关键词打分（见 docs/runtime/api-discovery.md）。
     #[serde(default)]
     pub semantic_search: Option<SemanticSearchConfig>,
     /// 观测配置：请求负载捕获开关与截断预算（见 docs/admin/tool-debugging-and-cli.md）。

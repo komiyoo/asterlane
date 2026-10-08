@@ -218,7 +218,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                 } => {
                     let shaped_text = format!(
                         "{head}\n\n[Result truncated. Total {total_len} bytes. \
-                         Use asterlane__fetch_result with cursor \"{cursor}\" to get more.]"
+                         Use asl__fetch with cursor \"{cursor}\" to get more.]"
                     );
                     tool_result.content = vec![ToolContent::Text(shaped_text)];
                     shaped = true;
@@ -308,7 +308,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                 } => {
                     let shaped_body = format!(
                         "{head}\n\n[Result truncated. Total {total_len} bytes. \
-                         Use asterlane__fetch_result with cursor \"{cursor}\" to get more.]"
+                         Use asl__fetch with cursor \"{cursor}\" to get more.]"
                     );
                     result.body = shaped_body.into_bytes();
                     result.content_type = Some("text/plain; charset=utf-8".to_string());

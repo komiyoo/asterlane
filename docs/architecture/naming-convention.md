@@ -126,7 +126,7 @@ key scope 的匹配规则与工具相同，包括配置里的冒号形式正则�
 
 ## 动机
 
-64 字符硬限制来自 Anthropic/OpenAI API（`^[a-zA-Z0-9_-]{1,64}$`）与 Claude Code 的 `mcp__<server>__<tool>` 展开，且只作用于 `tools/list` 暴露进 LLM tool definitions 的名字；meta-tool `asterlane__call_tool` 的 `name` 参数是普通字符串，无长度约束。三段全名在直连暴露路径上挤占预算，故引入 alias。
+64 字符硬限制来自 Anthropic/OpenAI API（`^[a-zA-Z0-9_-]{1,64}$`）与 Claude Code 的 `mcp__<server>__<tool>` 展开，且只作用于 `tools/list` 暴露进 LLM tool definitions 的名字；meta-tool `asl__call` 的 `name` 参数是普通字符串，无长度约束。三段全名在直连暴露路径上挤占预算，故引入 alias。
 
 ## canonical 不变
 
@@ -143,7 +143,7 @@ key scope 的匹配规则与工具相同，包括配置里的冒号形式正则�
 计算集合是 key scope 可见全集（请求级过滤之前）。候选还须满足：
 
 - 不等于任何工具的 canonical wire name——精确匹配层会遮蔽（"影子保护"）；
-- 不以 `asterlane__` 开头（meta-tool 保留前缀）。
+- 不以 `asl__` 开头（meta-tool 保留前缀）。
 
 ## "过滤不改名、视图才改名"不变量
 
@@ -165,7 +165,7 @@ key scope 的匹配规则与工具相同，包括配置里的冒号形式正则�
 
 ## 调用时限定字段
 
-`asterlane__call_tool` 参数新增可选 `domain`、`provider` 字符串，用于无状态收窄歧义（agent 刚按 provider 过滤完，回显一个字段零成本）。网关**不**维护 session 级过滤状态——重连丢状态、跨 domain 交错行为诡异、审计不可读。参数形态见 [API Discovery](../runtime/api-discovery.md)。
+`asl__call` 参数新增可选 `domain`、`provider` 字符串，用于无状态收窄歧义（agent 刚按 provider 过滤完，回显一个字段零成本）。网关**不**维护 session 级过滤状态——重连丢状态、跨 domain 交错行为诡异、审计不可读。参数形态见 [API Discovery](../runtime/api-discovery.md)。
 
 ## `__` 段内兼容（lookup-first）
 
@@ -173,7 +173,7 @@ key scope 的匹配规则与工具相同，包括配置里的冒号形式正则�
 
 ## meta-tool 渐进发现路径保持 canonical
 
-`asterlane__search_tools` 结果名、事件记录均为 canonical。大目录场景主通道是 meta-tool 模式 + 调用时限定字段；直连暴露路径的裸名靠 key scope 收窄获得。
+`asl__search` 结果名、事件记录均为 canonical。大目录场景主通道是 meta-tool 模式 + 调用时限定字段；直连暴露路径的裸名靠 key scope 收窄获得。
 
 # 过滤与发现
 

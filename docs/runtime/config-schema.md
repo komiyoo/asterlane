@@ -62,7 +62,7 @@ semantic_search:
   timeout_secs: 15                           # 可选，默认 15
 ```
 
-配置后 `asterlane__search_tools` 按查询与工具文本的余弦相似度排序；缺省走关键词打分。端点故障运行期自动回退关键词，不影响发现可用性。`api_key_ref` 启动时解析一次并 fail fast。**注意数据出境**：工具名称/描述与搜索 query 会发送到该端点（详见 [API Discovery – Semantic Search](api-discovery.md)）。
+配置后 `asl__search` 按查询与工具文本的余弦相似度排序；缺省走关键词打分。端点故障运行期自动回退关键词，不影响发现可用性。`api_key_ref` 启动时解析一次并 fail fast。**注意数据出境**：工具名称/描述与搜索 query 会发送到该端点（详见 [API Discovery – Semantic Search](api-discovery.md)）。
 
 ## Secrets
 
@@ -278,7 +278,7 @@ security:
 
 - `integrity_policy`：remote MCP 工具定义 drift 后的处理策略。`warn` 只记 security event；`quarantine` / `block` 会把对应 wire name 加入隔离集合，后续调用被拒绝。
 - `defense.enabled`：启用 tool 结果内容扫描，检测 prompt injection 样式内容；命中时不阻断调用，只在响应 metadata 中标记并写入 security event。
-- `result_budget_bytes`：单次返回预算。超限时完整结果写入进程内 `ResultCache`，返回截断头与 cursor；`asterlane__fetch_result` 用 cursor 获取后续片段。
+- `result_budget_bytes`：单次返回预算。超限时完整结果写入进程内 `ResultCache`，返回截断头与 cursor；`asl__fetch` 用 cursor 获取后续片段。
 
 ## OpenAPI Discovery
 
@@ -422,7 +422,7 @@ The gateway first applies the proxy key scope, then applies request-level filter
 - `GET /config?key=<proxy-key>` 返回脱敏配置概要；缺失或无效 key 返回 `auth.*` 错误。若应用状态注入 `RateLimits`，该端点按 `GatewayPrincipal(config, key)` 消费配额。
 - `GET /v1/tools?key=<proxy-key>&provider=...` 返回该 key 可见的工具页，并支持 `include`/`exclude` 与结构化过滤。
 - `POST /v1/tools/{wire_name}/invoke?key=<proxy-key>` 解析 JSON body 作为工具参数，经 `ProxyExecutor` 注入上游凭据并转发请求。若应用状态注入 SQLite request event repository，调用事件会写入 `request_events`；content defense 命中时响应带 `x-asterlane-content-defense-flag: true`，result shaping 命中时响应带 `x-asterlane-result-shaped: true`。支持 `?format=yaml|markdown|json` 或 `Accept: application/yaml` / `text/markdown` 指定响应格式，渲染发生时响应带 `x-asterlane-format: <format>`（见 [Response Rendering](response-rendering.md)）。MCP `tools/call` 固定 JSON，忽略 `_meta["asterlane.dev/format"]` 以及 key/global `response_format`。
-- `POST /v1/tools/asterlane__call_tool/invoke?key=<proxy-key>` 在 lazy discovery 模式下间接调用真实工具，复用同一 `ProxyExecutor` 路径。remote MCP 的 `ToolCallResult.is_error` 语义会保留；普通 HTTP API 响应即使 JSON 形态类似 `ToolCallResult`，也只作为文本结果返回。
+- `POST /v1/tools/asl__call/invoke?key=<proxy-key>` 在 lazy discovery 模式下间接调用真实工具，复用同一 `ProxyExecutor` 路径。remote MCP 的 `ToolCallResult.is_error` 语义会保留；普通 HTTP API 响应即使 JSON 形态类似 `ToolCallResult`，也只作为文本结果返回。
 
 CLI `serve` 子命令启动 Axum runtime：
 

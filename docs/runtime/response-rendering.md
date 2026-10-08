@@ -75,7 +75,7 @@ Rendering 只作用于 **REST invoke 成功结果的内容文本层**，以下�
   -> 返回 agent
 ```
 
-关键推论：**`ResultCache` 存的是渲染后文本**。`asterlane__fetch_result` cursor 分页取回的片段与首段格式一致，且无需携带 format 参数。若反过来在 fetch 时才渲染，按字节切片会破坏渲染结构，不可行。
+关键推论：**`ResultCache` 存的是渲染后文本**。`asl__fetch` cursor 分页取回的片段与首段格式一致，且无需携带 format 参数。若反过来在 fetch 时才渲染，按字节切片会破坏渲染结构，不可行。
 
 渲染失败（理论上仅 serde 序列化错误）不阻断调用：回退 `json` 透传，并记 warn 日志。表示层的失败不应让一次成功的上游调用变成对 agent 的失败。
 

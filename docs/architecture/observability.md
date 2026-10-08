@@ -51,7 +51,7 @@ struct RequestEvent {
 
 负载捕获是网关的原生观测能力（设计契约见 [Tool Debugging And CLI](../admin/tool-debugging-and-cli.md) 第 2 节）：全部工具调用流量都经过网关，因此默认对所有请求捕获调用参数与结果预览，`observability.capture_payloads: false` 开关仅保留给极端合规场景。
 
-- 采集点：`ProxyExecutor` 执行管线，HTTP API 上游与 remote MCP（`McpServerRegistry` 转发）两条路径共用；REST `/v1/tools/{name}/invoke` 与 MCP `tools/call`（含 lazy discovery `asterlane__call_tool`）两个入口全部覆盖。
+- 采集点：`ProxyExecutor` 执行管线，HTTP API 上游与 remote MCP（`McpServerRegistry` 转发）两条路径共用；REST `/v1/tools/{name}/invoke` 与 MCP `tools/call`（含 lazy discovery `asl__call`）两个入口全部覆盖。
 - 顺序固定：先 UTF-8 安全截断到 `observability.capture_max_bytes`（默认 4096），再经 `src/observability/capture.rs` 的模式脱敏（复用 redaction helper）；非 UTF-8 响应体记 `<non-utf8 N bytes>` 占位。remote MCP 路径以 `ToolCallResult` 序列化结果作预览。
 - 捕获开启时，落库同时在请求 span 内输出 `info!` 事件（字段 `request_args`、`response_preview`、`upstream_latency_ms`），日志与 DB 口径一致；关闭时不输出。
 - `upstream_latency_ms` 与捕获开关无关：只要拿到上游响应就记录（复用 key pool EWMA 反馈路径的 per-attempt 计时，不重复计时）。

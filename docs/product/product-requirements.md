@@ -283,12 +283,12 @@ Meta-tool 设计（Asterlane 版）：
 
 | Meta-tool | 描述 |
 | --- | --- |
-| `asterlane__status` | 报告网关状态：已配置 provider 数、tool 总数、当前 key scope 覆盖范围 |
-| `asterlane__search_tools` | 按关键词搜索可用 tool，默认返回名称、描述与参数摘要；`include_schema: true` 按需返回完整 inputSchema |
-| `asterlane__get_tools` | 按 key 范围批量获取完整描述与 inputSchema |
-| `asterlane__call_tool` | 间接调用任意已发现 tool（走正常 proxy 路径：凭据注入 + 限流 + 审计） |
-| `asterlane__call_tools` | 一次提交最多 10 个独立调用，逐项返回执行结果 |
-| `asterlane__fetch_result` | 分页获取超长结果的后续片段（result shaping） |
+| `asl__status` | 报告网关状态：已配置 provider 数、tool 总数、当前 key scope 覆盖范围 |
+| `asl__search` | 按关键词搜索可用 tool，默认返回名称、封顶描述、顶层参数签名与参数摘要；`include_schema: true` 返回与 `asl__describe` 相同的压缩 inputSchema |
+| `asl__describe` | 按 key 范围批量获取完整描述与压缩后的 inputSchema |
+| `asl__call` | 间接调用任意已发现 tool（走正常 proxy 路径：凭据注入 + 限流 + 审计） |
+| `asl__batch` | 一次提交最多 10 个独立调用，逐项返回执行结果 |
+| `asl__fetch` | 分页获取超长结果的后续片段（result shaping） |
 
 ### 2. Tool Integrity / Rug-Pull 检测
 
@@ -319,7 +319,7 @@ Meta-tool 设计（Asterlane 版）：
 **映射到 Asterlane**：proxy 执行层增加 result shaping 中间件：
 - 可配置 `result_budget_bytes`（默认 48KB，per-resource 可覆盖）。
 - 超限时缓存完整结果（进程内 LRU，TTL 15min），返回截断头 + cursor。
-- agent 通过 `asterlane__fetch_result` meta-tool 或专用 endpoint 获取后续片段。
+- agent 通过 `asl__fetch` meta-tool 或专用 endpoint 获取后续片段。
 - 确保 shaping 不丢数据，只推迟。
 
 ## 不借鉴项

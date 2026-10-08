@@ -28,7 +28,7 @@ Asterlane 既是 lib 又是 bin，配置文件、MCP 工具名、错误码和 ad
 | OpenAPI discovery 字段 | 新增 | `#[serde(default)]`，不配置即不启用 |
 | `admin` 节（admin key 认证） | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `/admin/*` 整体不挂载 |
 | `api_resources[].key_pool` | 新增（2026-07-05） | `#[serde(default)]`，不配置时走单 ref 凭据路径；配置后 `auth` 单 ref 不再使用（只提供注入形状） |
-| `semantic_search` 节 | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `asterlane__search_tools` 走关键词打分；配置后端点故障运行期回退关键词 |
+| `semantic_search` 节 | 新增（2026-07-05） | `#[serde(default)]`，不配置时 `asl__search` 走关键词打分；配置后端点故障运行期回退关键词 |
 | `builtin_mcp` 列表 | 新增（2026-07-05） | `#[serde(default)]`，不配置行为不变；加载后展开进 `mcp_servers`，显式同 id 条目优先（见 [Tool Debugging & CLI](../admin/tool-debugging-and-cli.md)） |
 | `observability` 节（负载捕获） | 新增（2026-07-05） | `#[serde(default)]`；缺省 `capture_payloads: true` 为**观测口径变更**——`request_events` 增三列（additive migration，旧库自动迁移）并默认记录参数与响应预览（截断 + 脱敏），合规场景 `capture_payloads: false` 关闭 |
 | proxy key 凭据字段（`token_ref`/`token_digest`/`expires_at`）与 `limits.max_calls_per_day` | 新增（2026-07-06） | `#[serde(default)]`，不配置的 key 维持 legacy id-only 行为；`token_ref` 与 `token_digest` 互斥、摘要格式启动校验 fail fast；任一 key 配 token 后 `/mcp` 切换 Bearer required 模式（见 [Key 凭据与持久化](../runtime/key-credentials-and-persistence.md)） |
@@ -61,7 +61,6 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 - wire name 一旦对外暴露，不得变更（包括段值和分隔符）。
 - 需要变更时（如 provider 改名），提供 alias 机制：旧 wire name 保留为 alias，转发到同一上游工具；alias 标记 `deprecated`，在 `docs/log.md` 记录，未来版本移除。
 - 分隔符从 `:` → `__` 的变更发生在 MVP 阶段（尚未有外部消费者），直接切换，不保留冒号 alias。
-
 ## 上游工具变更
 
 上游 MCP server 工具增删时：
@@ -72,8 +71,9 @@ wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已
 
 # 响应格式兼容性
 
-- `asterlane__search_tools` 的文本 JSON 从工具数组改为 `{tools,next_cursor}`，支持 `limit`（1–50，缺省 10）和 `cursor` 翻页。消费方应读取 `tools` 字段并按 `next_cursor` 继续；在线 CLI 已同步更新。
-- 新增 `asterlane__get_tools` 与 `asterlane__call_tools`，分别返回有序的 `{results:[...]}`；单项结果可带按 key 绑定的续取游标。
+- `asl__search` 的文本 JSON 从工具数组改为 `{tools,next_cursor}`，支持 `limit`（1–50，缺省 10）和 `cursor` 翻页。消费方应读取 `tools` 字段并按 `next_cursor` 继续；在线 CLI 已同步更新。
+- 新增 `asl__describe` 与 `asl__batch`，分别返回有序的 `{results:[...]}`；单项结果可带按 key 绑定的续取游标。
+- `asl__search` 每条结果增加 `signature`。`description` 改为第一句，最长 200 字。`parameters` 与 `required` 仍在。`include_schema: true` 和 `asl__describe` 返回压缩后的 `input_schema`：可调用约束保留，样板去掉。`tools/list`、管理面和完整性指纹继续使用 catalog 中的原始 schema。
 - 0.x 中已移除非标准 MCP `_meta["asterlane.dev/format"]` override。MCP `tools/call` 固定 JSON，并忽略 proxy key 与全局 `response_format`；这是已登记的行为变更。
 - REST invoke 保留既有兼容面：`?format=` / `Accept` 请求 override > proxy key `response_format` > `defaults.response_format` > `json`。
 - `defaults.response_format` 与 `proxy_keys[].response_format` 字段不删除，继续作为 REST 默认，避免破坏现有 REST 消费者。

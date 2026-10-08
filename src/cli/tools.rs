@@ -119,7 +119,7 @@ async fn execute(args: ToolsArgs) -> Result<Value, CliError> {
             }
             let body = client
                 .post_json(
-                    "/v1/tools/asterlane__search_tools/invoke",
+                    "/v1/tools/asl__search/invoke",
                     &[("format", "json".to_string())],
                     &args,
                 )
@@ -129,7 +129,7 @@ async fn execute(args: ToolsArgs) -> Result<Value, CliError> {
         ToolsCommand::Get { names } => {
             let body = client
                 .post_json(
-                    "/v1/tools/asterlane__get_tools/invoke",
+                    "/v1/tools/asl__describe/invoke",
                     &[("format", "json".to_string())],
                     &json!({"names": names}),
                 )
@@ -155,7 +155,7 @@ async fn execute(args: ToolsArgs) -> Result<Value, CliError> {
                 .ok_or_else(|| anyhow!("call-batch requires --args or --args-file"))?;
             let response = client
                 .post_json(
-                    "/v1/tools/asterlane__call_tools/invoke",
+                    "/v1/tools/asl__batch/invoke",
                     &[("format", "json".to_string())],
                     &body,
                 )

@@ -312,7 +312,7 @@ impl ServerHandler for AsterlaneToolServer {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let mut tools: Vec<Tool> = page.tools.iter().map(wrapped_to_mcp_tool).collect();
-        // meta-tool（asterlane__*）是网关自身的发现面，始终可发现：
+        // meta-tool（asl__*）是网关自身的发现面，始终可发现：
         // 追加在最后一页，不占 catalog 分页游标空间。
         if page.next_cursor.is_none() {
             tools.extend(
@@ -367,7 +367,7 @@ impl ServerHandler for AsterlaneToolServer {
 
         // Meta-tool 路径
         if crate::discovery::is_meta_tool(wire_name) {
-            if wire_name == "asterlane__get_tools" {
+            if wire_name == "asl__describe" {
                 let catalog = self.state.catalog.read().await;
                 return Ok(
                     match get_tools(arguments, &catalog, &key, &self.state.result_cache) {
@@ -381,7 +381,7 @@ impl ServerHandler for AsterlaneToolServer {
                     },
                 );
             }
-            if wire_name == "asterlane__call_tools" {
+            if wire_name == "asl__batch" {
                 return Ok(
                     match call_tools(arguments, &self.state, &key, format).await {
                         Ok(response) => {
@@ -394,7 +394,7 @@ impl ServerHandler for AsterlaneToolServer {
                     },
                 );
             }
-            if wire_name == "asterlane__call_tool" {
+            if wire_name == "asl__call" {
                 return match invoke_meta_call_tool(arguments, extras, &self.state, &key, format)
                     .await
                 {
@@ -404,7 +404,7 @@ impl ServerHandler for AsterlaneToolServer {
                     }
                 };
             }
-            if wire_name == "asterlane__fetch_result" {
+            if wire_name == "asl__fetch" {
                 let budget = ShapingConfig::default().budget_bytes;
                 return Ok(fetch_result_meta_tool(
                     &self.state.result_cache,
@@ -414,11 +414,11 @@ impl ServerHandler for AsterlaneToolServer {
                 )
                 .into());
             }
-            // 语义搜索：配置了 semantic_search 时 search_tools 走余弦排序，
+            // 语义搜索：配置了 semantic_search 时 asl__search 走余弦排序，
             // 端点故障在 handler 内回退关键词。用 catalog 快照，
             // 不持读锁跨 embedding await。
             if let Some(semantic) = &self.state.semantic
-                && wire_name == "asterlane__search_tools"
+                && wire_name == "asl__search"
             {
                 let catalog_snapshot = self.state.catalog.read().await.clone();
                 return match crate::discovery::handle_search_semantic(
@@ -702,8 +702,8 @@ mod tests {
 
         let result = client.list_tools(None).await.expect("list_tools");
         let names: Vec<String> = result.tools.iter().map(|t| t.name.to_string()).collect();
-        assert!(names.iter().all(|name| name.starts_with("asterlane__")));
-        assert!(names.contains(&"asterlane__search_tools".to_string()));
+        assert!(names.iter().all(|name| name.starts_with("asl__")));
+        assert!(names.contains(&"asl__search".to_string()));
         assert!(result.next_cursor.is_none());
 
         let _ = client.cancel().await;
@@ -734,7 +734,7 @@ mod tests {
 
         let details = client
             .call_tool(
-                CallToolRequestParams::new("asterlane__get_tools").with_arguments(
+                CallToolRequestParams::new("asl__describe").with_arguments(
                     json!({"names": ["search__exa__neural_search", "missing__tool__name"]})
                         .as_object()
                         .unwrap()
@@ -742,7 +742,7 @@ mod tests {
                 ),
             )
             .await
-            .expect("get_tools");
+            .expect("asl__describe");
         let details: serde_json::Value =
             serde_json::from_str(&details.content[0].as_text().expect("text result").text).unwrap();
         assert_eq!(
@@ -753,7 +753,7 @@ mod tests {
 
         let calls = client
             .call_tool(
-                CallToolRequestParams::new("asterlane__call_tools").with_arguments(
+                CallToolRequestParams::new("asl__batch").with_arguments(
                     json!({"calls": [
                         {"name": "search__exa__neural_search", "arguments": {}},
                         {"name": "missing__tool__name", "arguments": {}},
@@ -765,7 +765,7 @@ mod tests {
                 ),
             )
             .await
-            .expect("call_tools");
+            .expect("asl__batch");
         let calls: serde_json::Value =
             serde_json::from_str(&calls.content[0].as_text().expect("text result").text).unwrap();
         assert_eq!(calls["results"][0]["result"]["isError"], false);
@@ -783,9 +783,9 @@ mod tests {
         let (state, tavily, exa) = ambiguous_search_state().await;
         let (client, server_task) = serve_pair(state).await;
         for (name, arguments) in [
-            ("asterlane__get_tools", json!({"names": []})),
+            ("asl__describe", json!({"names": []})),
             (
-                "asterlane__call_tools",
+                "asl__batch",
                 json!({"calls": vec![json!({"name": "search__exa__neural_search", "arguments": {}}); 11]}),
             ),
         ] {

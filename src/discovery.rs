@@ -11,18 +11,19 @@ use crate::error::{AsterlaneError, ErrorCode};
 use crate::mcp::model::{
     BatchCallToolsRequest, BatchGetToolsRequest, ToolCallResult, ToolDescriptor,
 };
+use crate::schema_view::{cap_text, compact_signature, project_schema};
 use crate::semantic::SemanticIndex;
 use serde_json::{Value, json};
 use tracing::warn;
 
 // ── Meta-tool names ──
 
-const STATUS: &str = "asterlane__status";
-const SEARCH_TOOLS: &str = "asterlane__search_tools";
-const GET_TOOLS: &str = "asterlane__get_tools";
-const CALL_TOOL: &str = "asterlane__call_tool";
-const CALL_TOOLS: &str = "asterlane__call_tools";
-const FETCH_RESULT: &str = "asterlane__fetch_result";
+const STATUS: &str = "asl__status";
+const SEARCH_TOOLS: &str = "asl__search";
+const GET_TOOLS: &str = "asl__describe";
+const CALL_TOOL: &str = "asl__call";
+const CALL_TOOLS: &str = "asl__batch";
+const FETCH_RESULT: &str = "asl__fetch";
 
 const META_TOOLS: [&str; 6] = [
     STATUS,
@@ -79,9 +80,9 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
         ToolDescriptor {
             name: SEARCH_TOOLS.to_string(),
             description: "Search tools available to this key by name or description. \
-                          Returns brief summaries in pages; pass next_cursor to continue. \
-                          Use asterlane__get_tools with returned canonical names to read \
-                          complete input schemas before calling."
+                          Returns a capped description and a compact parameter signature \
+                          in pages; pass next_cursor to continue. Use asl__describe with \
+                          returned canonical names to read callable input schemas before calling."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
@@ -92,7 +93,7 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
                     },
                     "include_schema": {
                         "type": "boolean",
-                        "description": "Include complete input schemas for matching tools. Default false."
+                        "description": "Include the same compact input schema that asl__describe returns. Default false."
                     },
                     "limit": {
                         "type": "integer",
@@ -112,15 +113,16 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: GET_TOOLS.to_string(),
-            description: "Get complete descriptions and input schemas for up to 10 canonical \
-                          tool names returned by asterlane__search_tools. Results follow input \
-                          order; unavailable names return not_found."
+            description: "Get descriptions and callable input schemas for up to 10 canonical \
+                          tool names returned by asl__search. Schemas keep types, required \
+                          fields, enums, and constraints, and omit JSON Schema boilerplate. \
+                          Results follow input order; unavailable names return not_found."
                 .to_string(),
             input_schema: BatchGetToolsRequest::input_schema(),
         },
         ToolDescriptor {
             name: CALL_TOOL.to_string(),
-            description: "Call one tool after reading its input schema with asterlane__get_tools. \
+            description: "Call one tool after reading its input schema with asl__describe. \
                           The name accepts \
                           the canonical wire name (domain__provider__tool), a \
                           provider__tool pair, or a bare tool name when unambiguous. \
@@ -153,7 +155,7 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
         ToolDescriptor {
             name: CALL_TOOLS.to_string(),
             description: "Call up to 10 independent tools in one request after reading their \
-                          input schemas with asterlane__get_tools. Calls run in input order, \
+                          input schemas with asl__describe. Calls run in input order, \
                           each result is returned separately, and a failed item does not stop \
                           later items. Retry failed items individually when appropriate."
                 .to_string(),
@@ -183,7 +185,7 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
     ]
 }
 
-/// 处理 `asterlane__status` / `asterlane__search_tools`。
+/// 处理 `asl__status` / `asl__search`。
 ///
 /// 调用方须先用 `is_meta_tool` 判定。详情、调用、续取依赖 catalog、
 /// `ProxyExecutor` 或 result cache，由 `http::routes` 与 `mcp::server` 分流。直接传入这些
@@ -201,7 +203,7 @@ pub fn handle_meta_tool_call(
         GET_TOOLS | CALL_TOOL | CALL_TOOLS | FETCH_RESULT => Err(AsterlaneError::internal(
             ErrorCode::McpInvalidToolCall,
             format!(
-                "{name} is dispatched by the HTTP/MCP invoke pipeline; this helper only serves asterlane__status and asterlane__search_tools"
+                "{name} is dispatched by the HTTP/MCP invoke pipeline; this helper only serves asl__status and asl__search"
             ),
         )),
         _ => Ok(ToolCallResult::text_error(format!(
@@ -306,6 +308,7 @@ fn search_response(
     ))
 }
 
+/// 搜索命中给代理看的摘要。描述封顶和签名只出现在响应里；语义索引用 catalog 中的完整描述。
 fn search_item(tool: &WrappedTool, include_schema: bool) -> Value {
     let parameters: Vec<&str> = tool
         .input_schema
@@ -315,17 +318,18 @@ fn search_item(tool: &WrappedTool, include_schema: bool) -> Value {
         .unwrap_or_default();
     let mut item = json!({
         "name": tool.name.to_wire_name(),
-        "description": tool.description,
+        "description": cap_text(&tool.description),
+        "signature": compact_signature(&tool.input_schema),
         "parameters": parameters,
         "required": tool.input_schema.get("required").cloned().unwrap_or_else(|| json!([])),
     });
     if include_schema {
-        item["input_schema"] = tool.input_schema.clone();
+        item["input_schema"] = project_schema(&tool.input_schema);
     }
     item
 }
 
-/// `asterlane__search_tools` 的语义排序路径（配置 `semantic_search` 时）。
+/// `asl__search` 的语义排序路径（配置 `semantic_search` 时）。
 ///
 /// 候选 = key 可见工具全集；按查询余弦相似度分页。
 /// 空查询无语义可言、端点故障均回退关键词路径（`handle_search`），
@@ -476,18 +480,18 @@ mod tests {
 
     #[test]
     fn is_meta_tool_recognizes_meta_tools() {
-        assert!(is_meta_tool("asterlane__status"));
-        assert!(is_meta_tool("asterlane__search_tools"));
-        assert!(is_meta_tool("asterlane__get_tools"));
-        assert!(is_meta_tool("asterlane__call_tool"));
-        assert!(is_meta_tool("asterlane__call_tools"));
-        assert!(is_meta_tool("asterlane__fetch_result"));
+        assert!(is_meta_tool("asl__status"));
+        assert!(is_meta_tool("asl__search"));
+        assert!(is_meta_tool("asl__describe"));
+        assert!(is_meta_tool("asl__call"));
+        assert!(is_meta_tool("asl__batch"));
+        assert!(is_meta_tool("asl__fetch"));
     }
 
     #[test]
     fn is_meta_tool_rejects_normal_tools() {
         assert!(!is_meta_tool("search__tavily__web_search"));
-        assert!(!is_meta_tool("asterlane__unknown"));
+        assert!(!is_meta_tool("asl__unknown"));
         assert!(!is_meta_tool(""));
     }
 
@@ -540,9 +544,11 @@ mod tests {
         let config = test_config();
         let mut catalog = ToolCatalog::from_config(&config).unwrap();
         let schema = json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
+            "additionalProperties": true,
             "properties": {
-                "query": {"type": "string"},
+                "query": {"type": "string", "examples": ["rust"]},
                 "body": {"type": "object", "properties": {"limit": {"type": "integer"}}}
             },
             "required": ["query"]
@@ -550,7 +556,7 @@ mod tests {
         catalog.extend_with_mcp_tools([WrappedTool {
             name: ToolName::new("search", "tavily", "typed_search").unwrap(),
             resource_id: "tavily".to_string(),
-            description: "Typed search".to_string(),
+            description: "Typed search. Hidden detail stays in the catalog.".to_string(),
             upstream_path: "typed_search".to_string(),
             http_method: HttpMethod::Post,
             input_schema: schema.clone(),
@@ -570,9 +576,22 @@ mod tests {
         let ToolCallResult { content, .. } = summary;
         let crate::mcp::model::ToolContent::Text(text) = &content[0];
         let page: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(page["tools"][0]["description"], "Typed search.");
+        assert_eq!(
+            page["tools"][0]["signature"],
+            "body?: object, query: string"
+        );
         assert_eq!(page["tools"][0]["required"], json!(["query"]));
         assert_eq!(page["tools"][0]["parameters"], json!(["body", "query"]));
         assert!(page["tools"][0].get("input_schema").is_none());
+        let stored = catalog
+            .find_by_wire_name("search__tavily__typed_search")
+            .unwrap();
+        assert_eq!(
+            stored.description,
+            "Typed search. Hidden detail stays in the catalog."
+        );
+        assert!(stored.input_schema.get("$schema").is_some());
 
         let detail = handle_meta_tool_call(
             SEARCH_TOOLS,
@@ -584,7 +603,9 @@ mod tests {
         .unwrap();
         let crate::mcp::model::ToolContent::Text(text) = &detail.content[0];
         let page: Value = serde_json::from_str(text).unwrap();
-        assert_eq!(page["tools"][0]["input_schema"], schema);
+        assert_eq!(page["tools"][0]["input_schema"], project_schema(&schema));
+        assert!(page["tools"][0]["input_schema"].get("$schema").is_none());
+        assert_ne!(page["tools"][0]["input_schema"], schema);
     }
 
     #[test]

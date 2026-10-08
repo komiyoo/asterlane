@@ -63,7 +63,7 @@ pub struct ToolQualifiers<'a> {
 const AMBIGUITY_CANDIDATE_LIMIT: usize = 8;
 
 /// meta-tool 保留前缀：暴露名不得以此开头（会与网关自身工具混淆）。
-const META_TOOL_PREFIX: &str = "asterlane__";
+const META_TOOL_PREFIX: &str = "asl__";
 
 /// 工具目录。
 ///
@@ -987,19 +987,16 @@ mod tests {
     #[test]
     fn exposed_name_skips_meta_tool_prefix() {
         let catalog = catalog_of(vec![
-            // 裸名以 asterlane__ 开头 → 跳过裸名，用两段
-            tool3("mcp", "srv", "asterlane__ping", "srv"),
-            // provider=asterlane 且裸名冲突 → 两段以 asterlane__ 开头 → canonical
-            tool3("meta", "asterlane", "status", "meta"),
+            // 裸名以 asl__ 开头 → 跳过裸名，用两段
+            tool3("mcp", "srv", "asl__ping", "srv"),
+            // provider=asl 且裸名冲突 → 两段以 asl__ 开头 → canonical
+            tool3("meta", "asl", "status", "meta"),
             tool3("ops", "mon", "status", "ops"),
         ]);
         let key = key_with_scope(&["^mcp:", "^meta:", "^ops:"]);
         let exposed = exposed_map(&catalog, &key, &ToolListQuery::default());
-        assert_eq!(exposed["mcp__srv__asterlane__ping"], "srv__asterlane__ping");
-        assert_eq!(
-            exposed["meta__asterlane__status"],
-            "meta__asterlane__status"
-        );
+        assert_eq!(exposed["mcp__srv__asl__ping"], "srv__asl__ping");
+        assert_eq!(exposed["meta__asl__status"], "meta__asl__status");
         assert_eq!(exposed["ops__mon__status"], "mon__status");
     }
 
@@ -1034,7 +1031,7 @@ mod tests {
     fn exposed_names_round_trip_through_resolve() {
         let (mut catalog, key) = resolve_fixture();
         catalog.extend_with_mcp_tools(vec![
-            tool3("mcp", "srv", "asterlane__ping", "srv"),
+            tool3("mcp", "srv", "asl__ping", "srv"),
             tool3("mcp", "srv", "docs__search__find", "srv"),
             tool3("docs", "search", "find", "docs"),
         ]);

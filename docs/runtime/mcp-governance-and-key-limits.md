@@ -93,7 +93,7 @@ proxy_keys:
 
 - **按实体独立 quota**：每个配置了 `limits` 的实体（proxy key / api resource / mcp server）拥有独立 governor GCRA 限流器实例；新增 `LimitRegistry` 持有 `实体 id → {rps 限流器, rpm 限流器, 并发队列}` 映射，从配置构建，配置热更新（CRUD）时重建。
 - **LimiterKey**：per-key 全局限额新增 `LimiterKey::Principal(PrincipalId)` 维度（现有 `GatewayPrincipal(ApiId, PrincipalId)` 保留给未来 per-key-per-resource 需求）。
-- **执行顺序**（REST `/v1/tools/{name}/invoke`、MCP `tools/call`（含 lazy `asterlane__call_tool`）、admin 调试调用共享同一准入管线）：
+- **执行顺序**（REST `/v1/tools/{name}/invoke`、MCP `tools/call`（含 lazy `asl__call`）、admin 调试调用共享同一准入管线）：
   1. proxy key `rps` → `rpm` → `max_calls`；
   2. 上游 `rps` → `rpm`；
   3. 上游 `max_concurrent` 队列准入（持 permit 执行）；

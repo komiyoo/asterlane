@@ -23,6 +23,7 @@
 
 ### Changed
 
+- **破坏性变更**：网关自身的 meta-tool 改名为 `asl__status`、`asl__search`、`asl__describe`、`asl__call`、`asl__batch`、`asl__fetch`，不保留旧名 alias。REST 路径 `/v1/tools/{name}/invoke` 中的 meta-tool 名与 CLI 同步变更。上游工具的暴露名不得以 `asl__` 开头。
 - **破坏性变更**：scope 已经覆盖某个上游 MCP server 的 key，升级后会在 `prompts/list`、`resources/list`、`resources/templates/list` 里看到该上游的 prompts、resources 与 templates（此前 `prompts/list` 只有网关自有的 `asterlane_tool_workflow`，网关没有开启 resources），并可调用 `prompts/get`、`resources/read`。没有新的配置字段；不想暴露时收窄 scope：用 `denied_tools` 匹配 `domain__provider__<名字>`，或把 server 移出 `allowed_servers`。`asterlane://{server_id}/{上游原 URI}` 是稳定的 URI 格式。
 
 ### Removed
