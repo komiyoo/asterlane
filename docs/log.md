@@ -1,5 +1,10 @@
 # Documentation Update Log
 
+## 2026-10-08（README 写明工具全名与查找方式）
+
+- **结论**：根 `README.md` 在「大量工具撑满上下文」中写明稳定全名是 `domain__provider__tool`。已知全名可直接调用。列出某个 provider 用 `provider_regex` 或全名正则，且只在 `discovery_mode: full` 时作用于 `tools/list`。`asterlane__search_tools` 默认按关键词打分，语义排序需另行配置；搜索结果始终返回全名，full 列表返回最短无歧义名。权限示例里的范围改为 `^search__` 这类正则。
+- **依据**：[Naming Convention](architecture/naming-convention.md)、[API Discovery](runtime/api-discovery.md)。
+
 ## 2026-10-08（README 补上上下文问题的做法）
 
 - **结论**：根 `README.md` 的问题说明与已落地行为对齐，并用伪代码举例。除各自鉴权、单一入口和按 key 划定范围外，写明默认 `tools/list` 只返回六个 `asterlane__*` 工具，搜索给短摘要，`asterlane__get_tools` 再取 schema，超预算的结果用 `asterlane__fetch_result` 续取。显式 `discovery_mode: full` 仍可列出目录。

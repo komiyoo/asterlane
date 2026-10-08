@@ -43,8 +43,8 @@ HTTP API 也走同一条路：网关按配置包成工具，代理仍只连接�
 
 ```text
 key "research":
-  允许 search__* 和 reader__*
-  拒绝 search__internal__*
+  允许 ^search__ 和 ^reader__
+  拒绝 ^search__internal__
 
 research 调用 search__exa__neural_search  → 放行
 research 调用 search__internal__lookup    → 拒绝
@@ -92,7 +92,24 @@ asterlane__call_tool {
 → 上游结果
 ```
 
-范围外的名字搜不到，直接调用也会被拒绝。列表变短并不扩大权限。某个 key 若仍要整份目录，单独配 `discovery_mode: full`。
+范围外的名字搜不到，直接调用也会被拒绝。列表变短并不扩大权限。
+
+工具的稳定全名是 `domain__provider__tool`，三段用 `__` 连接。`search__exa__neural_search` 表示 search 域、exa 这个 provider、工具 `neural_search`。配置、权限和调用记录都使用这个全名。已经知道全名时，把它交给 `asterlane__call_tool` 或 `tools/call`，搜索可以跳过。
+
+provider 写在中间一段。要列出 exa 的全部工具，用正则对准这一段，或对准整条全名：
+
+```text
+provider_regex: ^exa$
+include: ^[a-z0-9_]+__exa__
+```
+
+`^search__` 列出整个 search 域。这些过滤按名字匹配，结果按全名顺序返回。客户端把它们放进 `tools/list` 的过滤参数，只在该 key 配置了 `discovery_mode: full` 时作用到目录。默认 lazy 下，`tools/list` 仍只返回上面六个网关工具。
+
+还不知道名字时，用 `asterlane__search_tools` 的 `query`。它在全名和描述上打分：全名完全相同优先，其次是全名以这段文字开头，然后是名字中包含，最后是描述中包含。以前缀开头的工具排在前面；名字其余部分或描述里出现同一段文字的工具也会进入结果，排在后面。网关另外配置了语义搜索时，非空查询改为按相似度排序。空查询仍按全名顺序列出这个 key 能看见的工具。
+
+搜索结果里的 `name` 始终是三段全名。`discovery_mode: full` 的 `tools/list` 返回当前 key 下最短、且只会解析回这一个工具的名字，有时是 `neural_search` 或 `exa__neural_search`。调用时用搜索返回的全名。
+
+全名一旦暴露就保持不变。分段、别名和过滤字段见 [命名约定](docs/architecture/naming-convention.md)。
 
 结果超过该上游的字节预算时，网关先交回开头一段和 cursor，完整内容留在网关，用 `asterlane__fetch_result` 按段续取：
 
