@@ -1,5 +1,17 @@
 # Documentation Update Log
 
+## 2026-10-08（README 只保留架构、机制和一条运行示例）
+
+- **结论**：根 `README.md` 不再展开能力清单、端点、源码树、构建、CI、发布和 Docker。首页是整体架构、四步运行机制，以及用 `examples/gateway.yaml` 启动、离线预览 `agent-search-research`、签发 token、调用 `search__exa__neural_search` 的一条示例。
+- **去向**：构建依赖改到 [贡献指南](../CONTRIBUTING.md)。控制台镜像与 Compose 仍在 [web/README.md](../web/README.md)。配置路径仍在 [CLI 配置发现](admin/cli-config-discovery.md)。模块划分仍在 [Architecture](architecture/architecture.md)。
+
+## 2026-10-08（文档按 GitHub 社区项目来写）
+
+- **结论**：`docs/` 仍是 OKF 包，正文改为先服务 GitHub 上的使用者、运维、贡献者和维护者。文档地图按「使用与运维 / 理解设计 / 参与开发」组织；仓库根新增 `CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、`SECURITY.md` 和 issue 模板。
+- **写法**：分类首页不再要求从 `AGENTS.md` 进入。开发工作流改为中文贡献说明：去掉本机 NyaProxy 路径、已完成的首个里程碑、子代理任务表，以及一份与代码不符的模块表（含不存在的 `routing`）。模块边界改指向架构文档。代理拆分只留一段，贡献步骤放在 `CONTRIBUTING.md`。
+- **索引**：架构分类里控制台分离的状态改为与 [控制台与网关分离架构](architecture/console-separation.md) 一致：静态入口 11 个页面，以及资源、代理密钥、MCP 与工具的写操作。`architecture.md` 与 `observability.md` 去掉指向本机 NyaProxy 克隆的 `file://` 链接。
+- **未决**：根 `LICENSE` 仍是 Apache-2.0 全文，`Cargo.toml` 与 README 仍声明 MIT。贡献指南只提示这一不一致，没有代为选择。
+
 ## 2026-10-08（合并 GitHub main 与 Origin main）
 
 - **历史**：把 GitHub `main`（`bce98e0`，上游 OAuth、prompts/resources、配置拆分与发布流程）合并进 Origin `main`（`5a6f99f`，独立控制台）。分叉点是 `f4c7bea`。

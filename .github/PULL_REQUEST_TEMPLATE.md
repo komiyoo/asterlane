@@ -30,6 +30,7 @@ feat / fix / refactor / docs / test / chore / ci / build / style，例如 `feat(
 **文档**（改动影响配置 schema、模块边界、产品行为、错误模型或 UX 时必须过一遍）
 
 - [ ] 持久知识写进了对应 `docs/` 概念文档，没有只留在代码或本 PR 描述里
+- [ ] 用户可见的行为、配置或 API 变化写入了 `CHANGELOG.md` 的 `## [Unreleased]`
 - [ ] 新增文档带 OKF frontmatter（非空 `type`），并在所属分类 `docs/<category>/README.md` 加了一行
 - [ ] `docs/log.md` 记了一条
 - [ ] 被 supersede 的内容就地更正，未留下矛盾段落共存

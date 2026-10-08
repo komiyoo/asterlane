@@ -1,11 +1,49 @@
 ---
 type: Convention
 title: 文档体系约定
-description: docs/ 的层级组织、分类索引、文档生命周期（新建/拆分/退役）、引用规则、type 登记与自进化检查。
+description: 面向 GitHub 读者的文档地图、仓库门面、OKF 层级、生命周期、引用规则与自进化检查。
 resource: docs/engineering/documentation-conventions.md
 tags: [conventions, docs, okf, workflow]
 timestamp: 2026-08-19T00:00:00Z
 ---
+
+# 读者
+
+`docs/` 仍然是 OKF 包，编码代理按 `AGENTS.md` 的发现路径逐层加载。正文的第一读者是在 GitHub 上打开仓库的人：使用者、运维、贡献者、维护者。同一篇文档不要同时写成代理加载说明和操作手册。
+
+| 读者 | 要能独立完成的事 | 从哪里进入 |
+| --- | --- | --- |
+| 使用者 | 跑起网关、接上游、签发 key、调用工具 | 根 `README.md`，再到配置与 CLI |
+| 运维 | 部署、看日志和指标、升级、私下报告漏洞 | [web/README.md](../../web/README.md)，[Observability](../architecture/observability.md)，根 `SECURITY.md` |
+| 贡献者 | 改代码、跑检查、提交 PR、同步文档 | 根 `CONTRIBUTING.md`，再到本分类 |
+| 维护者 | 排期、发布、追溯文档包本身的变更 | [发布流程](release-process.md)、`docs/plans/`、`docs/log.md` |
+
+# 仓库门面
+
+下列文件由 GitHub 单独展示。它们不是 OKF 概念，不放进 `docs/<category>/`，也不要在概念文档里复制一份。
+
+| 文件 | 职责 |
+| --- | --- |
+| `README.md` | 整体架构、大致运行机制、一条最短运行示例，以及指向文档、贡献和许可证 |
+| `CONTRIBUTING.md` | 如何报告问题、改代码、验证、更新文档 |
+| `CODE_OF_CONDUCT.md` | 参与 issue、PR 和讨论时的行为准则 |
+| `SECURITY.md` | 如何私下报告漏洞。不写利用步骤、payload 或真实凭据 |
+| `CHANGELOG.md` | 用户可见的版本变化，格式见 [发布流程](release-process.md) |
+| `LICENSE` | 许可证全文 |
+| `.github/` | PR 模板与 issue 模板 |
+
+# 写法
+
+按读者要完成的事来写，而不是按源码目录或一次实现会话来写。
+
+- **操作**：命令可以复制执行。密钥、token、管理员口令只用 `secret://` 引用或 `replace-me-` 占位。写已经落地的行为。
+- **参考**：配置字段、端点、CLI、错误码与代码一致。会过期的计数、版本和进度要么标「截至 YYYY-MM-DD」，要么不写。
+- **解释**：说明为什么这样设计，包括已否定的方案。决策进概念文档，不进 README 的快速开始。
+- 分类 `README.md` 先用一句话说明这个目录给谁看，然后一文档一行。不要写「从 `AGENTS.md` 进入」。
+- 不写贡献者机器上的绝对路径，不用 `file://` 链接本机目录。外部项目只作概念参考时，写名字，不写本机克隆位置。
+- 还没做的能力写在 [Roadmap](../product/roadmap.md) 或 `docs/plans/`。操作文档用现在时，不把计划写成已经可以执行的步骤。
+- `docs/log.md` 只记文档包的结论、影响面和验证。它不代替 `CHANGELOG.md`，也不记录代理会话过程。
+- 中文是文档语言。协议名、代码标识、命令、错误码、crate 名保留英文。
 
 # 层级
 
@@ -67,6 +105,7 @@ timestamp: 2026-08-19T00:00:00Z
 腐烂信号——任何 agent 看到即修，无需专门授权，修复走上面的生命周期规则：
 
 - 失效相对链接、指向不存在符号的代码引用；
+- `file://` 或本机绝对路径；
 - 行号引用；
 - "待实现"类状态与代码不符；
 - frontmatter 缺失或 `type` 为空；

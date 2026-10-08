@@ -10,15 +10,15 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
 
 按层级加载，不要一次读完 `docs/`。
 
-1. 文档总入口：`docs/README.md`（分类索引）。
+1. 文档总入口：`docs/README.md`（按读者任务排列的文档地图，分类索引在同一页）。
 2. 打开对应分类的 `README.md`，再读其中列出的概念文档。
 3. 研发流程从 `docs/engineering/README.md` 进入：
-   - `docs/engineering/development-workflow.md` — 模块边界、本机验证、子代理
+   - `docs/engineering/development-workflow.md` — 模块边界、本机验证、代理如何拆分任务
    - `docs/engineering/worktree-workflow.md` — Worktree 初始化、本机验证、合回与清理
    - `docs/engineering/engineering-conventions.md` — 分层、预算、错误与日志
    - `docs/engineering/documentation-conventions.md` — OKF 层级与自进化
    - `docs/engineering/agent-skill.md` — 操作网关（实现见 `.codex/skills/asterlane/SKILL.md`）
-4. 产品、架构、运行时、管理面经 `docs/README.md` 的对应分类进入。命令与现状见根 `README.md`。
+4. 产品、架构、运行时、管理面经 `docs/README.md` 的对应分类进入。根 `README.md` 只有整体架构和一条运行示例；命令细节在分类文档和 `.codex/skills/asterlane/SKILL.md`。
 
 # 工作方式
 
@@ -30,7 +30,7 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
 
 # 文档
 
-`docs/` 是小型 OKF 包：概念文件要有非空 `type` 的 YAML frontmatter；分类 `README.md` 做索引；`docs/log.md` 做时间线。发现路径或持久知识变了，同步分类 README（新分类还要改 `docs/README.md`）和 `docs/log.md`。细则见 `docs/engineering/documentation-conventions.md`。
+`docs/` 是小型 OKF 包，正文按 GitHub 社区项目写给使用者、运维和贡献者。概念文件要有非空 `type` 的 YAML frontmatter；分类 `README.md` 做索引；`docs/log.md` 做时间线。发现路径或持久知识变了，同步分类 README（新分类还要改 `docs/README.md`）和 `docs/log.md`。细则见 `docs/engineering/documentation-conventions.md`。
 
 # 研发约束
 

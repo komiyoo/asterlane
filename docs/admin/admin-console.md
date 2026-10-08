@@ -114,7 +114,7 @@ admin:
 # Citations
 
 - [1] [Architecture – Admin Console](../architecture/architecture.md)
-- [2] [Development Workflow – Admin Console Strategy](../engineering/development-workflow.md)
+- [2] [开发工作流 · 控制台](../engineering/development-workflow.md#控制台)
 - [3] [Product Requirements – Control Plane](../product/product-requirements.md)
 - [4] [Error Model](../architecture/error-model.md)
 - [5] [Observability](../architecture/observability.md)

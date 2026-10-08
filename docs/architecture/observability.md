@@ -165,7 +165,7 @@ MCP 语义约定已有社区草案（`gen_ai.tool.name`、`mcp.method.name`、`m
 # Citations
 
 - [1] [Product Requirements – 可观测性要求](../product/product-requirements.md)
-- [2] [NyaProxy metrics.py](file:///Users/ticoag/Documents/myws/NyaProxy/nya/services/metrics.py)
+- [2] NyaProxy 的 metrics 实现，只作上表的对比来源，不链接本机路径。
 - [3] [MCP semantic conventions (draft)](https://opentelemetry.io/docs/specs/semconv/)
 - [4] [metrics crate](https://docs.rs/metrics)
 - [5] [Error Model – tracing 字段映射](error-model.md)

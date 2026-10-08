@@ -1,5 +1,7 @@
 # 配置与运行时
 
+改网关 YAML、工具发现、结果渲染、MCP 治理或 key 凭据之前读这里。
+
 - [Configuration Schema](config-schema.md) - YAML 配置形态。
 - [API Discovery](api-discovery.md) - OpenAPI 自动发现与 MCP 转换、第三方 MCP 代理发现。
 - [Response Rendering](response-rendering.md) - 结果再呈现层：JSON 结果转 markdown/yaml 的格式协商、转换边界与管线位置。

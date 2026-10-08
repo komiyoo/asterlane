@@ -1,5 +1,7 @@
 # 管理面与 CLI
 
+用控制台或 `asterlane` 命令管理网关、调试工具、签发密钥时读这里。
+
 - [Admin Console](admin-console.md) - Web 管理控制台：形态决策、页面地图、admin API 缺口与分阶段路线。
 - [控制台与网关分离架构](../architecture/console-separation.md) - 新控制台的模块、工具链、契约、部署与迁移边界。
 - [Tool Debugging & CLI](tool-debugging-and-cli.md) - 内置 MCP preset、请求负载捕获、工具默认调用参数、控制台调试调用与 `asterlane admin` CLI 的设计契约。

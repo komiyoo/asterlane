@@ -1,0 +1,28 @@
+name: 缺陷
+description: 网关、控制台或 CLI 的行为和预期不一致
+title: "fix: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        不要粘贴真实 API key、token、OAuth 凭据或请求体。漏洞请使用安全咨询，不要用这个模板。
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 发生了什么。附上命令、错误码和最小配置，密钥用 replace-me- 或 secret:// 占位。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      placeholder: main，或某次提交的短哈希
+    validations:
+      required: true

@@ -1,0 +1,28 @@
+name: 功能
+description: 建议网关增加或调整一项能力
+title: "feat: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先看 [产品需求](https://github.com/komiyoo/asterlane/blob/main/docs/product/product-requirements.md) 里的非目标。Asterlane 不是模型供应商网关。
+  - type: textarea
+    id: who
+    attributes:
+      label: 谁需要它
+      description: 使用者、运维还是接入网关的代理。
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: 现在缺什么
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 期望的行为
+      description: 配置、API 或 MCP 交互上具体发生什么。密钥只用占位符。
+    validations:
+      required: true

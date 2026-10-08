@@ -2,212 +2,69 @@
 
 [![CI](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml/badge.svg)](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml)
 
-面向 Agent naive sense 的第三方资源访问网关: 上游 API 密钥与 MCP 凭据由网关集中持有，AI 代理只拿到有范围限制的 gateway key 和按需收窄的工具视图。
+面向代理的第三方资源访问网关。上游 API 和远程 MCP 的凭据留在网关里；代理只拿到有范围的 gateway key，以及按当前任务收窄后的工具。模型转发不经过这里。
 
-## 能力概览
+## 架构
 
-- **统一上游接入** — HTTP API（Tavily、Jina、Exa 等）与远程 MCP server 统一包装为 MCP 工具；远程上游的 prompts、resources 与 resource templates 一并代理，可见范围与工具相同；上游凭据经 secret 引用解析（env / file；可选 Vault KV v2 与 Infisical），永不下发给代理。stdio / 本地进程 MCP server 不是目标
-- **上游 MCP OAuth** — 网关作为 OAuth 客户端接入需要授权的上游 MCP server：client-credentials 全自动（元数据发现、RFC 8707 `resource`、token 过期自动重新换取）；授权码类上游由管理员在控制台（或 `asterlane admin mcp-servers authorize <id>`）一次性授权，网关随后自己保存并刷新 token，整个网关共用这一个上游身份；token 加密存入 SQLite（无数据库时只在内存），没有凭据或刷新被拒时显示 `auth_required`，可在控制台撤销授权；未配置 `client_id` 时动态注册客户端，需在授权服务器登记回调地址 `{oauth.redirect_base_url}/oauth/callback`；token 永不离开网关，代理只用 gateway key
-- **内置 MCP preset** — 平台预集成免费 MCP server（exa / deepwiki / context7），一行启用
-- **工具命名与范围** — 稳定三段 wire name `domain__provider__tool`；per-key allow/deny 正则 scope 与结构化勾选
-- **Key 凭据化** — proxy key 真实 token（`alk_*`）签发/轮换/吊销/过期，SHA-256 摘要存储
-- **细粒度限额** — per-key rps/rpm/累计/日配额 + per-上游 rps/rpm/并发上限
-- **MCP 治理** — 供应商 CRUD、健康状态机、降级启动、自动重连、工具介绍 override
-- **渐进式发现** — 默认 lazy，只列出六个网关工具；按 key 范围搜索、批量取详情和批量调用，显式 `discovery_mode: full` 保留完整列表
-- **执行管线** — key pool 负载均衡、限流队列、失败重试、content defense、结果裁剪
-- **MCP 代理安全** — 上游工具指纹 baseline 与 drift 检测（warn/quarantine/block）
-- **观测** — 请求事件落 SQLite，负载捕获（参数/响应预览/耗时，截断+脱敏），Prometheus `/metrics`，OTLP 导出（feature `otlp`）
-- **调试与运维** — Web 管理控制台 + `asterlane admin` CLI（含 resources / proxy-keys / mcp-servers 的 create / update / rm，以及 mcp-servers 的 authorize / deauthorize）
+管理员通过控制台或管理 API 配置上游、范围和限额。代理只连接网关。网关代持凭据，再去访问 HTTP API 或远程 MCP。
 
-## 前置条件
+```mermaid
+flowchart LR
+  Agent[AI 代理] -->|gateway key| GW[网关]
+  Admin[管理员] --> Console[控制台]
+  Console --> GW
+  GW --> API[HTTP API]
+  GW --> MCP[远程 MCP]
+```
 
-| 依赖 | 版本 | 说明 |
-|------|------|------|
-| Rust | ≥ 1.94 | `rustup install stable` |
-| just | 最新 | 可选，任务运行器 (`cargo install just`) |
-| Python 3 | ≥ 3.10 | 仅文档检查脚本需要（`pyyaml`） |
-| Node / Bun / `vp` | Node 22.23.1，Bun 1.4.2，`vp` 1.0.0-rc.0 | 只在前端检查和 `web/` 开发时需要。纯 `cargo build` 不使用它们 |
-| jq | 最新 | 快速开始中从签发响应提取一次性 gateway token |
-| cargo-deny | 最新 | 仅供应链审计需要 (`cargo install cargo-deny`) |
+## 运行机制
 
-## 快速开始
+1. 管理员把上游和每个 gateway key 能使用的范围配在网关里。上游密钥不下发给代理。
+2. 代理用 gateway key 连接网关，按当前任务看到一部分工具，而不是整份目录。
+3. 调用时，网关在范围内选定上游凭据，经过限额后访问对应的 HTTP API 或远程 MCP，再把结果交回代理。
+4. 调用记录留在网关。管理员从控制台或 `asterlane admin` 查看。
 
-以下流程使用 `examples/gateway.yaml`。真实调用 Exa 前，把示例值替换为有效的 admin token 与 Exa API key；`secret://exa/default` 对应环境变量 `EXA_DEFAULT`。
+配置字段、工具名、错误码和部署方式见 [文档](docs/README.md)。
 
-终端 1：构建并启动网关。
+## 运行
+
+下面使用仓库里的 `examples/gateway.yaml`。把占位符换成你自己的值。`secret://exa/default` 对应环境变量 `EXA_DEFAULT`；没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。签发 token 的那一步需要 `jq`。
+
+终端 1：启动网关。默认监听 `127.0.0.1:3000`，数据库只在内存里。
 
 ```bash
-cargo build
 export ASTERLANE_CONFIG=examples/gateway.yaml
 export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
 export EXA_DEFAULT=replace-me-exa-api-key
-cargo run -- serve --bind 127.0.0.1:3000 --database-url sqlite::memory:
+cargo run -- serve --database-url sqlite::memory:
 ```
 
-终端 2：先做离线 catalog 预览，再签发 gateway token 并使用在线 tools CLI。
+终端 2：用示例里的 key `agent-search-research` 做一次离线预览，再签发 gateway token 并调用 Exa 搜索。`list-tools` 只读本地配置；`admin` 和 `tools` 连接已经启动的网关。
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
 export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
 
-# 离线预览：读取本地 YAML，不连接运行中网关；--key 决定可见 scope
 cargo run -- list-tools --key agent-search-research
 
-# 在线 tools：先由 admin API 签发 Bearer gateway token，明文只返回一次
 export ASTERLANE_KEY="$(
   cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
     jq -r '.token'
 )"
-cargo run -- tools list
-cargo run -- tools search "web search"
-cargo run -- tools get search__exa__neural_search
 cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
-cargo run -- tools call-batch --args '{"calls":[{"name":"search__exa__neural_search","arguments":{"query":"rust mcp"}}]}'
-cargo run -- tools search "web search" --format json | jq '.tools[].name'
-
-# 管理 CLI 使用独立的 ASTERLANE_ADMIN_TOKEN
-cargo run -- admin stats
 ```
 
-在线 `admin`/`tools` 只读取 server/token 环境变量，不读取本地 Gateway YAML。`tools search` 输出 `{tools,next_cursor}`，可用 `--limit` 和 `--cursor` 翻页；省略 `discovery_mode` 的 key 现在默认 lazy，旧客户端需要完整列表时为该 key 配 `discovery_mode: full`。代理侧把网关当作 MCP server 接入：`http://127.0.0.1:3000/mcp`（Streamable HTTP），可主动获取 `asterlane_tool_workflow` prompt，以及当前 key 可见的上游 prompts 与 resources。lazy 只收窄工具列表。
+已经装好 `asterlane` 时，把同一份配置放到本机用户配置目录，然后执行 `asterlane serve`。路径见 [CLI 配置发现](docs/admin/cli-config-discovery.md)。
 
-## 端点
-
-| 路径 | 说明 |
-|------|------|
-| `/mcp` | MCP Streamable HTTP（tools、prompts、resources；resource URI 为 `asterlane://{server_id}/{上游原 URI}`） |
-| `/v1/tools`、`/v1/tools/{name}/invoke` | REST 工具发现与调用 |
-| `/admin/*` | 管理 API（Bearer admin key 认证） |
-| `/healthz`、`/versionz`、`/metrics`、`/config` | 运维端点，走网关端口 |
-
-## 构建与测试
-
-```bash
-# 全量检查（Worktree 也用这条）：Rust、OKF、schema/TS 差异、前端静态检查、测试和构建
-just check
-
-# 浏览器回归不在 just check 里。它会起隔离的本机网关。
-just web e2e
-
-# 或手动逐步执行后端部分：
-cargo fmt -- --check          # 格式检查
-cargo clippy --all-targets -- -D warnings  # lint
-cargo test                    # 测试
-python3 scripts/check_okf_docs.py          # 文档校验
-cargo deny check              # 供应链审计
-```
-
-控制台在 `web/`，生产入口是独立静态站。`vp dev` 把 `/admin` 代理到 `127.0.0.1:$ASTERLANE_DEV_GATEWAY_PORT`（默认 3000），只用于开发。生产构建不写入管理员凭据或任意 API 地址。浏览器打开 Compose 的 `127.0.0.1:3722`；历史地址 `/admin/ui` 和 `/admin/ui/` 在这个入口上回到 `/`。网关端口 `127.0.0.1:3721` 只提供 API，旧页面返回 404。前端命令见 [web/README.md](web/README.md)。
-
-Git / Cursor Worktree：进入新树后先 `just worktree init`，在**该目录**本机跑 `just check`。做完合回 `main`，再 `just worktree prune` 清残留。从 [AGENTS.md](AGENTS.md) 的发现路径进入 [Worktree Workflow](docs/engineering/worktree-workflow.md)。
-
-其他构建变体：
-
-```bash
-just build --release          # release 构建
-cargo build --features otlp   # 启用 OTLP 遥测导出
-```
-
-## Docker
-
-网关和静态控制台分成两个镜像。网关镜像不读取 `web/`，进程在启动后降到 `asterlane`（uid 10001），并对 `GET /healthz` 做 `HEALTHCHECK`。数据目录 `/data` 会在启动时交给这个用户。配置仍须自行挂载（镜像不打包 `examples/`）。
-
-控制台镜像只含 Nginx 和静态文件。它把 `/admin/*` 转到 Compose 网络里的 `gateway:3000`，不接收 admin token。页面在 `127.0.0.1:3722`，网关仍在 `127.0.0.1:3721`。端口可以用 `ASTERLANE_WEB_PORT` 和 `ASTERLANE_GATEWAY_PORT` 覆盖。
-
-```bash
-docker build -t asterlane .
-docker build -f web/Dockerfile -t asterlane-web web
-docker compose up --build
-```
-
-单独运行网关：
-
-```bash
-docker run --rm -p 3000:3000 \
-  -e ASTERLANE_CONFIG=/config/gateway.yaml \
-  -v "$PWD/examples/gateway.yaml:/config/gateway.yaml:ro" \
-  asterlane
-```
-
-升级控制台时，把上一版镜像的 `/usr/share/nginx/html` 只读挂到新容器的 `/previous-dist`，至少一个发布周期后再去掉。这样旧页面仍能加载上一版带 hash 的脚本和样式。回滚只切回已经验证过的镜像标签，不删除数据库卷。说明写在镜像内的 `/usr/local/share/asterlane-web/retain.md`。
-
-`just web deploy-smoke` 用独立项目、测试配置和测试卷演练启动、升级、前端回滚和组合回滚，不会使用正在运行的项目或现有数据卷。
-
-## CI
-
-GitHub Actions 在 push main 和 PR 时运行 `.github/workflows/ci.yml`、`.github/workflows/web.yml` 和 `.github/workflows/deploy-smoke.yml`。这些工作流都不部署，也不推镜像。`ci.yml` 还包含 release 构建检查。
-
-| Job | 内容 |
-|-----|------|
-| `fmt` | `cargo fmt -- --check` |
-| `clippy` | `cargo clippy --all-targets -- -D warnings` |
-| `test` | `cargo test`，并比较 `schemas/admin.json` |
-| `docs` | OKF 文档 frontmatter/type 校验 |
-| `deny` | `cargo-deny` 供应链审计 |
-| `build` | `cargo build --release --locked`，并构建 Docker 镜像（不推送）做冒烟检查 |
-| `web` | 固定 `vp` 1.0.0-rc.0 / Node 22.23.1 / Bun 1.4.2，冻结安装后检查生成类型、`vp check`、`vp test --run`、`vp build`，上传带提交号的 `web/dist` |
-| `rust-image` / `web-image` | 分别构建网关镜像和静态站镜像，产物写明提交和工具版本 |
-| `smoke` | 加载网关镜像后跑 `just web deploy-smoke` 里不需要图形界面的部分 |
-
-## 发布
-
-维护者推送 `vX.Y.Z` tag 后，`.github/workflows/release.yml` 在原生 runner 上构建 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin` 三个目标的二进制（附 `.sha256`）并创建 GitHub Release，同时把 linux/amd64 + linux/arm64 镜像推到 `ghcr.io/komiyoo/asterlane`（`X.Y.Z` 与 `latest`）。每次发布默认 patch +0.0.1。版本策略、发布步骤和首次发布注意事项见 [Release Process](docs/engineering/release-process.md)，变更记录见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 配置
-
-`serve` 与离线 `list-tools` 按以下优先级读取单一 YAML：
-
-1. `--config PATH`
-2. 非空 `ASTERLANE_CONFIG`
-3. OS 用户配置路径
-
-| 平台 | 默认路径 |
-|------|----------|
-| Linux | `${XDG_CONFIG_HOME:-$HOME/.config}/asterlane/config.yaml` |
-| macOS | `$HOME/Library/Application Support/asterlane/config.yaml` |
-| Windows | `%APPDATA%\asterlane\config.yaml` |
-
-CLI 不扫描当前目录、不回退到 `examples/`、不自动创建配置。示例文件位于 `examples/gateway.yaml` 与 `examples/gateway-mcp.yaml`；完整契约见 [CLI Config Discovery](docs/admin/cli-config-discovery.md)，YAML schema 见 [Configuration Schema](docs/runtime/config-schema.md)。
-
-## 项目结构
-
-```
-src/
-├── main.rs          # 入口，装配不编排
-├── config/          # 配置模型与加载后校验（按配置节拆分）
-├── naming.rs        # MCP 工具命名解析
-├── policy.rs        # key scope 与请求级收窄
-├── catalog/         # 工具目录、过滤、分页
-├── error.rs         # 错误码与边界映射
-├── gateway_auth.rs  # 网关认证
-├── presets.rs       # 内置 MCP preset
-├── admin/           # 管理 API。页面在 web/
-├── cli/             # CLI 子命令
-├── http/            # Axum 路由与中间件（含 /oauth/callback 授权回调）
-├── mcp/             # MCP 协议适配（含上游 OAuth：mcp/oauth）
-├── proxy/           # 上游 HTTP 执行
-├── store/           # 数据库抽象（SQLite）
-├── keys/            # 上游 key pool 管理
-├── limits/          # 限流与配额
-├── secrets/         # secret 引用解析、OAuth 凭据加解密
-├── defense/         # content defense
-├── observability/   # 事件、指标、脱敏、凭据日志上限
-└── openapi/         # OpenAPI 自动发现
-```
+代理把 `http://127.0.0.1:3000/mcp` 当作 MCP server 接入。
 
 ## 文档
 
-文档入口：[docs/README.md](docs/README.md)（按分类渐进加载）
-
-关键文档：
-
-- [产品需求](docs/product/product-requirements.md) — 产品意图与非目标
-- [架构](docs/architecture/architecture.md) — 模块边界与数据流
-- [配置 Schema](docs/runtime/config-schema.md) — YAML 配置形态
-- [开发工作流](docs/engineering/development-workflow.md) — 模块边界、验证规则
-- [工程约定](docs/engineering/engineering-conventions.md) — 分层、预算、类型/错误/日志规则
-
-仓库脚本：[scripts/README.md](scripts/README.md)
+- [文档地图](docs/README.md)
+- [贡献指南](CONTRIBUTING.md)
+- [安全政策](SECURITY.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [更新日志](CHANGELOG.md)
 
 ## License
 

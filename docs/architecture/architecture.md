@@ -114,7 +114,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 # Admin Console
 
-第一阶段最小集：health/version、resource catalog、proxy key scopes、upstream key pool status、recent request events、usage summary、config validation report。区分 admin key 与 proxy key（NyaProxy 混用是反模式）。Web 控制台的形态决策、页面地图与分阶段路线见 [Admin Console](../admin/admin-console.md)；策略背景见 [Development Workflow – Admin Console Strategy](../engineering/development-workflow.md)。
+管理面使用 admin key，与代理使用的 proxy key 分开。NyaProxy 把这两类密钥混用，这里不沿用。页面、管理 API 和部署见 [Admin Console](../admin/admin-console.md)。本地开发时的控制台形态见 [开发工作流 · 控制台](../engineering/development-workflow.md#控制台)。
 
 # Roadmap
 
@@ -130,4 +130,3 @@ Phase 1–6（核心模型、HTTP 网关、MCP server、API 自动发现、凭�
 - [6] [Observability](observability.md)
 - [7] [API Discovery](../runtime/api-discovery.md)
 - [8] [Compatibility Policy](compatibility-policy.md)
-- [9] [NyaProxy local reference](file:///Users/ticoag/Documents/myws/NyaProxy)

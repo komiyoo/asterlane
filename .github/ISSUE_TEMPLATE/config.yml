@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 安全漏洞
+    url: https://github.com/komiyoo/asterlane/security/advisories/new
+    about: 请私下报告。不要在公开 issue 中描述漏洞或粘贴密钥。
+  - name: 文档
+    url: https://github.com/komiyoo/asterlane/blob/main/docs/README.md
+    about: 使用、配置、设计和贡献说明。
