@@ -1,5 +1,15 @@
 # Documentation Update Log
 
+## 2026-10-08（README 补上上下文问题的做法）
+
+- **结论**：根 `README.md` 的问题说明与已落地行为对齐，并用伪代码举例。除各自鉴权、单一入口和按 key 划定范围外，写明默认 `tools/list` 只返回六个 `asterlane__*` 工具，搜索给短摘要，`asterlane__get_tools` 再取 schema，超预算的结果用 `asterlane__fetch_result` 续取。显式 `discovery_mode: full` 仍可列出目录。
+- **依据**：[API Discovery · 渐进式发现](runtime/api-discovery.md)、`src/discovery.rs` 的 `meta_tool_descriptors`、`src/shaping.rs` 的结果裁剪。
+
+## 2026-10-08（运行示例移入文档，README 写核心问题）
+
+- **结论**：根 `README.md` 说明三件要收拢的事：上游各自鉴权、客户端只配置网关这一处、权限按 gateway key 由网关决定。启动命令移到 [运行网关](admin/running.md)。
+- **契约**：[CLI 配置发现](admin/cli-config-discovery.md) 里「可执行工作流写在 README」改为指向该指南。两条入口仍在：源码用 `examples/gateway.yaml`，安装后用用户配置目录里的 `asterlane serve`。
+
 ## 2026-10-08（README 只保留架构、机制和一条运行示例）
 
 - **结论**：根 `README.md` 不再展开能力清单、端点、源码树、构建、CI、发布和 Docker。首页是整体架构、四步运行机制，以及用 `examples/gateway.yaml` 启动、离线预览 `agent-search-research`、签发 token、调用 `search__exa__neural_search` 的一条示例。

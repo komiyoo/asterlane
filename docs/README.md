@@ -4,7 +4,8 @@
 
 ## 使用与运维
 
-- [README](../README.md) — 整体架构、运行机制和最短运行示例。
+- [README](../README.md) — 要解决的问题：各自鉴权、客户端只配网关、按 key 管权限、工具目录和大结果不进入整份上下文。
+- [运行网关](admin/running.md) — 启动示例配置，并完成一次调用。
 - [控制台与部署](../web/README.md) — 静态控制台、Compose 与镜像。
 - [配置 Schema](runtime/config-schema.md) — 网关 YAML 的字段。
 - [CLI 配置发现](admin/cli-config-discovery.md) — 配置文件的查找顺序和默认路径。

@@ -18,7 +18,7 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
    - `docs/engineering/engineering-conventions.md` — 分层、预算、错误与日志
    - `docs/engineering/documentation-conventions.md` — OKF 层级与自进化
    - `docs/engineering/agent-skill.md` — 操作网关（实现见 `.codex/skills/asterlane/SKILL.md`）
-4. 产品、架构、运行时、管理面经 `docs/README.md` 的对应分类进入。根 `README.md` 只有整体架构和一条运行示例；命令细节在分类文档和 `.codex/skills/asterlane/SKILL.md`。
+4. 产品、架构、运行时、管理面经 `docs/README.md` 的对应分类进入。根 `README.md` 只说明要解决的问题和整体架构；运行示例在 `docs/admin/running.md`，其余命令在分类文档和 `.codex/skills/asterlane/SKILL.md`。
 
 # 工作方式
 

@@ -78,7 +78,7 @@ asterlane list-tools [--config PATH] --key ID [FILTERS]
 
 帮助文本必须将 `list-tools` 描述为“离线 catalog 预览”，并说明在线查询使用 `asterlane tools list`。配置发现不会改变 `list-tools` 的 key scope、过滤、分页或 JSON 输出。
 
-快速开始应提供两种等价入口：
+[运行网关](running.md) 提供两种等价入口：
 
 - 源码仓库开发：`export ASTERLANE_CONFIG=examples/gateway.yaml` 后运行 `cargo run -- serve ...`。
 - 安装使用：把配置显式放入本平台默认路径后直接运行 `asterlane serve`。
@@ -111,7 +111,7 @@ asterlane list-tools [--config PATH] --key ID [FILTERS]
 4. 没有可用来源时，错误包含三种修复方式与计算出的默认路径。
 5. clap 验证 `serve`/`list-tools` 的 `--config` 可省略，`list-tools --key` 仍必填。
 6. 现有显式路径、catalog 过滤与 server 启动测试保持通过。
-7. README、项目 skill、CLI help 与默认路径契约一致；快速开始必须形成单一可执行工作流，架构背景必须明确历史时态，usage 参数标明值类型，文档日志只保留持久结论。
+7. [运行网关](running.md)、项目 skill、CLI help 与默认路径契约一致；运行示例必须形成单一可执行工作流，架构背景必须明确历史时态，usage 参数标明值类型，文档日志只保留持久结论。
 8. `cargo fmt -- --check`、Clippy、全量测试、OKF 检查、链接检查与生产文件预算通过。
 
 # 非目标

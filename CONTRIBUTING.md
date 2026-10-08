@@ -1,6 +1,6 @@
 # 参与贡献
 
-使用网关从 [README](README.md) 的快速开始进入。设计、配置和管理说明在 [文档](docs/README.md)。
+使用网关从 [运行网关](docs/admin/running.md) 进入。项目要解决的问题在 [README](README.md)，其余说明在 [文档](docs/README.md)。
 
 ## 报告问题
 
@@ -17,7 +17,7 @@
 | Rust ≥ 1.94 | 构建和运行网关 |
 | just | 跑 `just check` |
 | Python 3 ≥ 3.10，以及 `pyyaml` | 文档检查 |
-| jq | 根 README 的运行示例要从签发响应里取出 token |
+| jq | [运行网关](docs/admin/running.md) 要从签发响应里取出 token |
 | Node 22.23.1、Bun 1.4.2、`vp` 1.0.0-rc.0 | 只在改 `web/` 时。版本说明见 [web/README.md](web/README.md) |
 | cargo-deny | 改依赖时做供应链审计 |
 
