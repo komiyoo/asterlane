@@ -2,6 +2,9 @@
 //!
 //! 所有写操作落审计事件（`SecurityEventKind::AdminAudit`），
 //! 完成后原子替换内存配置 + 重建 catalog。
+//!
+//! 生产代码超过 500 行。拆分方向：resource 写路径与 proxy key 写路径分开，
+//! `swap_config_and_catalog` 留给两边共用。
 
 use std::collections::HashSet;
 use std::sync::Arc;

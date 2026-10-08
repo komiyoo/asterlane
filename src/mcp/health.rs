@@ -1,6 +1,8 @@
 //! MCP server 健康模型与运行期增删改（契约见 docs/runtime/mcp-governance-and-key-limits.md §4）。
 //!
 //! 状态机：`ok`（最近一次探测成功）| `unreachable`（最近一次探测失败）|
+//! `auth_required`（授权码类 OAuth 上游需要管理员授权：没有已存凭据、凭据无法
+//! 解密或刷新被拒；对 FailClosed 与 `unreachable` 同样视为不可用）|
 //! `unknown`（尚未探测）| `disabled`（`health_check.enabled: false`，不参与
 //! 周期探测；按需 `probe` 仍可用，但状态恒为 `disabled`）。
 //!
@@ -18,26 +20,49 @@ use serde::Serialize;
 use tracing::{debug, warn};
 
 use crate::config::McpServerConfig;
+use crate::mcp::convert::wrap_tools;
+use crate::mcp::dedup::{dedup_against_others, push_deduped_entry};
 use crate::mcp::error::McpError;
-use crate::mcp::registry::{
-    McpServerEntry, McpServerRegistry, PeerConnector, RefreshResult, RemoteMcpPeer,
-    transport_config, wrap_tools,
-};
+use crate::mcp::peer::{PeerConnector, RemoteMcpPeer};
+use crate::mcp::registry::{McpServerEntry, McpServerRegistry, RefreshResult};
+use crate::mcp::surface::{self, SurfaceSnapshot};
+use crate::mcp::transport::connect_server;
 use crate::secrets::{SecretError, SecretRef, SecretStore, SecretString};
 
-/// MCP server 健康状态（serde 小写，供 wave 2 admin JSON 直接输出）。
+/// MCP server 健康状态（serde snake_case，供 admin JSON 与 schema 输出）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum HealthStatus {
     /// 最近一次探测成功。
     Ok,
     /// 最近一次探测（含连接）失败。
     Unreachable,
+    /// 授权码类 OAuth 上游需要管理员授权（见模块文档）。
+    AuthRequired,
     /// 尚未探测。
     Unknown,
     /// `health_check.enabled: false`，不参与周期探测。
     Disabled,
+}
+
+impl HealthStatus {
+    /// 上游当前不可用：`unreachable` 或 `auth_required`。FailClosed 据此拒绝 list，
+    /// refresh 据此记入失败列表。
+    pub fn is_unavailable(self) -> bool {
+        matches!(self, Self::Unreachable | Self::AuthRequired)
+    }
+
+    /// 与 serde 输出一致的稳定字符串（日志字段用）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Unreachable => "unreachable",
+            Self::AuthRequired => "auth_required",
+            Self::Unknown => "unknown",
+            Self::Disabled => "disabled",
+        }
+    }
 }
 
 /// 单个 MCP server 的健康快照（契约字段，wave 2 admin 端点直接消费）。
@@ -167,7 +192,7 @@ impl McpServerRegistry {
                     continue;
                 }
             };
-            if refreshed.health.status == HealthStatus::Unreachable {
+            if refreshed.health.status.is_unavailable() {
                 failed_ids.push(server_id);
             }
             total_tools +=
@@ -227,6 +252,33 @@ impl McpServerRegistry {
             .ok_or_else(|| McpError::unknown_server(server_id))
     }
 
+    /// 丢弃现有连接并重新建连 + 拉取工具，返回最新健康态。授权码凭据变化后用
+    /// （授权完成、撤销授权）：`probe` 会复用已有连接，而旧连接持有旧的授权状态。
+    /// 建连失败时 entry 变为无连接、无工具快照（例如撤销授权后为 `auth_required`）。
+    /// unknown id 返回 [`McpError::UnknownServer`]。
+    pub async fn reconnect<S: SecretStore>(
+        &self,
+        server_id: &str,
+        secrets: &S,
+    ) -> Result<ServerHealth, McpError> {
+        let snapshot = self
+            .read_entries()
+            .iter()
+            .find(|e| e.config.id == server_id)
+            .cloned()
+            .ok_or_else(|| McpError::unknown_server(server_id))?;
+        let refreshed = establish_entry(
+            snapshot.config,
+            Some(snapshot.health),
+            secrets,
+            self.connector.as_ref(),
+        )
+        .await;
+        // 重连期间被并发 remove 时不复活该 entry
+        self.replace_entry(refreshed)
+            .ok_or_else(|| McpError::unknown_server(server_id))
+    }
+
     /// 登记新 server 并尝试连接 + 拉取工具。连接失败仍登记
     /// （`unreachable`，无 peer）并返回其健康态，不算 `Err`；
     /// id 已存在返回 `mcp.invalid_tool_call`。
@@ -276,6 +328,7 @@ impl McpServerRegistry {
                     tools: old.tools,
                     descriptors: old.descriptors,
                     health: old.health,
+                    surface: old.surface,
                 };
                 probe_entry(entry, peer, Instant::now()).await
             }
@@ -321,11 +374,7 @@ pub(super) async fn establish_entry<S: SecretStore>(
     let mut health = prev_health.unwrap_or_else(|| ServerHealth::initial(&config));
     let enabled = config.health_check.enabled;
     let started = Instant::now();
-    let connected = match transport_config(&config, secrets).await {
-        Ok(transport) => connector.connect(&config, transport).await,
-        Err(e) => Err(e),
-    };
-    match connected {
+    match connect_server(&config, secrets, connector).await {
         Ok(peer) => {
             let entry = McpServerEntry {
                 config,
@@ -333,23 +382,25 @@ pub(super) async fn establish_entry<S: SecretStore>(
                 tools: Vec::new(),
                 descriptors: Vec::new(),
                 health,
+                surface: SurfaceSnapshot::default(),
             };
             probe_entry(entry, peer, started).await
         }
         Err(e) => {
+            mark_failed(&mut health, enabled, &e);
             warn!(
                 server_id = %config.id,
-                status = "unreachable",
+                status = health.status.as_str(),
                 error = %e,
-                "MCP server 连接失败，登记为 unreachable"
+                "MCP server 连接失败，登记为不可用（见 status）"
             );
-            mark_failed(&mut health, enabled, &e);
             McpServerEntry {
                 config,
                 peer: None,
                 tools: Vec::new(),
                 descriptors: Vec::new(),
                 health,
+                surface: SurfaceSnapshot::default(),
             }
         }
     }
@@ -370,9 +421,11 @@ pub(super) async fn probe_entry(
     };
     match outcome {
         Ok((tools, descriptors)) => {
+            let surface = surface::load_surface(&entry.config, peer.as_ref(), &entry.surface).await;
             let latency_ms = elapsed_ms(started);
             entry.tools = tools;
             entry.descriptors = descriptors;
+            entry.surface = surface;
             mark_ok(&mut entry.health, enabled, latency_ms, entry.tools.len());
             debug!(
                 server_id = %entry.config.id,
@@ -383,13 +436,13 @@ pub(super) async fn probe_entry(
             );
         }
         Err(e) => {
+            mark_failed(&mut entry.health, enabled, &e);
             warn!(
                 server_id = %entry.config.id,
-                status = "unreachable",
+                status = entry.health.status.as_str(),
                 error = %e,
                 "MCP 探测失败，保留 stale 工具快照"
             );
-            mark_failed(&mut entry.health, enabled, &e);
         }
     }
     entry.peer = Some(peer);
@@ -417,14 +470,16 @@ pub(super) fn mark_ok(
     health.tool_count = tool_count;
 }
 
-/// 探测失败：状态 `unreachable`（disabled 配置恒 `disabled`），失败计数
-/// 累加；`latency_ms` / `last_ok_at` 保留最近成功值。`last_error` 只存
-/// `McpError` 的脱敏 Display。
+/// 探测失败：状态 `unreachable`（需要管理员授权时为 `auth_required`；disabled
+/// 配置恒 `disabled`），失败计数累加；`latency_ms` / `last_ok_at` 保留最近
+/// 成功值。`last_error` 只存 `McpError` 的脱敏 Display。
 fn mark_failed(health: &mut ServerHealth, enabled: bool, error: &McpError) {
-    health.status = if enabled {
-        HealthStatus::Unreachable
-    } else {
+    health.status = if !enabled {
         HealthStatus::Disabled
+    } else if matches!(error, McpError::UpstreamAuthRequired) {
+        HealthStatus::AuthRequired
+    } else {
+        HealthStatus::Unreachable
     };
     health.last_check_at = Some(Utc::now());
     health.consecutive_failures = health.consecutive_failures.saturating_add(1);
@@ -433,52 +488,4 @@ fn mark_failed(health: &mut ServerHealth, enabled: bool, error: &McpError) {
 
 pub(super) fn elapsed_ms(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
-}
-
-/// 把 entry 的工具按 `seen_wire_names` 去重后推入 `new_entries`，返回保留
-/// 的工具数。重复 wire name 跳过并告警，不中断整体刷新。
-pub(super) fn push_deduped_entry(
-    mut entry: McpServerEntry,
-    new_entries: &mut Vec<McpServerEntry>,
-    seen_wire_names: &mut HashSet<String>,
-) -> usize {
-    dedup_entry_tools(&mut entry, seen_wire_names);
-    let count = entry.tools.len();
-    new_entries.push(entry);
-    count
-}
-
-/// 与其他 entry 的既有 wire name 冲突（或自身重复）的工具跳过并告警，
-/// 与 refresh 的去重口径一致。`skip` 为被替换 entry 自身的位置。
-fn dedup_against_others(guard: &[McpServerEntry], skip: Option<usize>, entry: &mut McpServerEntry) {
-    let mut seen: HashSet<String> = guard
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| Some(*i) != skip)
-        .flat_map(|(_, e)| e.tools.iter().map(|t| t.name.to_wire_name()))
-        .collect();
-    dedup_entry_tools(entry, &mut seen);
-}
-
-/// 就地去重：wire name 已在 `seen` 中的工具（含 entry 自身重复）丢弃并告警。
-fn dedup_entry_tools(entry: &mut McpServerEntry, seen: &mut HashSet<String>) {
-    let tools = std::mem::take(&mut entry.tools);
-    let descriptors = std::mem::take(&mut entry.descriptors);
-    let mut kept_tools = Vec::with_capacity(tools.len());
-    let mut kept_descriptors = Vec::with_capacity(descriptors.len());
-    for (tool, descriptor) in tools.into_iter().zip(descriptors) {
-        let wire_name = tool.name.to_wire_name();
-        if seen.insert(wire_name.clone()) {
-            kept_tools.push(tool);
-            kept_descriptors.push(descriptor);
-        } else {
-            warn!(
-                wire_name = %wire_name,
-                server_id = %entry.config.id,
-                "duplicate wire name skipped"
-            );
-        }
-    }
-    entry.tools = kept_tools;
-    entry.descriptors = kept_descriptors;
 }

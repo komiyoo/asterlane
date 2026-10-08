@@ -40,7 +40,7 @@ impl ToolName {
     ///（双下划线 `__` 分段，段内单词用单下划线如 `web_search`）。
     ///
     /// 注意：段内本身可能含 `__`——`normalize_segment` 不拒绝下划线，
-    /// MCP 上游工具原名（registry `wrap_tools` 原样入 tool 段）就常带 `__`。
+    /// MCP 上游工具原名（`mcp::convert::wrap_tools` 原样入 tool 段）就常带 `__`。
     /// 因此 wire name **不保证**能按 `__` 切回三段（`FromStr` 无法 round-trip）。
     /// 运行时按 wire name 定位工具一律对 catalog 查表（字符串相等），
     /// 见 `ToolCatalog::resolve_for_key` / `find_by_wire_name`。
@@ -68,6 +68,26 @@ impl FromStr for ToolName {
         }
         ToolName::new(parts[0], parts[1], parts[2])
     }
+}
+
+/// 判权用的匹配名 `domain__provider__<name>`，给不对外暴露的条目（resource、
+/// resource template）。domain 与 provider 按 [`ToolName`] 同一规则规范化，`name`
+/// 原样保留：这类名称可以含 `.`、`/` 等 `ToolName` 不接受的字符，也没有长度预算。
+/// 对外暴露的名字（工具、prompt）一律走 [`ToolName`]。
+pub fn scope_match_name(
+    domain: impl Into<String>,
+    provider: impl Into<String>,
+    name: &str,
+) -> Result<String, ToolNameError> {
+    if name.is_empty() {
+        return Err(ToolNameError::EmptySegment);
+    }
+    Ok(format!(
+        "{}__{}__{}",
+        normalize_segment(domain.into())?,
+        normalize_segment(provider.into())?,
+        name
+    ))
 }
 
 fn normalize_segment(value: String) -> Result<String, ToolNameError> {
@@ -136,6 +156,19 @@ mod tests {
             error,
             ToolNameError::InvalidShape("search__exa".to_string())
         );
+    }
+
+    #[test]
+    fn scope_match_name_keeps_the_raw_name() {
+        let name = scope_match_name("Docs", "Wiki", "guide/README.md v2").unwrap();
+        assert_eq!(name, "docs__wiki__guide/README.md v2");
+        // ToolName 不接受同一个名字：只有对外暴露的名字才受字符集约束
+        assert!(ToolName::new("docs", "wiki", "guide/README.md v2").is_err());
+        assert_eq!(
+            scope_match_name("docs", "wiki", ""),
+            Err(ToolNameError::EmptySegment)
+        );
+        assert!(scope_match_name("bad/domain", "wiki", "x").is_err());
     }
 
     #[test]

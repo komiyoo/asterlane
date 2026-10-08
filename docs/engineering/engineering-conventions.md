@@ -4,7 +4,7 @@ title: 工程约定
 description: 分层依赖方向、代码组织硬预算、类型系统、错误、日志与防臃肿的纲领性约定与已知债务台账。
 resource: docs/engineering/engineering-conventions.md
 tags: [conventions, architecture, errors, observability, code-quality]
-timestamp: 2026-07-05T00:00:00Z
+timestamp: 2026-10-02T00:00:00Z
 ---
 
 # 背景
@@ -17,15 +17,15 @@ timestamp: 2026-07-05T00:00:00Z
 
 | 层 | 模块 | 允许依赖 |
 | --- | --- | --- |
-| 纯逻辑核心 | `naming` `policy` `catalog` `error` `config` `integrity` `transform` `render` `shaping` `defense` `discovery` `openapi` `observability`（模型/脱敏/metrics facade） | serde、regex、std、tokio 同步原语；禁止 axum / sqlx / rmcp / reqwest（豁免见下） |
+| 纯逻辑核心 | `naming` `policy` `catalog` `error` `config` `integrity` `render` `shaping` `defense` `discovery` `openapi` `observability`（模型/脱敏/metrics facade） | serde、regex、std、tokio 同步原语；禁止 axum / sqlx / rmcp / reqwest（豁免见下） |
 | IO 与协议适配 | `proxy`（reqwest）`mcp`（rmcp）`store`（sqlx）`secrets`（后端 HTTP）`keys` `limits` | 各自协议 crate + 纯逻辑核心 |
 | 边界 | `http` `admin`（axum）`main.rs`（CLI） | 一切；错误→输出转换只发生在这一层 |
 
 - 判据是 `src/error.rs` 模式：核心模块返回纯数据，由边界转换为 HTTP/MCP/CLI 输出（见 `src/http/error.rs`）。
 - 协议类型止步于适配层：rmcp 类型不出 `mcp/` 与 `http/`（server transport 装配）；`proxy::executor` 只消费 `mcp::model` 自有类型。
 - 现存豁免（新增同类豁免须在此登记）：
-  - `config::HttpMethod::to_reqwest`——类型转换 helper；
-  - `transform` 使用 `reqwest::header` 类型（实为 `http` crate 类型的 re-export）。
+  - `config::HttpMethod::to_reqwest`——类型转换 helper。
+  - `config::oauth` 用 `reqwest::Url` 解析并校验 `oauth.redirect_base_url` 与 OAuth server 的 `url`——只做 URL 解析（https / loopback 判断），不发请求，不手写 URL parser。
 
 # 组合根
 
@@ -38,7 +38,7 @@ timestamp: 2026-07-05T00:00:00Z
 - 单元测试内联在文件底部 `#[cfg(test)] mod tests`；跨模块端到端验证放 `tests/`（wiremock 模拟上游）。测试行数不计入预算。
 - **文件预算**：生产代码（不含 `#[cfg(test)]`）超过 500 行——先拆再改，或先在文件头注释写明拆分方向才允许继续增长。
 - **函数预算**：超过 80 行或嵌套超过 3 层——拆。
-- `#[allow(clippy::too_many_arguments)]` 是拆分信号而非常规工具：出现即说明该函数在聚合本应成为 struct 的状态。现存两处已入债务台账。
+- `#[allow(clippy::too_many_arguments)]` 是拆分信号而非常规工具：出现即说明该函数在聚合本应成为 struct 的状态。仓库内已无存量豁免（2026-10-01 清零），新增参数过多时先把总是一起传递的参数聚合为 struct。
 - 模块晋升：单文件模块出现第二个内聚子单元（典型标志：需要自己的 `error.rs`）时晋升为目录；不预先建目录。
 - `lib.rs` 只 re-export 稳定对外类型；新增 `pub use` 视为公共 API 承诺（见 [Compatibility Policy](../architecture/compatibility-policy.md)）。
 
@@ -73,7 +73,7 @@ timestamp: 2026-07-05T00:00:00Z
   - `warn!`：自动降级、重试后成功、配额/隔离触发、观测写入失败。
   - `info!`：生命周期事件（启动、shutdown、refresh、baseline pin）；每请求路径禁用 info。
   - `debug!`：每请求决策点（key 选取、重试、限流等待、格式协商）。
-- 请求路径必须在 span 内：`ProxyExecutor::invoke`、MCP `tools/list` / `call_tool`、registry refresh 须 `#[instrument(skip_all, fields(request_id, wire_name, resource_id, proxy_key_id))]`。`request_id` 是全链路关联键，HTTP 层的 `TraceLayer` 不能替代（MCP 单 endpoint 下 method/path 无区分度）。
+- 请求路径必须在 span 内：`ProxyExecutor::invoke`、MCP `tools/list` / `call_tool` / `prompts/get` / `resources/read`、registry refresh 须 `#[instrument(skip_all, fields(request_id, wire_name, resource_id, proxy_key_id))]`。`request_id` 是全链路关联键，HTTP 层的 `TraceLayer` 不能替代（MCP 单 endpoint 下 method/path 无区分度）。
 - 双写口径：`RequestEvent` → metrics + store 是历史事实源；tracing 是实时诊断。三者字段名保持一致。
 - 密钥零泄漏：span/event 字段禁止明文密钥；upstream key 只用 `redact_secret_key` 后的形式。
 
@@ -87,12 +87,41 @@ timestamp: 2026-07-05T00:00:00Z
 
 # 已知债务台账
 
-评估结论中的结构性债务，改到对应位置时优先偿还：
+行数是生产代码（不含 `#[cfg(test)]`），截至 2026-10-02。改到对应位置时优先偿还。超过 500 行的文件要么已经拆开，要么在文件头写了拆分方向并记在这里。超过 80 行的函数记在这里，不另开豁免。
+
+## 已清
 
 | 债务 | 位置 | 状态 |
 | --- | --- | --- |
-| ~~invoke 编排 god-file 化~~ | `src/proxy/executor.rs` | ✓ 已拆为 executor（489 行）+ retry（328 行）+ post（251 行） |
-| ~~integrity drift 编排住在 main~~ | `src/integrity.rs` `check_drift` | ✓ 迁入 `integrity` 模块，`main.rs` 只调用 |
-| ~~热路径无 tracing span~~ | `proxy::executor::invoke`、`mcp::server` | ✓ 已补 `#[instrument]` |
-| ~~观测写入静默吞错~~ | `proxy::post` / `integrity` | ✓ 已补 `warn!` |
-| ~~注释字符数算错~~ | `src/naming.rs` | ✓ 已改为 9/16/48 |
+| invoke 编排拆分 | `src/proxy/executor.rs` | executor 268 行；`invoke/mod.rs` 434 行、`admission.rs` 134 行；`retry.rs` 451 行；`post.rs` 335 行。`invoke_call` 按阶段拆成私有步骤 |
+| `too_many_arguments` 豁免 | `proxy/post.rs`、`proxy/retry.rs`、`main.rs` | 已无存量豁免。`record_event` 收 `EventDraft`，`execute_with_retry` 收 `UpstreamRequest`，main 的 refresh 收 `AppState` |
+| integrity drift 编排住在 main | `src/integrity.rs` | 迁入 `integrity`，`main.rs` 只调用 |
+| 热路径无 tracing span | `proxy::executor::invoke`、`mcp::server` | 已补 `#[instrument]` |
+| 观测写入静默吞错 | `proxy::post`、`integrity` | 已补 `warn!` |
+| 注释字符数算错 | `src/naming.rs` | 已改为 9/16/48 |
+| `catalog.rs` 超 500 行 | `src/catalog/` | 列表、解析、搜索在 `query.rs`（259 行）；构造与 override 留在 `mod.rs`（369 行） |
+| `http/routes.rs` 超 500 行 | `src/http/tools.rs` | 健康检查与 `/config` 留在 `routes.rs`（146 行）；`/v1/tools` 列表与 invoke 在 `tools.rs`（454 行） |
+| `admin/mod.rs` 超 500 行 | `src/admin/read.rs` | 路由留在 `mod.rs`；事件、用量、安全事件、统计与 key pool 在类型化的 `read.rs`。2026-10-08 合并时没有再引入 `observe.rs` |
+| `mcp/peer.rs` 超 500 行 | `src/mcp/peer/methods.rs` | trait、建连与 connector 在 `mod.rs`（400 行）；rmcp 协议方法在 `methods.rs`（180 行） |
+
+## 仍超预算
+
+### 文件（生产代码 > 500 行）
+
+| 文件 | 行数 | 拆分方向 |
+| --- | --- | --- |
+| `src/admin/crud.rs` | 520 | resource 写路径与 proxy key 写路径分开，`swap_config_and_catalog` 两边共用 |
+| `src/store/repository.rs` | 510 | 请求事件、安全事件、资源与 key、用量聚合四组 trait 各成文件，本模块再导出 |
+
+### 函数（生产代码 > 80 行）
+
+| 函数 | 位置 | 行数 | 拆分方向 |
+| --- | --- | --- | --- |
+| `execute_with_retry` | `src/proxy/retry.rs` | 207 | 单次尝试、是否重试、退避等待拆成私有函数，本函数只留循环 |
+| `handle_meta_tool_with_proxy` | `src/http/tools.rs` | 165 | 按 meta-tool 分支拆开，入口只做名字分发 |
+| `call_tools` | `src/mcp/call.rs` | 134 | 单次调用的解析、执行和打包拆出去，这里只留批次循环与预算 |
+| `meta_tool_descriptors` | `src/discovery.rs` | 119 | 每个 meta-tool 的描述符各自一个函数，这里只组装 |
+| `call_tool` | `src/mcp/server.rs` | 114 | 各 meta-tool 分支收成独立函数，`call_tool` 只做认证和分发 |
+| `shape_remote_mcp_result` | `src/proxy/post.rs` | 111 | 文本裁剪、续取游标、content defense 各成一步 |
+| `build_input_schema` | `src/openapi/mod.rs` | 86 | properties、required 与参数位置分开 |
+| `discover_endpoints` | `src/openapi/mod.rs` | 85 | 按 path item 的 HTTP 方法拆开 |

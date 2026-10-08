@@ -39,6 +39,9 @@ pub(crate) enum AuthTypeResponse {
     None,
     Bearer,
     Header,
+    /// serde 的 `snake_case` 会把 `OAuth` 变成 `o_auth`，这里显式改名。
+    #[serde(rename = "oauth")]
+    OAuth,
 }
 
 impl AuthTypeResponse {
@@ -47,6 +50,7 @@ impl AuthTypeResponse {
             UpstreamAuth::None => Self::None,
             UpstreamAuth::Bearer { .. } => Self::Bearer,
             UpstreamAuth::Header { .. } => Self::Header,
+            UpstreamAuth::OAuth { .. } => Self::OAuth,
         }
     }
 }

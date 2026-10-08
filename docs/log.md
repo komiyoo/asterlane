@@ -1,5 +1,123 @@
 # Documentation Update Log
 
+## 2026-10-08（合并 GitHub main 与 Origin main）
+
+- **历史**：把 GitHub `main`（`bce98e0`，上游 OAuth、prompts/resources、配置拆分与发布流程）合并进 Origin `main`（`5a6f99f`，独立控制台）。分叉点是 `f4c7bea`。
+- **入口**：控制台仍由 `web/` 提供。网关不恢复内嵌 `/admin/ui`，也不再把 `/` 转到旧页面。上游 OAuth 的 admin 端点、回调和 CLI 保留。独立控制台还没有授权 / 撤销授权按钮。
+- **契约**：MCP server 视图增加 `oauth` 段；`auth_type` 增加 `oauth`；健康状态 `auth_required` 用 snake_case。管理 schema 随 DTO 重新生成。
+- **文档**：[Admin Console](admin/admin-console.md)、[控制台与网关分离架构](architecture/console-separation.md)。
+
+## 2026-10-02（2026-10 实施计划完成并归档）
+
+- **结论**：[实施计划](plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md)的 S0–S8 与 D1–D2 全部合入本地 `main`，计划移入 `plans/Archive/2026/10-01/`。S8 随 S7 在同一分支完成。另插入一个只改测试的修复：`tests/proxy_events.rs` 的偶发失败，以及两个 OAuth 测试文件的日志捕获。
+- **文档**：[Roadmap](product/roadmap.md)、[Rate Limit Dimensions](architecture/rate-limit-dimensions.md) 与本日志中指向计划的链接改到归档路径。2026-09-26 归档计划里指向 `src/catalog.rs`、`src/config.rs` 的失效链接，改为指向拆分后的目录。
+- **待决**：多租户与 RBAC；[Rate Limit Dimensions](architecture/rate-limit-dimensions.md) 中 `UpstreamKey` 是否接线、`X-Forwarded-For` 信任方案；上游 OAuth 尚未对真实授权服务器端到端验证（Phase 8 准出条件）；`LICENSE` 为 Apache-2.0 全文，而 `Cargo.toml` 与 README 声明 MIT，首次发布前须统一。
+- **验证**：主仓 rustc 1.99.0 下 `just check` 通过（1024 passed，2 ignored）；`cargo deny check` 通过；文档相对链接全部可解析。
+
+## 2026-10-02（代理上游 resources 与 prompts）
+
+- **结论**：落地计划 S7。远程 MCP 上游的 prompts、resources 与 resource templates 与 tools 同一周期刷新（连接、周期 refresh、上游 `tools/list_changed`）。可见范围沿用工具 scope，没有新配置字段。stdio / 本地进程仍是非目标。
+- **命名与判权**：prompt 对外名是 `domain__provider__<prompt>`（`ToolName`），`prompts/get` 转发时剥前缀；不合法的名字跳过并告警，重名先到先得。resource 与 template 的判权名 `domain__provider__<上游 name>` 由 `naming::scope_match_name` 生成，上游 name 原样保留（可含 `.`、`/`），只用于判权，不出现在响应里。规则在 `policy::key_can_use_name`（deny 优先；正则、`allowed_servers`、`allowed_tool_names` 任一命中即允许；三个允许列表全空则拒绝），`key_can_use_tool` 委托给它，prompts 与 resources 共用这一个函数。开放模式全部可见。
+- **URI**：下游一律 `asterlane://{server_id}/{上游原 URI}`（直接拼接，不做百分号编码），template 变量原样保留。`resources/read` 按前缀还原，读回内容的 `uri` 也放进该命名空间。先查 resource 快照，没有再按 template 第一个 `{` 之前的字面前缀匹配（取最长）。命中但无权限不改用 template。格式错误、server 不存在、未命中、无权限都是同一条 resource not found（`-32002`），不访问上游、不消耗限额。协商到 `2026-07-28` 的客户端由 rmcp 按 SEP-2164 改写为 `-32602`。
+- **范围**：只拉取声明了对应 capability 的上游；没声明的不报错、不被请求。列表失败保留该类上一次快照，不把工具探测判失败；连接断开（无 peer）时快照清空。下游开启 resources capability。`prompts/list` 含网关自有 `asterlane_tool_workflow`。三份列表不受 `discovery_mode` 影响；`failure_mode: fail_closed` 只拦 `tools/list`，也不影响它们。
+- **限额**：`prompts/get` 与 `resources/read` 走新增的 `LimitRegistry::admit_rate`（key 与上游的速率、并发，复用 `admit` 的同一批检查），不计入 `max_calls` / `max_calls_per_day`，不写 `request_events`。这个缺口记在 [Roadmap](product/roadmap.md) 支柱五。被拒返回 `-32603`，并记 `warn`。请求路径各有一个 span（`get_prompt_for`、`read_resource_for`），字段与 `tools/call` 同名。workflow prompt 不经这道准入。
+- **不做**：resource 订阅、向下游推送 prompts/resources 的 list changed、REST 与 CLI 入口、prompts/resources 的 integrity drift、MRTR 多轮输入。
+- **代码**：`src/mcp/surface.rs`（快照与 URI）、`src/mcp/downstream.rs`（下游 handler）、`RemoteMcpPeer` 增加 5 个带默认实现的方法与 2 个 capability 判断。`src/mcp/peer.rs` 因新增方法超 500 行，先拆为 `peer/mod.rs` 与 `peer/methods.rs`（纯移动）。
+- **文档**：[Product Requirements](product/product-requirements.md)、[MCP Protocol](architecture/mcp-protocol.md#prompts-与-resources)、[Naming Convention](architecture/naming-convention.md#上游-prompts-与-resources-的名字)、[MCP Governance](runtime/mcp-governance-and-key-limits.md)、[API Discovery](runtime/api-discovery.md)、[Compatibility Policy](architecture/compatibility-policy.md)、[Roadmap](product/roadmap.md)、[Engineering Conventions](engineering/engineering-conventions.md)（span 范围）、根 `README.md`、`CHANGELOG.md`。
+- **验证**：本机 `just check` 通过，`cargo test` 共 1024 passed、2 ignored（S6 后基线 994 passed、2 ignored；新增 30 个：进程内集成 12、surface 7、`key_can_use_name` 5、registry 快照 4、`scope_match_name` 1、`admit_rate` 1）。旧测试无删减。无新依赖。
+
+## 2026-10-02（超预算文件与债务台账）
+
+- **结论**：落地计划 S8 的拆分与台账部分，不改行为。`catalog` 的列表、名字解析和搜索到 `src/catalog/query.rs`；`/v1/tools` 列表与 invoke 到 `src/http/tools.rs`；admin 的事件、用量、安全事件、统计和 key pool 到 `src/admin/observe.rs`；rmcp 的协议方法到 `src/mcp/peer/methods.rs`（S7 需要）。以上四处都是纯移动，只改了可见性与 `use`。
+- **仍超 500 行**：`src/admin/crud.rs`（520）、`src/store/repository.rs`（510）。没有明显内聚单元，文件头写了拆分方向。其余生产文件不超过 500 行（`src/main.rs` 496）。
+- **台账**：[Engineering Conventions · 已知债务台账](engineering/engineering-conventions.md#已知债务台账) 按 2026-10-02 的生产行数重写。executor 268 行，`invoke/mod.rs` 434，`admission.rs` 134，`retry.rs` 451，`post.rs` 335。`too_many_arguments` 没有存量豁免。仍超 80 行的 8 个函数登记了位置和拆分方向。
+- **引用**：README 项目结构、`error-model.md`、`cli-client-architecture.md` 与 `.codex/skills/asterlane/SKILL.md` 里指向旧文件路径的地方同步更新。
+- **验证**：拆分不增删测试。整棵树 `just check` 通过（1024 passed、2 ignored，含 S7）。
+
+## 2026-10-02（修复 proxy_events 偶发失败）
+
+- **结论**：只改了测试代码（`tests/proxy_events.rs`，以及下面「同类问题」里的两个 OAuth 用例文件与 `tests/support/log_capture.rs`），生产代码不动。`invoke` span 用例并行时偶发失败，是测试收集 span 的方式有两处竞争，不是 `ProxyExecutor::invoke` 的问题。基线上循环 24 次 `cargo test --test proxy_events` 失败 2 次（`span_leaves_resolution_fields_empty_for_unknown_tool`、`span_records_canonical_resource_and_request_id_for_remote_mcp`，均为「应恰好一个 invoke span: []」）。
+- **根因 1：tracing 回调点关注度缓存**。各用例在自己线程用 `set_default` 装收集器。tracing-core 0.1.36 在只有一个线程级 subscriber 存活时，首次触发某个回调点的线程只按自己线程的 subscriber 计算并缓存关注度（`callsite.rs` 的 `Rebuilder::JustOne`）。没装收集器的用例若先触发 `invoke` 的回调点，会把它缓存为 never，之后装了收集器的用例就收不到 span。用临时测试确定性复现：线程 A 装好 subscriber，线程 B 先触发回调点，A 再触发，A 收到 0 个 span；A 装好后立刻调用 `rebuild_interest_cache()` 没有用（缓存是之后才写入的），B 触发之后再调用才有用，而这一点在并行用例里无法控制。
+- **根因 2：span 在 `invoke` 返回之后才关闭**。sqlx-sqlite 0.9 给每条命令附带调用方当前 span 的克隆，连接线程回复之后才释放（`sqlx-sqlite/src/connection/worker.rs`）。落库是 `invoke` 的最后一步，所以 `invoke` span 可能在 `invoke` 返回之后、在另一个线程上才关闭；原先按「已关闭」取 span 的收集方式会偶发取空。这是 sqlx 的行为，对生产无害，只影响测试读取时机。
+- **修法**：全进程装一个全局收集器（`OnceLock` + `set_global_default`，在 `harness_tuned` 里先于任何 `invoke` 安装），回调点关注度对所有线程一致；span 按创建线程归属，各用例只取本线程的 span，第三个用例用「创建前已有数量」跳过它自己第一次 `invoke` 的 span。字段在创建与 `record` 时即写入，不再等 span 关闭。断言一条未删，没有重试与 `#[ignore]`。
+- **验证**：修复后循环 100 次 `cargo test --test proxy_events` 全部通过（19 passed），另用 4 个进程并发各跑 40 轮共 160 次无失败；本机 `just check` 通过。
+- **同类问题：OAuth 用例的日志捕获**。`tests/mcp_oauth_authorize.rs` 与 `tests/mcp_upstream_oauth.rs` 原先也用线程级 `set_default` 捕获日志，有根因 1 同样的竞争：「日志里不含 token / code / client secret」这类否定断言在什么都没捕获时会空过（安全断言失效），肯定断言（如日志应含 `authorization required`）则会偶发失败。基线上这两个文件各循环 30 次、再各以 16 个测试线程跑 40 次均未失败，没有观察到实际发生，但机制与 `proxy_events` 相同。已改为共用 `tests/support/log_capture.rs`：全进程一个全局 subscriber，回调点缓存与线程无关；`enabled` 里按当前线程是否在捕获、级别与是否叠加凭据日志上限（仍用生产的 `credential_log_cap`）放行，输出写进当前线程的缓冲区。每个否定断言改用 `LogCapture::text_containing(marker)` 取日志，同时断言日志非空且含该路径上必然出现的一条日志（例如 `upstream OAuth authorization completed`、`OAuth client-credentials token obtained`），失败信息不打印日志内容。反向验证：临时让捕获丢弃所有日志，11 个用到日志的用例全部失败（原先这些否定断言会通过）。验证：两个文件各循环 30 次、再各以 16 个测试线程跑 40 次全部通过；`just check` 通过。
+
+## 2026-10-01（上游 OAuth：管理员一次性授权）
+
+- **结论**：落地计划 S6。授权码类上游由管理员授权一次，之后网关自己保存并刷新 token；整个网关共用这一个上游身份，下游仍只用 gateway key，Asterlane 不做授权服务器、不接人类 IdP。S5 的 `auth_required` 现在有了出口：发起授权 → 浏览器授权 → 回调换 token、加密保存并重连 → 可调用；撤销后回到 `auth_required`。流程与限制见 [MCP Protocol – 授权码流程](architecture/mcp-protocol.md#授权码流程管理员一次性授权)。
+- **端点**：`POST /admin/mcp-servers/{id}/oauth/authorize`（admin 认证；仅 `authorization_code`；元数据发现，未配 `client_id` 时动态注册，有 `client_secret_ref` 按机密客户端；返回 `{authorization_url, expires_in: 600}`，不可缓存）、顶层 `GET /oauth/callback`（不经 admin 认证，只靠 state；配置了 admin key 才挂载）、`DELETE /admin/mcp-servers/{id}/oauth`（清除凭据、丢弃未完成授权、重连）。redirect URI 固定为 `{oauth.redirect_base_url}/oauth/callback`，要在授权服务器登记。没有新增错误码、迁移与依赖。见 [Admin Console – C7](admin/admin-console.md)、[Configuration Schema](runtime/config-schema.md#oauth)。
+- **state**：`src/mcp/oauth/pending.rs`，只放内存，10 分钟过期，取出即移除（重放与过期同样被拒，且都不触发 token 请求），登记与取出时清理过期记录。不共享 rmcp 的 `InMemoryStateStore`（它不带过期）：每次授权持有自己的 `AuthorizationManager`，随表里的记录一起创建与释放。撤销与删除 server 会丢弃该 server 未完成的授权，旧链接不能再把凭据写回去。
+- **回调页面**：成功只说「授权完成，可以关闭页面」；失败（state 未知、过期、重放，`error=`，缺 code，换 token 失败）固定文案并带 `request_id`（400，换 token 失败 502）。页面不显示 token，不反射 query 参数或授权服务器返回的内容（动态内容只有经转义的 `request_id` 与 server id），授权服务器的错误细节只进 tracing。带 `Cache-Control: no-store` 与 CSP。
+- **admin 视图**：列表与详情增 `oauth {grant, status, expires_at, client_id, client_secret_ref, scopes}`。`status` 为 `authorized`、`authorization_required`、`automatic`（client_credentials）；`expires_at` 是 access token 到期时间，取不到则省略。后三项供控制台编辑表单回显（`client_secret_ref` 只是引用）；视图不含 client secret、token、code。S5 的断言「视图不出现 client id、secret ref、scope」随之改为「不出现 secret 值、token、code」。见 [MCP 治理 §6](runtime/mcp-governance-and-key-limits.md)。
+- **CLI 与控制台**：`asterlane admin mcp-servers authorize <id>`（stdout 输出授权 URL 与有效期，stderr 提示在浏览器里完成）与 `deauthorize <id>`。控制台：需要授权时「授权」（点击时同步先开空白标签页避免弹窗拦截并断开 `opener`，被拦截时给出链接，回到页面自动刷新），已授权时「撤销授权」；OAuth server 的「编辑」不再禁用，表单支持 `grant`、`client_id`、`client_secret_ref`（只回显引用）、`scopes`，原样保存时认证配置与已存凭据不变。
+- **日志安全**：（1）核实：rmcp 3.1.2 的 `rmcp::transport::auth` 在 `debug` 级打印 `start exchange code for token: "<code>"`（授权 code 明文）与 `exchange token result: {:?}` / `client credentials token result: {:?}`（access / refresh token 在 `Debug` 里是 `[redacted]`，非标准字段如 `id_token` 按原值输出）；`info` 及以上不含这些。处理：`serve` 的 tracing 初始化叠加固定的全局过滤层 `observability::log_filter::credential_log_cap`，该 target（及 `rmcp::transport::common::auth`）只放行 `info` 及以上，与 `RUST_LOG` 叠加，`RUST_LOG=trace` 也抬不高，`RUST_LOG=warn` 照常生效。（2）发现：`TraceLayer` 默认请求 span 的 `uri` 含 query，回调的授权 code 与 state 会在 debug 日志里随每条事件出现（用「去掉修复后集成测试失败」确认）；回调请求的 span 只记路径。（3）网关自己的日志不记录 code、state、授权 URL 与 token；授权服务器返回的错误文本写入前去掉控制字符、抹掉 code 与 state、限制长度。见 [Observability – 凭据日志上限](architecture/observability.md#凭据日志上限)。
+- **其他**：新增 `McpServerRegistry::reconnect` 与 `AppState::reconnect_mcp_server`（授权完成与撤销共用；`probe` 会复用已有连接，不能用）：丢弃旧连接，同步 catalog 与 integrity 基线（与 admin 新增、修改 server 一致，否则授权后首轮 refresh 会把该 server 的全部工具当作「新增」报 drift，并按 `integrity_policy` 隔离），通知下游工具列表变化。`McpServerRegistry::reconnect` 失败时 entry 无连接、无工具快照。
+- **验证**：本机 `just check` 通过，`cargo test` 共 994 passed、2 ignored（S5 后基线 956 passed、2 ignored，新增 38 个，旧测试无删减）；`cargo deny check` 通过。`tests/mcp_oauth_authorize.rs`（16 个，进程内模拟授权服务器：元数据、DCR、`authorization_code` 与 `refresh_token` 授权、PKCE 校验）覆盖：完整流程、动态注册、预注册机密客户端、state 未知 / 缺失 / 过期 / 重放（均不触发 token 请求）、`error=` 与 XSS 输入不反射、换 token 失败的错误页、同一 SQLite 文件与密钥重启无需重新授权（换密钥后需要）、授权后轮换的 refresh token 写回、撤销（含未完成授权）、无数据库、编辑保存不变、日志（`trace` 级）与输出不含 token / code / client secret / state，以及编译出的二进制跑 CLI `authorize` / `deauthorize` 与错误退出码。单测另覆盖待完成授权表、凭据日志上限、回调页转义、CLI 参数解析。控制台没有真实浏览器可用，用最小 DOM 桩执行 `mcp.js` 走查了按钮渲染、授权（含弹窗被拦截与后端报错）、撤销、OAuth 表单回显与保存的请求体，这不是真实浏览器渲染的验证。`--features otlp` 另跑 `cargo check --features otlp --bin asterlane --offline`，可编译。
+- **发现（未处理）**：（1）`tests/proxy_events.rs` 的 span 用例（`span_leaves_resolution_fields_empty_for_unknown_tool`、`span_records_canonical_resource_and_request_id_for_http` 等）在 S5 合入后的基线 `f800c9b` 上就不稳定（16 次独立运行失败 4 次，`just check` 因此偶发失败）：测试在各自线程用 `set_default` 装 span 收集器，疑似 tracing 回调点关注度缓存在并行测试间的竞争；与本切片无关，需另行修复。（2）`src/admin/mod.rs` 生产代码 517 行（S0 已列超预算，本次为注册路由增加 2 行），`src/admin/crud.rs` 518 行未改，留给 S8。（3）`main.rs` 把凭据日志上限层接入 tracing 初始化的一行没有自动化测试（初始化装全局 subscriber，进程内只能装一次）。（4）改 `client_id` 或 `client_secret_ref` 不会作废已存凭据，要换客户端须先撤销授权。
+
+## 2026-10-01（上游 OAuth：client-credentials 与凭据存储）
+
+- **结论**：落地计划 S5。网关能作为 OAuth 客户端接入上游 MCP server：client-credentials 全自动；授权码类上游从加密存储加载凭据，没有凭据、解密失败或刷新被拒时显示新健康状态 `auth_required`。管理员发起授权码授权的入口（authorize / callback / 撤销、DCR）属于 S6，本次未做。token 永不离开网关，下游仍只用 gateway key。
+- **配置**：`mcp_servers[].auth` 增 `type: oauth`（`grant`、`client_id`、`client_secret_ref`、`scopes`），顶层增可选 `oauth` 节（`redirect_base_url`、`token_encryption_key_ref`）。全部是增量字段；`type: oauth` 只允许用在 `mcp_servers`（`api_resources` 与 admin 写入均拒绝），必填项、`secret://` 引用、https（localhost 除外）、`authorization_code` 对顶层节的依赖都在启动时 fail fast。见 [Configuration Schema](runtime/config-schema.md#oauth)、[Compatibility Policy](architecture/compatibility-policy.md)。
+- **加密存储**：`ring` 的 ChaCha20-Poly1305，每次随机 nonce，AAD = server id，存储格式 `base64(nonce ‖ 密文)`；密钥来自 `oauth.token_encryption_key_ref`（base64 编码的 32 字节，启动时校验）。新表 `upstream_oauth_credentials`；加解密在 `secrets`，SQLite 访问在 `store`，rmcp `CredentialStore` 适配在 `mcp/oauth`。client-credentials 的 token 只放内存；无数据库时授权码凭据也只在内存。见 [Key Credentials & Persistence](runtime/key-credentials-and-persistence.md#上游-oauth-凭据)。
+- **client-credentials 的过期处理**：rmcp 的 `AuthClient` 只会用 refresh token 刷新，而且对剩余不足 30 秒的 token 直接不发送，不能直接用。网关自己包住 `reqwest::Client` 实现 `StreamableHttpClient`：每个请求取当前有效 token，距过期不足 `min(30s, 生命周期/2)` 时先换新，被上游 401 拒绝时换新并重试一次，并发只换取一次。`resource` 取受保护资源元数据的值（rmcp 3.1.2 不公开它，网关同序再读一次同源文档），发现不到用 server URL。见 [MCP Protocol – 上游认证](architecture/mcp-protocol.md#上游认证)。
+- **错误与状态**：新错误码 `mcp.upstream_auth_required`（HTTP 502 / MCP tool result `isError`），新健康状态 `auth_required`（FailClosed 与 `unreachable` 同样拒绝 `tools/list`）。rmcp 的 `AuthError` 与授权服务器返回的内容只进 tracing，用户可见错误只说哪一步失败；集成测试断言日志、错误与 admin/REST 响应里没有 token 与 client secret。见 [Error Model](architecture/error-model.md)、[MCP 治理](runtime/mcp-governance-and-key-limits.md)。
+- **依赖**：rmcp 启用 `auth`；`ring`、`base64`、`async-trait`（实现 `CredentialStore`）、`oauth2`（`TokenResponse` trait）、`futures` 与 `sse-stream`（`StreamableHttpClient` 签名类型）提升为直接依赖，均已在依赖树中，锁文件只新增 `oauth2` 5.0.0 及其传递依赖（`rand` 0.8、`thiserror` 1，`multiple-versions` 仅告警）。见 [Crate Selection](architecture/crate-selection.md)；[Engineering Conventions](engineering/engineering-conventions.md) 登记 `config::oauth` 用 `reqwest::Url` 解析 URL 的豁免。
+- **界面与 admin**：`GET /admin/mcp-servers` 增 `oauth: {grant}`（OAuth server），auth 视图不含 client id、secret ref 与 token；控制台状态灯支持 `auth_required`，OAuth server 的「编辑」按钮禁用（表单不回显 client id / secret ref，保存会丢失配置）；删除 server 时清除其已存凭据。
+- **验证**：本机 `just check` 通过，`cargo test` 共 956 passed、2 ignored（S4 后基线 891 passed、2 ignored，旧测试无删减）；`cargo deny check` 通过。进程内模拟上游（受保护资源元数据 + 授权服务器元数据 + token 端点 + 校验 Bearer 的 MCP 端点，`tests/mcp_upstream_oauth.rs`）覆盖 client-credentials 握手与调用、`resource`、短 `expires_in` 过期与被拒后的重新换取、授权码凭据加载与 refresh token 轮换写回、密钥错误与刷新被拒降为 `auth_required`、FailClosed 的 503 与 `mcp.upstream_auth_required`。
+- **已知限制 / 发现**：（1）从未连接成功的授权码 server 没有工具快照，其工具名不在 catalog，调用得到 `catalog.unknown_tool`；`mcp.upstream_auth_required` 只出现在曾经连接过的 server 上。（2）刷新成功但写库失败时本次请求报错并记 `error`，授权服务器若已轮换 refresh token 则需要重新授权。（3）`src/admin/crud.rs` 生产代码 518 行仍超预算（S0 已列），本次没有让它继续增长，留给 S8。
+
+## 2026-10-01（拆分 invoke_call 与 serve）
+
+- **结论**：纯重构，行为不变。`ProxyExecutor::invoke_call`（约 270 行）按管线阶段拆为私有步骤，管线移到 `src/proxy/invoke/`：`mod.rs`（调用上下文 `ResolvedCall`、运行状态 `CallRun`、解析与授权、remote MCP 与 HTTP API 两条分支的上游调用与结果收尾，生产 434 行）、`admission.rs`（准入、配额守卫 `Admission`、被拒事件，134 行）。最长步骤 36 行，`invoke_call` 本体 15 行。`executor.rs` 只留类型、`with_*` 注入与 `invoke`，生产代码 624 → 269 行。`serve`（254 行）拆为 `load_serve_config`、`assemble_secrets`、`assemble_state`、`attach_auth`、`attach_runtime_services`、`spawn_background_tasks`、`run_server`，`serve` 本体 21 行，`main.rs` 生产代码 577 → 471 行，不再需要在文件头登记拆分方向。
+- **编排迁出 main**：后台 tick 与启动恢复由所属模块提供公开函数，main 只保留循环骨架：`AppState::refresh_mcp_tools`（`src/http/lifecycle.rs`，MCP refresh、catalog 同步、drift 检测、通知下游）、`AppState::load_description_overrides`（同文件）、`integrity::pin_initial_baseline`、`limits::seed_from_store`（`src/limits/seed.rs`）。逻辑与迁移前一致，失败仍只 `warn!`，不返回错误，因此没有新的错误类型，`anyhow` 仍只在 `main.rs`。`limits` 因此依赖 `store` 的聚合 trait，`store` 不依赖 `limits`，无环。refresh 任务的间隔、首次 tick 跳过与 `refresh_interval_secs = 0` 关闭周期 tick 的语义不变。
+- **`too_many_arguments` 清零**：`record_event`（11 个参数）收 `EventDraft`；`execute_with_retry`（8 个参数）收 `UpstreamRequest`（手写 `Debug`，不输出 `secret` 与 `args`），四元组返回值改为 `UpstreamResponse`；main 的 `spawn_mcp_refresh_task` 与 `apply_mcp_registry_refresh`（各 10 个参数）改为持有或调用 `AppState`。`rg too_many_arguments src` 无结果。
+- **文档**：[Engineering Conventions](engineering/engineering-conventions.md) 债务台账中 executor 行数改为新值，并登记 `too_many_arguments` 已清零，`代码组织与硬预算` 一节同步；`src/proxy/mod.rs` 模块说明列出 `invoke`、`retry`、`post`。台账整体重写仍在 S8。
+- **验证**：动代码前补特征测试并确认在旧代码上通过：`tests/proxy_events.rs`（19 个）覆盖 HTTP 与 remote MCP 两条分支的成功、重试、重试耗尽、不可重试错误、超时、连接失败、key 池、`input_required`、被拒准入、解析与 scope 拒绝、凭据解析失败，逐项断言落库的 `RequestEvent` 字段、配额提交与退还、`InvokeResult.request_id` 与事件一致，以及 `invoke` span 的 `wire_name`、`proxy_key_id`、`canonical_name`、`resource_id`、`request_id`。试删 HTTP 成功路径的配额提交后这些测试报错，确认能拦住该回归。迁出 main 的步骤原先内联在二进制里，集成测试调用不到，因此在迁出后的公开函数上补 `tests/background_tasks.rs`（9 个）：refresh tick 的 catalog 同步、drift 事件与隔离、基线 rebase、无 registry 时空操作，基线 pin，描述 override 加载，计数回填与 store 失败路径。本机 `just check` 通过，`cargo test` 共 891 passed、2 ignored（S3 后基线 863 passed、2 ignored，新增 28 个均为上述测试，无删除或弱化的断言）。
+- **发现（未处理）**：`proxy/retry.rs` 的 `execute_with_retry` 仍有 207 行、嵌套 5 层，超过函数预算，留给 S8 登记与拆分；`tests/integrity_drift.rs` 头注释仍说 `check_integrity_drift` 在 `main.rs`，且测试内复制了 `integrity::check_drift` 的逻辑而没有调用它；`admin/mcp.rs` 的 `sync_catalog_from_registry` 与 `rebase_integrity_baseline` 和 refresh tick 内同类步骤重复。`--features otlp` 不在 `just check` 范围内，已另跑 `cargo check --features otlp --bin asterlane --offline`，可编译（该特性下只改动了 `init_tracing` 里一处 `warn!` 的引用路径）。
+
+## 2026-10-01（拆分 config.rs）
+
+- **结论**：`src/config.rs` 生产代码 768 行超过 500 行预算，晋升为 `src/config/` 目录并按内聚单元纯移动拆分，不改 serde 属性、字段名、缺省值与校验逻辑。文件与生产行数：`mod.rs`（`GatewayConfig` 本体、`GatewayDefaults`、按 id 查找方法，98）、`upstream.rs`（`ApiResource`、`McpServerConfig`、key 池、OpenAPI discovery、`UpstreamLimits`、`HealthCheckConfig`、`HttpMethod`、`SecurityConfig`，242）、`auth.rs`（`UpstreamAuth`，40）、`proxy_key.rs`（`ProxyKey`、`KeyLimits`，71）、`runtime.rs`（`observability`、`http`、`mcp` 三节，132）、`secrets.rs`（91）、`admin.rs`（21）、`semantic_search.rs`（25）、`post_load.rs`（`validate_http`、`validate_key_credentials`、`expand_builtin_mcp`，125）。`auth.rs` 与 `mod.rs` 是 S5 加 `UpstreamAuth` 新变体和顶层 `oauth` 节的落点。
+- **路径**：`crate::config::X` 全部不变：子模块私有，类型由 `mod.rs` `pub use`，没有新增公开路径。原底部 26 个测试按被测类型分入各子模块，共用的 `parse` 夹具放进 `#[cfg(test)] mod test_support`。
+- **函数预算**：实施计划写的 `expand_builtin_mcp` 约 96 行、`GatewayConfig` 的 `Default` 实现约 83 行与代码不符：前者实测 48 行，后者是 `#[derive(Default)]`，没有手写实现（各节类型自带的 `Default` 各 8 到 9 行），两处原本就在 80 行预算内，未做额外改写。`validate_http` 的文档注释原先混进了 `validate_key_credentials` 的说明，搬移时各归各位，仅此一处注释调整。
+- **文档**：根 `README.md` 项目结构、`.codex/skills/asterlane/SKILL.md`、[Rate Limit Dimensions](architecture/rate-limit-dimensions.md)、[Key Credentials & Persistence](runtime/key-credentials-and-persistence.md)、[MCP Governance](runtime/mcp-governance-and-key-limits.md) 中的 `src/config.rs` 改为新位置；YAML 契约（[Configuration Schema](runtime/config-schema.md)）不变。
+- **验证**：本机 `just check` 通过，`cargo test` 共 863 passed、2 ignored，与拆分前一致；`cargo test --lib` 758 个测试，拆分前后测试名清单去掉 `config::<子模块>::tests` 路径差异后逐项一致。拆分前后对 `examples/*.yaml` 三个文件做解析、`validate_*`、`expand_builtin_mcp` 后的 `Debug`、JSON 与 YAML 输出逐字节比对，以及 `GatewayConfig::default()` 与空文档解析结果比对，全部一致；`list-tools` 输出一致（`gateway.yaml` 成功，`gateway-mcp.yaml` 与 `gateway-rollinggo.yaml` 无静态工具，拆分前后同样报 `no tools visible`）。
+
+## 2026-10-01（删除请求变换）
+
+- **结论**：按 2026-10-01 产品决策删除请求变换。`src/transform/` 模块（546 行，含 15 个单测）整体移除，`src/lib.rs` 不再导出；该模块只有自己的单测调用，`proxy` 不引用，`GatewayConfig` 也没有 transforms 配置节。同时删除 `ErrorCode::TransformDangerousHeader` / `TransformInvalidPointer`（`transform.dangerous_header`、`transform.invalid_pointer`）、`transform` 分类，以及 `src/error.rs`、`src/cli/client.rs` 中退出码 8 与 HTTP 500 的映射。这两个错误码从未在生产路径发出，没有消费者，不走弃用周期。
+- **影响面**：用户可见行为不变（该能力从未可用）。CLI 退出码 8 退役、不复用，[Error Model](architecture/error-model.md) 的退出码表已注明，`transform.*` 错误码行与 HTTP 映射行已删除。现行文档撤回请求变换承诺：[Product Requirements](product/product-requirements.md)（借鉴清单、JSON body 与 header 变量替换条目、HTTP API Wrapper 中的说法、`Request Transformation` 节）、[Architecture](architecture/architecture.md)（模块表、编排说明、数据流、`Request Transformation` 节）、[Engineering Conventions](engineering/engineering-conventions.md)（分层表与 `reqwest::header` 豁免）、[Development Workflow](engineering/development-workflow.md)（借鉴清单与模块表）、[Response Rendering](runtime/response-rendering.md)（不再与已删模块对照）、根 `README.md`（能力概览与项目结构）。[Roadmap](product/roadmap.md) 支柱四、Phase 7、技术债小节与产品决策表改记为已交付。`CHANGELOG.md` 的 `[Unreleased]` 新增 `Removed` 条目。
+- **验证**：本机 `just check` 通过：`cargo test` 共 863 passed、2 ignored（基线 878 passed、2 ignored），减少的 15 个正是被删模块的单测，CLI 退出码断言只是 `exit_codes_follow_error_model_categories` 中删掉一行，不改变测试数。`rg -n -i "transform" src` 只剩 `src/admin/ui/styles.css` 的 CSS 与 `src/error.rs` 中一条退出码 8 退役注释。`rg -n -i "transform|请求变换|变换" docs README.md`（不含 `docs/log.md`、`docs/plans/`）剩余命中均为本次删除的记录、退役说明或 2026-08-19 的历史记述，没有现行承诺。
+
+## 2026-10-01（发布流程）
+
+- **新增**：根 `CHANGELOG.md`（Keep a Changelog 1.1.0，中文条目），`[Unreleased]` 先记入 rustls 升级；[Release Process](engineering/release-process.md)，覆盖版本策略（每次发布默认 patch +0.0.1）、CHANGELOG 约定、发布步骤、产物与首次发布注意事项；`.github/workflows/release.yml`，push `v*.*.*` tag 触发：校验 tag 与 `Cargo.toml`、`Cargo.lock`、CHANGELOG → 原生 runner 构建三个目标的二进制 → amd64 / arm64 镜像按摘要推送并合成 manifest（`ghcr.io/komiyoo/asterlane`，`X.Y.Z` 与 `latest`）→ 创建 GitHub Release。只用 `GITHUB_TOKEN`。
+- **CI**：`ci.yml` 增 `build` job（`cargo build --release --locked`，Docker 构建不推送并运行 `--help` 冒烟）；`Dockerfile` 的 `cargo build` 加 `--locked`，与发布构建一致。
+- **文档**：[Compatibility Policy](architecture/compatibility-policy.md) 的语义化版本节写入同一策略，并把两处「下一个 minor 移除」改为「至少经过一次发布后再移除」，避免与 patch 默认节奏矛盾；[Roadmap](product/roadmap.md) Phase 9 与生产就绪表记发布工程已交付，`cargo-semver-checks` 本轮不做（兼容策略规定发布到 crates.io 时才启用）；根 `README.md` 的 CI 表改为六个 job 并新增「发布」节；[Development Workflow](engineering/development-workflow.md) 的 CI job 描述同步；[工程与文档](engineering/README.md) 索引加一行。
+- **验证**：workflow YAML 可解析；`actionlint` 1.7.12（含 shellcheck 0.11.0）0 错误；校验、抽取说明与打包脚本在本机用样例文件模拟通过；`python3 scripts/check_okf_docs.py`、`git diff --check` 通过。未运行 GitHub Actions 和 `cargo build --locked`，流水线首次真实运行待维护者推 tag 验证。
+
+## 2026-10-01（限流维度设计）
+
+- **结论**：新增 [Rate Limit Dimensions](architecture/rate-limit-dimensions.md)，只出设计、不改代码。生产在用 `Endpoint`（上游）与 `Principal`（gateway key）两个维度；`RateLimits`、`UpstreamKey`、`GatewayPrincipal`、`Ip` 自 2026-07-04 原型后一直未接线。逐项给出接线、保留不接、删除三个选项与推荐：`UpstreamKey` 推荐接线（补上 POST 类上游收到 429 时 key 不冷却的缺口，前提是产品确认有按 key 计量的上游），`RateLimits` 随 `UpstreamKey` 走，`GatewayPrincipal` 与 `Ip` 推荐保留不接并写明触发条件与复审时点。`X-Forwarded-For` 信任边界列为待决项，推荐默认不信任、需要时用可信代理 CIDR 列表并取从右向左第一个非可信地址，不采用固定跳数与无条件信任；是否接线与采用何种方案由产品评审决定。多副本共享计数不在范围内（存储维持 SQLite）。
+- **影响面**：仅文档。[Architecture](architecture/architecture.md) 的 Rate Limit And Queue 一节更正：维度列表区分在用与未接线，队列描述改为实际的信号量加超时（排队超时为 503，不存在优先级队列）。[Roadmap](product/roadmap.md) Phase 10 的 IP 维度条目链接到新文档；[Architecture 索引](architecture/README.md)加一行。[Product Requirements](product/product-requirements.md) 中对 upstream key 与 client IP 限流的承诺未改，待评审结论落地时与 S2 的改动一并处理。
+- **发现（未处理）**：非 GET 请求收到上游 429 时 `execute_with_retry` 不冷却该 key；`proxy/post.rs` 的 `record_event` 把 `rate_limited` 固定写成 `false`；指标 `asterlane_rate_limit_hits_total` 的 `dimension` 标签固定为 `request`；`RequestEvent.queued_ms` 恒为 0。均记入新文档，不在本次改动内。
+- **验证**：`python3 scripts/check_okf_docs.py` 与 `git diff --check` 通过；未运行 cargo 与 `just check`（本切片不改代码，且本机资源由编码切片占用）。
+
+## 2026-10-01（拆分 mcp/registry.rs）
+
+- **结论**：`src/mcp/registry.rs` 生产代码 639 行超过 500 行预算，按内聚单元纯移动拆为四个文件，不改行为：`registry.rs`（`McpServerRegistry`、`McpServerEntry`、`RefreshResult`，生产 259 行）、`peer.rs`（`RemoteMcpPeer`、`RmcpRemoteMcpPeer`、`PeerConnector`，262 行）、`transport.rs`（`transport_config`、`resolve_secret`，50 行；上游 OAuth 接线的落点）、`convert.rs`（`wrap_tools` 与调用结果转换，108 行）。
+- **路径**：`mcp::{McpServerRegistry, RefreshResult, RemoteMcpPeer, RmcpRemoteMcpPeer}` 不变。`McpFuture` 由 `mcp::registry` 移到 `mcp::peer`（crate 内测试替身已改引用）。`convert`、`transport` 为 `mcp` 私有模块，其 `pub(super)` 函数只对 `mcp` 可见；`convert_call_result`、`convert_call_response`、`arguments_to_object` 因被 `peer` 调用，由模块私有改为 `pub(super)`。
+- **文档**：[Roadmap](product/roadmap.md) 与 [Naming Convention](architecture/naming-convention.md) 中指向 `mcp::registry` 的 `transport_config`、`wrap_tools` 引用改到新位置；`src/mcp/mod.rs` 模块说明列出新模块。
+- **验证**：本机 `just check` 通过（878 passed，2 ignored，与拆分前一致）；`cargo test --lib` 773 个测试，拆分前后测试名清单逐项一致。
+
+## 2026-10-01（产品决策与实施计划）
+
+- **决策**：删除请求变换；成本核算暂缓；存储维持 SQLite，Postgres 与共享状态本轮不做；代理上游 resources 与 prompts，key 范围沿用工具 scope，stdio 定为非目标；上游 MCP OAuth 只做网关持有（client-credentials + 管理员一次性授权码）；限流维度先出设计；每次发布默认 patch +0.0.1。多租户与 RBAC 仍未定。
+- **依赖**：`cargo update -p rustls`（0.23.43 → 0.23.45），修复 RUSTSEC-2026-0285，`cargo deny check` 恢复通过。确认 rmcp 3.1.2 的 `auth` feature 可用及其 DCR / refresh 边界。
+- **文档**：[Roadmap](product/roadmap.md) 的「待产品决策项」改为「产品决策」并就地更新各阶段条目；[Crate Selection](architecture/crate-selection.md) 增 rmcp `auth` 行；新增[实施计划](plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md)（已归档）。
+- **验证**：本机 rustc 1.99.0 下 `just check` 通过（878 passed，2 ignored）；`cargo deny check` 通过。
 ## 2026-09-27（debug 构建磁盘）
 
 - **构建**：`[profile.dev.package."*"]` 的 `debug` 设为 `false`。本 crate 仍保留完整调试信息；依赖不带 DWARF，避免 macOS 上 `target/debug/deps` 的 `.o` 膨胀。依赖栈里的 panic 可能没有文件行号。

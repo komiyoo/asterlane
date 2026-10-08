@@ -1,269 +1,30 @@
-use std::collections::{HashMap, HashSet};
-use std::future::Future;
-use std::pin::Pin;
-use std::str::FromStr;
+//! 第三方 MCP server 注册表：上游 peer、已发现的 wrapped tools 与健康簿记。
+//!
+//! 只做注册表状态与读写锁纪律；上游连接在 `peer`，transport 配置在
+//! `transport`，rmcp 结果转换在 `convert`。
+
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
+use rmcp::model::{Prompt, Resource, ResourceTemplate};
+
 use crate::catalog::WrappedTool;
-use crate::config::{McpServerConfig, UpstreamAuth};
+use crate::config::{McpServerConfig, ProxyKey};
+use crate::mcp::convert::wrap_tools;
+use crate::mcp::dedup::{dedup_prompts, push_deduped_entry};
 use crate::mcp::error::McpError;
-use crate::mcp::health::{ServerHealth, elapsed_ms, establish_entry, mark_ok, push_deduped_entry};
-use crate::mcp::model::{
-    ToolCallExtras, ToolCallResult, ToolContent, ToolDescriptor, UpstreamCallOutcome,
+use crate::mcp::health::{ServerHealth, elapsed_ms, establish_entry, mark_ok};
+use crate::mcp::model::{ToolCallExtras, ToolCallResult, ToolDescriptor, UpstreamCallOutcome};
+use crate::mcp::oauth::UpstreamOAuth;
+use crate::mcp::peer::{PeerConnector, RemoteMcpPeer, RmcpConnector};
+use crate::mcp::surface::{
+    self, SurfaceSnapshot, parse_gateway_uri, scope_name_for_read, to_prompt, to_resource,
+    to_template,
 };
-use crate::mcp::upstream_notify::{UpstreamListChanged, UpstreamNotifyHandler, spawn_listen_task};
-use crate::naming::ToolName;
-use crate::secrets::{SecretRef, SecretStore};
-use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ProtocolVersion, Tool,
-};
-use rmcp::transport::{
-    StreamableHttpClientTransport, streamable_http_client::StreamableHttpClientTransportConfig,
-};
-use rmcp::{ClientLifecycleMode, ClientServiceExt, RoleClient, ServiceExt};
-use secrecy::ExposeSecret;
-use tracing::warn;
-
-pub type McpFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-pub trait RemoteMcpPeer: std::fmt::Debug + Send + Sync {
-    fn list_tools(&self) -> McpFuture<'_, Result<Vec<Tool>, McpError>>;
-
-    fn call_tool(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-    ) -> McpFuture<'_, Result<CallToolResult, McpError>>;
-
-    /// 带 MRTR 字段的调用。默认包装 [`Self::call_tool`] 为完成结果。
-    fn call_tool_ex(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-        extras: ToolCallExtras,
-    ) -> McpFuture<'_, Result<UpstreamCallOutcome, McpError>> {
-        let _ = extras;
-        let fut = self.call_tool(name, arguments);
-        Box::pin(async move {
-            Ok(UpstreamCallOutcome::Complete(convert_call_result(
-                fut.await?,
-            )))
-        })
-    }
-}
-
-pub struct RmcpRemoteMcpPeer {
-    client: rmcp::service::RunningService<RoleClient, UpstreamNotifyHandler>,
-    listen: Option<tokio::task::AbortHandle>,
-}
-
-impl std::fmt::Debug for RmcpRemoteMcpPeer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RmcpRemoteMcpPeer").finish_non_exhaustive()
-    }
-}
-
-impl Drop for RmcpRemoteMcpPeer {
-    fn drop(&mut self) {
-        if let Some(handle) = self.listen.take() {
-            handle.abort();
-        }
-    }
-}
-
-impl RmcpRemoteMcpPeer {
-    pub async fn connect<S: SecretStore>(
-        config: &McpServerConfig,
-        secrets: &S,
-    ) -> Result<Self, McpError> {
-        let transport_config = transport_config(config, secrets).await?;
-        Self::connect_transport(transport_config, &config.id, UpstreamListChanged::noop()).await
-    }
-
-    /// 从已解析好的 transport 配置完成握手（auth 已在上一步注入 header）。
-    ///
-    /// 先走 `2026-07-28` Auto（`server/discover`，失败且为 `-32601` 时 rmcp
-    /// 内部回退 initialize）。部分上游（例如 Spring WebMvc 无 discover handler）
-    /// 对未知方法返回 HTTP 500 而非 JSON-RPC `-32601`，此时再显式 initialize 一次。
-    /// 握手成功后若 `notify` 有效，再 best-effort `subscriptions/listen`。
-    pub(super) async fn connect_transport(
-        config: StreamableHttpClientTransportConfig,
-        server_id: &str,
-        notify: UpstreamListChanged,
-    ) -> Result<Self, McpError> {
-        let handler = UpstreamNotifyHandler::new(server_id, notify.clone());
-        match serve_upstream(config.clone(), true, handler.clone()).await {
-            Ok(client) => Ok(Self::with_listen(client, server_id, notify)),
-            Err(auto_error) => {
-                warn!(
-                    error = %auto_error,
-                    "upstream MCP discover handshake failed; retrying initialize"
-                );
-                let client = serve_upstream(config, false, handler).await.map_err(|legacy_error| {
-                    McpError::upstream_failure(format!(
-                        "failed to connect remote MCP server: {legacy_error} (discover failed: {auto_error})"
-                    ))
-                })?;
-                Ok(Self::with_listen(client, server_id, notify))
-            }
-        }
-    }
-
-    fn with_listen(
-        client: rmcp::service::RunningService<RoleClient, UpstreamNotifyHandler>,
-        server_id: &str,
-        notify: UpstreamListChanged,
-    ) -> Self {
-        let listen = if notify.is_active() {
-            Some(spawn_listen_task(
-                client.peer().clone(),
-                server_id.to_string(),
-                notify,
-            ))
-        } else {
-            None
-        };
-        Self { client, listen }
-    }
-}
-
-async fn serve_upstream(
-    config: StreamableHttpClientTransportConfig,
-    modern: bool,
-    handler: UpstreamNotifyHandler,
-) -> Result<rmcp::service::RunningService<RoleClient, UpstreamNotifyHandler>, String> {
-    let transport = StreamableHttpClientTransport::from_config(config);
-    if modern {
-        handler
-            .serve_with_lifecycle(
-                transport,
-                ClientLifecycleMode::Auto {
-                    preferred_versions: vec![
-                        ProtocolVersion::V_2026_07_28,
-                        ProtocolVersion::V_2025_11_25,
-                    ],
-                    legacy_version: Some(ProtocolVersion::V_2025_11_25),
-                },
-            )
-            .await
-            .map_err(|error| error.to_string())
-    } else {
-        handler
-            .serve(transport)
-            .await
-            .map_err(|error| error.to_string())
-    }
-}
-
-/// 建连 seam：把「transport 配置 → 已握手 peer」抽为对象安全 trait，
-/// 使降级启动与重连路径可在单测中注入假实现（生产实现 [`RmcpConnector`]）。
-/// secrets 解析发生在调用方（[`transport_config`]，泛型 `S`），trait 本身
-/// 只接收已注入 auth 的 transport 配置，保持对象安全。
-pub(super) trait PeerConnector: std::fmt::Debug + Send + Sync {
-    fn connect<'a>(
-        &'a self,
-        config: &'a McpServerConfig,
-        transport: StreamableHttpClientTransportConfig,
-    ) -> McpFuture<'a, Result<Arc<dyn RemoteMcpPeer>, McpError>>;
-}
-
-/// 生产实现：rmcp Streamable HTTP 握手。
-#[derive(Debug, Default)]
-pub(super) struct RmcpConnector {
-    notify: UpstreamListChanged,
-}
-
-impl RmcpConnector {
-    pub(super) fn new(notify: UpstreamListChanged) -> Self {
-        Self { notify }
-    }
-}
-
-impl PeerConnector for RmcpConnector {
-    fn connect<'a>(
-        &'a self,
-        config: &'a McpServerConfig,
-        transport: StreamableHttpClientTransportConfig,
-    ) -> McpFuture<'a, Result<Arc<dyn RemoteMcpPeer>, McpError>> {
-        let server_id = config.id.clone();
-        let notify = self.notify.clone();
-        Box::pin(async move {
-            let peer = RmcpRemoteMcpPeer::connect_transport(transport, &server_id, notify).await?;
-            Ok(Arc::new(peer) as Arc<dyn RemoteMcpPeer>)
-        })
-    }
-}
-
-impl RemoteMcpPeer for RmcpRemoteMcpPeer {
-    fn list_tools(&self) -> McpFuture<'_, Result<Vec<Tool>, McpError>> {
-        Box::pin(async move {
-            self.client
-                .peer()
-                .list_all_tools()
-                .await
-                .map_err(|e| McpError::upstream_failure(format!("failed to list tools: {e}")))
-        })
-    }
-
-    fn call_tool(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-    ) -> McpFuture<'_, Result<CallToolResult, McpError>> {
-        let name = name.to_string();
-        Box::pin(async move {
-            let args = arguments_to_object(arguments)?;
-            match self
-                .client
-                .peer()
-                .call_tool_once(CallToolRequestParams::new(name).with_arguments(args))
-                .await
-                .map_err(|e| McpError::upstream_failure(format!("failed to call tool: {e}")))?
-            {
-                CallToolResponse::Complete(result) => Ok(result),
-                CallToolResponse::InputRequired(_) => Err(McpError::upstream_failure(
-                    "upstream requires additional input",
-                )),
-                CallToolResponse::Task(_) => Err(McpError::upstream_failure(
-                    "upstream returned a task handle; Tasks extension is not proxied",
-                )),
-                _ => Err(McpError::upstream_failure(
-                    "unsupported upstream tools/call result type",
-                )),
-            }
-        })
-    }
-
-    fn call_tool_ex(
-        &self,
-        name: &str,
-        arguments: serde_json::Value,
-        extras: ToolCallExtras,
-    ) -> McpFuture<'_, Result<UpstreamCallOutcome, McpError>> {
-        let name = name.to_string();
-        Box::pin(async move {
-            let args = arguments_to_object(arguments)?;
-            let mut params = CallToolRequestParams::new(name).with_arguments(args);
-            if let Some(responses) = extras.input_responses {
-                let decoded = serde_json::from_value(responses).map_err(|error| {
-                    McpError::invalid_tool_call(format!("invalid input_responses: {error}"))
-                })?;
-                params = params.with_input_responses(decoded);
-            }
-            if let Some(request_state) = extras.request_state {
-                params = params.with_request_state(request_state);
-            }
-            let response = self
-                .client
-                .peer()
-                .call_tool_once(params)
-                .await
-                .map_err(|e| McpError::upstream_failure(format!("failed to call tool: {e}")))?;
-            convert_call_response(response)
-        })
-    }
-}
+use crate::mcp::upstream_notify::UpstreamListChanged;
+use crate::policy::{PolicyError, key_can_use_name};
+use crate::secrets::SecretStore;
 
 /// 第三方 MCP server 注册表：持有上游 peer、已发现的 wrapped tools 与
 /// 健康状态（健康模型见 `src/mcp/health.rs` 与治理契约 §4）。
@@ -297,6 +58,9 @@ pub(super) struct McpServerEntry {
     pub(super) descriptors: Vec<ToolDescriptor>,
     /// 健康簿记；对外一律走 `health_view()`。
     pub(super) health: ServerHealth,
+    /// 与工具同一次探测刷新的 prompts / resources / templates。
+    /// 无 peer 时为空。
+    pub(super) surface: SurfaceSnapshot,
 }
 
 impl McpServerEntry {
@@ -328,6 +92,18 @@ impl McpServerRegistry {
         notify: UpstreamListChanged,
     ) -> Result<Self, McpError> {
         Ok(Self::connect_all_with(configs, &*secrets, Arc::new(RmcpConnector::new(notify))).await)
+    }
+
+    /// 同 [`Self::connect_all_notifying`]，并注入 OAuth 服务：`auth.type: oauth`
+    /// 的 server（含运行期经 admin 新增的）经它取得带 token 的连接。
+    pub async fn connect_all_with_oauth<S: SecretStore>(
+        configs: &[McpServerConfig],
+        secrets: Arc<S>,
+        notify: UpstreamListChanged,
+        oauth: Arc<UpstreamOAuth>,
+    ) -> Result<Self, McpError> {
+        let connector = RmcpConnector::new(notify).with_oauth(oauth);
+        Ok(Self::connect_all_with(configs, &*secrets, Arc::new(connector)).await)
     }
 
     /// 用注入的 connector 连接全部 server（单测入口）。
@@ -363,6 +139,7 @@ impl McpServerRegistry {
 
         let mut entries = Vec::with_capacity(configs.len());
         let mut seen_wire_names = HashSet::new();
+        let mut seen_prompt_names = HashSet::new();
         for (config, peer) in configs.iter().cloned().zip(peers) {
             let started = Instant::now();
             let upstream_tools = peer.list_tools().await?;
@@ -375,6 +152,9 @@ impl McpServerRegistry {
                     )));
                 }
             }
+            let mut surface =
+                surface::load_surface(&config, peer.as_ref(), &SurfaceSnapshot::default()).await;
+            dedup_prompts(&mut surface.prompts, &mut seen_prompt_names, &config.id);
             let mut health = ServerHealth::initial(&config);
             mark_ok(
                 &mut health,
@@ -388,6 +168,7 @@ impl McpServerRegistry {
                 tools,
                 descriptors,
                 health,
+                surface,
             });
         }
 
@@ -478,6 +259,115 @@ impl McpServerRegistry {
         peer.call_tool_ex(&upstream_path, arguments, extras).await
     }
 
+    /// 当前 key 可见的上游 prompts（不含网关自有 workflow prompt）。
+    pub(crate) fn prompts_for_key(&self, key: &ProxyKey) -> Result<Vec<Prompt>, PolicyError> {
+        let guard = self.read_entries();
+        let mut prompts = Vec::new();
+        for entry in guard.iter() {
+            for snap in &entry.surface.prompts {
+                if key_can_use_name(key, &snap.wire_name, &entry.config.id)? {
+                    prompts.push(to_prompt(snap));
+                }
+            }
+        }
+        Ok(prompts)
+    }
+
+    /// 当前 key 可见的 resources，URI 已换成 `asterlane://` 命名空间。
+    pub(crate) fn resources_for_key(&self, key: &ProxyKey) -> Result<Vec<Resource>, PolicyError> {
+        let guard = self.read_entries();
+        let mut resources = Vec::new();
+        for entry in guard.iter() {
+            for snap in &entry.surface.resources {
+                if key_can_use_name(key, &snap.scope_name, &entry.config.id)? {
+                    resources.push(to_resource(&entry.config.id, snap));
+                }
+            }
+        }
+        Ok(resources)
+    }
+
+    /// 当前 key 可见的 resource templates，URI template 已加命名空间。
+    pub(crate) fn templates_for_key(
+        &self,
+        key: &ProxyKey,
+    ) -> Result<Vec<ResourceTemplate>, PolicyError> {
+        let guard = self.read_entries();
+        let mut templates = Vec::new();
+        for entry in guard.iter() {
+            for snap in &entry.surface.templates {
+                if key_can_use_name(key, &snap.scope_name, &entry.config.id)? {
+                    templates.push(to_template(&entry.config.id, snap));
+                }
+            }
+        }
+        Ok(templates)
+    }
+
+    /// 按包装名找到可见 prompt。不存在与无权限都是 `None`。
+    pub(crate) fn resolve_prompt(
+        &self,
+        key: &ProxyKey,
+        wire_name: &str,
+    ) -> Result<Option<ResolvedPrompt>, PolicyError> {
+        let guard = self.read_entries();
+        for entry in guard.iter() {
+            let Some(peer) = entry.peer.clone() else {
+                continue;
+            };
+            let Some(snap) = entry
+                .surface
+                .prompts
+                .iter()
+                .find(|snap| snap.wire_name == wire_name)
+            else {
+                continue;
+            };
+            if !key_can_use_name(key, &snap.wire_name, &entry.config.id)? {
+                return Ok(None);
+            }
+            return Ok(Some(ResolvedPrompt {
+                peer,
+                upstream_name: snap.prompt.name.clone(),
+                server_id: entry.config.id.clone(),
+            }));
+        }
+        Ok(None)
+    }
+
+    /// 按下游 URI 找到允许读取的上游。未命中、无权限、server 不存在都是 `None`。
+    pub(crate) fn resolve_read(
+        &self,
+        key: &ProxyKey,
+        gateway_uri: &str,
+    ) -> Result<Option<ResolvedRead>, PolicyError> {
+        let Some((server_id, upstream_uri)) = parse_gateway_uri(gateway_uri) else {
+            return Ok(None);
+        };
+        let guard = self.read_entries();
+        let Some(entry) = guard.iter().find(|entry| entry.config.id == server_id) else {
+            return Ok(None);
+        };
+        let Some(peer) = entry.peer.clone() else {
+            return Ok(None);
+        };
+        let Some(scope_name) = scope_name_for_read(
+            &entry.surface.resources,
+            &entry.surface.templates,
+            upstream_uri,
+        ) else {
+            return Ok(None);
+        };
+        if !key_can_use_name(key, scope_name, server_id)? {
+            return Ok(None);
+        }
+        Ok(Some(ResolvedRead {
+            peer,
+            upstream_uri: upstream_uri.to_string(),
+            server_id: server_id.to_string(),
+        }))
+    }
+
     /// 读锁内查找工具，返回 clone 的 peer + upstream_path（不持锁跨 await）。
     fn find_tool(&self, wire_name: &str) -> Option<(Arc<dyn RemoteMcpPeer>, String)> {
         let guard = self.read_entries();
@@ -497,6 +387,20 @@ impl McpServerRegistry {
     }
 }
 
+/// `prompts/get` 转发所需的上游 peer 与原名。锁已释放。
+pub(crate) struct ResolvedPrompt {
+    pub(crate) peer: Arc<dyn RemoteMcpPeer>,
+    pub(crate) upstream_name: String,
+    pub(crate) server_id: String,
+}
+
+/// `resources/read` 转发所需的上游 peer 与原 URI。锁已释放。
+pub(crate) struct ResolvedRead {
+    pub(crate) peer: Arc<dyn RemoteMcpPeer>,
+    pub(crate) upstream_uri: String,
+    pub(crate) server_id: String,
+}
+
 /// refresh 结果摘要，供 tracing 与后台 task 记录。
 #[derive(Debug, Clone)]
 pub struct RefreshResult {
@@ -505,146 +409,18 @@ pub struct RefreshResult {
     pub failed_server_ids: Vec<String>,
 }
 
-pub(super) async fn transport_config<S: SecretStore>(
-    server: &McpServerConfig,
-    secrets: &S,
-) -> Result<StreamableHttpClientTransportConfig, McpError> {
-    let mut config = StreamableHttpClientTransportConfig::with_uri(server.url.clone());
-    match &server.auth {
-        UpstreamAuth::None => {}
-        UpstreamAuth::Bearer { token_ref } => {
-            let secret = resolve_secret(token_ref, secrets).await?;
-            config = config.auth_header(secret.expose_secret().to_string());
-        }
-        UpstreamAuth::Header { name, value_ref } => {
-            let secret = resolve_secret(value_ref, secrets).await?;
-            let header_name = reqwest::header::HeaderName::from_str(name).map_err(|e| {
-                McpError::invalid_tool_call(format!("invalid MCP auth header name: {e}"))
-            })?;
-            let header_value = reqwest::header::HeaderValue::from_str(secret.expose_secret())
-                .map_err(|_| McpError::invalid_tool_call("invalid MCP auth header value"))?;
-            let mut headers = HashMap::new();
-            headers.insert(header_name, header_value);
-            config = config.custom_headers(headers);
-        }
-    }
-    Ok(config)
-}
-
-async fn resolve_secret<S: SecretStore>(
-    raw: &str,
-    secrets: &S,
-) -> Result<crate::secrets::SecretString, McpError> {
-    if let Ok(secret_ref) = SecretRef::from_str(raw) {
-        Ok(secrets.resolve(&secret_ref).await?)
-    } else {
-        Ok(crate::secrets::SecretString::new(raw.to_string()))
-    }
-}
-
-/// 将上游 rmcp `Tool` 列表包装为 `WrappedTool`（catalog 用）与
-/// `ToolDescriptor`（integrity baseline 用）。
-///
-/// 两者一一对应：`WrappedTool` 持有 `ToolName` + `upstream_path`，
-/// `ToolDescriptor` 持有 wire name + description + `input_schema`。
-pub(super) fn wrap_tools(
-    config: &McpServerConfig,
-    tools: Vec<Tool>,
-) -> Result<(Vec<WrappedTool>, Vec<ToolDescriptor>), McpError> {
-    let mut wrapped = Vec::with_capacity(tools.len());
-    let mut descriptors = Vec::with_capacity(tools.len());
-    for tool in tools {
-        let upstream_name = tool.name.to_string();
-        let name = ToolName::new(&config.domain, &config.provider, &upstream_name)
-            .map_err(|e| McpError::invalid_tool_call(e.to_string()))?;
-        let wire_name = name.to_wire_name();
-        let description = tool.description.unwrap_or_default().to_string();
-        // rmcp `Tool::input_schema` 为 `Arc<JsonObject>`（即 `Arc<serde_json::Map>`），
-        // 转为 `serde_json::Value` 供 integrity fingerprint 使用。
-        let input_schema = serde_json::Value::Object(tool.input_schema.as_ref().clone());
-        wrapped.push(WrappedTool {
-            name,
-            resource_id: config.id.clone(),
-            description: description.clone(),
-            upstream_path: upstream_name,
-            http_method: crate::config::HttpMethod::Post,
-            input_schema: input_schema.clone(),
-            param_locations: None,
-            exposed_name: None,
-        });
-        descriptors.push(ToolDescriptor {
-            name: wire_name,
-            description,
-            input_schema,
-        });
-    }
-    Ok((wrapped, descriptors))
-}
-
-fn arguments_to_object(
-    arguments: serde_json::Value,
-) -> Result<serde_json::Map<String, serde_json::Value>, McpError> {
-    match arguments {
-        serde_json::Value::Null => Ok(serde_json::Map::new()),
-        serde_json::Value::Object(map) => Ok(map),
-        _ => Err(McpError::invalid_tool_call(
-            "MCP tool arguments must be a JSON object",
-        )),
-    }
-}
-
-fn convert_call_response(response: CallToolResponse) -> Result<UpstreamCallOutcome, McpError> {
-    match response {
-        CallToolResponse::Complete(result) => {
-            Ok(UpstreamCallOutcome::Complete(convert_call_result(result)))
-        }
-        CallToolResponse::InputRequired(result) => Ok(UpstreamCallOutcome::InputRequired(
-            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({})),
-        )),
-        CallToolResponse::Task(_) => Err(McpError::upstream_failure(
-            "upstream returned a task handle; Tasks extension is not proxied",
-        )),
-        _ => Err(McpError::upstream_failure(
-            "unsupported upstream tools/call result type",
-        )),
-    }
-}
-
-fn convert_call_result(result: CallToolResult) -> ToolCallResult {
-    let mut content = result
-        .content
-        .into_iter()
-        .map(content_block_to_tool_content)
-        .collect::<Vec<_>>();
-
-    if content.is_empty()
-        && let Some(value) = result.structured_content
-    {
-        content.push(ToolContent::Text(value.to_string()));
-    }
-
-    ToolCallResult {
-        content,
-        is_error: result.is_error.unwrap_or(false),
-    }
-}
-
-fn content_block_to_tool_content(content: ContentBlock) -> ToolContent {
-    if let Some(text) = content.as_text() {
-        ToolContent::Text(text.text.clone())
-    } else {
-        ToolContent::Text(serde_json::to_string(&content).unwrap_or_default())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{HealthCheckConfig, McpServerConfig, SecurityConfig, UpstreamAuth};
     use crate::mcp::health::HealthStatus;
-    use crate::secrets::{SecretError, SecretString};
+    use crate::mcp::peer::McpFuture;
+    use crate::secrets::{SecretError, SecretRef, SecretString};
+    use rmcp::model::{CallToolResult, ContentBlock, Tool};
+    use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+    use std::collections::HashMap;
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     fn server_config(id: &str) -> McpServerConfig {
         McpServerConfig {
@@ -1266,6 +1042,257 @@ mod tests {
                 .call_tool("travel__srv-a__toola", serde_json::json!({}))
                 .await
                 .is_ok()
+        );
+    }
+
+    // ── prompts / resources 快照 ──
+
+    /// 带 prompts / resources 的 mock peer：capability 可配，计数每类列表调用，
+    /// 可令 prompts 列表失败。
+    #[derive(Debug, Default)]
+    struct SurfacePeer {
+        tool: &'static str,
+        prompts: Mutex<Vec<Prompt>>,
+        resources: Mutex<Vec<Resource>>,
+        prompts_supported: bool,
+        resources_supported: bool,
+        fail_prompts: AtomicBool,
+        lists: [AtomicU32; 3],
+    }
+
+    impl SurfacePeer {
+        fn new(tool: &'static str, prompts: &[&str], resources: &[&str]) -> Self {
+            Self {
+                tool,
+                prompts: Mutex::new(
+                    prompts
+                        .iter()
+                        .map(|name| Prompt::new(*name, Some("d"), None))
+                        .collect(),
+                ),
+                resources: Mutex::new(
+                    resources
+                        .iter()
+                        .map(|name| Resource::new(format!("file:///{name}"), *name))
+                        .collect(),
+                ),
+                prompts_supported: true,
+                resources_supported: true,
+                ..Self::default()
+            }
+        }
+
+        fn lists(&self) -> [u32; 3] {
+            [0, 1, 2].map(|i| self.lists[i].load(Ordering::SeqCst))
+        }
+    }
+
+    impl RemoteMcpPeer for SurfacePeer {
+        fn list_tools(&self) -> McpFuture<'_, Result<Vec<Tool>, McpError>> {
+            let tool = make_tool(self.tool);
+            Box::pin(async move { Ok(vec![tool]) })
+        }
+
+        fn call_tool(
+            &self,
+            _name: &str,
+            _arguments: serde_json::Value,
+        ) -> McpFuture<'_, Result<CallToolResult, McpError>> {
+            Box::pin(async { Ok(CallToolResult::success(vec![ContentBlock::text("ok")])) })
+        }
+
+        fn supports_prompts(&self) -> bool {
+            self.prompts_supported
+        }
+
+        fn supports_resources(&self) -> bool {
+            self.resources_supported
+        }
+
+        fn list_prompts(&self) -> McpFuture<'_, Result<Vec<Prompt>, McpError>> {
+            self.lists[0].fetch_add(1, Ordering::SeqCst);
+            let prompts = self.prompts.lock().expect("prompts lock").clone();
+            let fail = self.fail_prompts.load(Ordering::SeqCst);
+            Box::pin(async move {
+                if fail {
+                    Err(McpError::upstream_failure("mock prompts failure"))
+                } else {
+                    Ok(prompts)
+                }
+            })
+        }
+
+        fn list_resources(&self) -> McpFuture<'_, Result<Vec<Resource>, McpError>> {
+            self.lists[1].fetch_add(1, Ordering::SeqCst);
+            let resources = self.resources.lock().expect("resources lock").clone();
+            Box::pin(async move { Ok(resources) })
+        }
+
+        fn list_resource_templates(
+            &self,
+        ) -> McpFuture<'_, Result<Vec<ResourceTemplate>, McpError>> {
+            self.lists[2].fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(vec![ResourceTemplate::new("file:///{path}", "any")]) })
+        }
+    }
+
+    fn allow_all() -> ProxyKey {
+        serde_norway::from_str("id: k\nallowed_tools: ['.*']").expect("key")
+    }
+
+    fn prompt_names(registry: &McpServerRegistry) -> Vec<String> {
+        let prompts = registry.prompts_for_key(&allow_all()).expect("policy");
+        prompts.into_iter().map(|prompt| prompt.name).collect()
+    }
+
+    #[tokio::test]
+    async fn surface_is_fetched_only_for_declared_capabilities() {
+        let both = Arc::new(SurfacePeer::new("t", &["p"], &["r"]));
+        let prompts_only = Arc::new(SurfacePeer {
+            resources_supported: false,
+            ..SurfacePeer::new("t", &["q"], &["hidden"])
+        });
+        let resources_only = Arc::new(SurfacePeer {
+            prompts_supported: false,
+            ..SurfacePeer::new("t", &["hidden"], &["s"])
+        });
+        let neither = Arc::new(MutableFakePeer::new(vec![vec![make_tool("t")]]));
+        let registry = McpServerRegistry::from_peers(
+            &[
+                server_config("both"),
+                server_config("prompts"),
+                server_config("resources"),
+                server_config("neither"),
+            ],
+            vec![
+                both.clone(),
+                prompts_only.clone(),
+                resources_only.clone(),
+                neither,
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(both.lists(), [1, 1, 1]);
+        assert_eq!(prompts_only.lists(), [1, 0, 0]);
+        assert_eq!(resources_only.lists(), [0, 1, 1]);
+        assert_eq!(
+            prompt_names(&registry),
+            ["travel__both__p", "travel__prompts__q"]
+        );
+        let resources = registry.resources_for_key(&allow_all()).unwrap();
+        let uris: Vec<_> = resources.iter().map(|r| r.uri.as_str()).collect();
+        assert_eq!(
+            uris,
+            [
+                "asterlane://both/file:///r",
+                "asterlane://resources/file:///s"
+            ]
+        );
+        assert_eq!(registry.templates_for_key(&allow_all()).unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn refresh_reloads_surface_and_a_failed_kind_keeps_its_previous_list() {
+        let peer = Arc::new(SurfacePeer::new("t", &["p1"], &["r1"]));
+        let registry = McpServerRegistry::from_peers(&[server_config("srv-a")], vec![peer.clone()])
+            .await
+            .unwrap();
+        assert_eq!(prompt_names(&registry), ["travel__srv-a__p1"]);
+
+        peer.prompts
+            .lock()
+            .unwrap()
+            .push(Prompt::new("p2", Some("d"), None));
+        peer.resources
+            .lock()
+            .unwrap()
+            .push(Resource::new("file:///r2", "r2"));
+        let result = registry.refresh().await;
+        assert!(result.failed_server_ids.is_empty());
+        assert_eq!(prompt_names(&registry).len(), 2);
+        assert_eq!(registry.resources_for_key(&allow_all()).unwrap().len(), 2);
+
+        // prompts 拉取失败：只告警，工具探测仍成功，prompts 保留上一次，resources 照常刷新
+        peer.fail_prompts.store(true, Ordering::SeqCst);
+        peer.prompts.lock().unwrap().clear();
+        peer.resources.lock().unwrap().clear();
+        let result = registry.refresh().await;
+        assert!(result.failed_server_ids.is_empty());
+        assert_eq!(registry.health_snapshot()[0].status, HealthStatus::Ok);
+        assert_eq!(prompt_names(&registry).len(), 2);
+        assert!(registry.resources_for_key(&allow_all()).unwrap().is_empty());
+        assert_eq!(registry.all_wrapped_tools().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn lost_connection_clears_the_surface() {
+        let peer = Arc::new(SurfacePeer::new("t", &["p"], &["r"]));
+        let registry = McpServerRegistry::from_peers(&[server_config("srv-a")], vec![peer])
+            .await
+            .unwrap();
+        let uri = "asterlane://srv-a/file:///r";
+        assert!(registry.resolve_read(&allow_all(), uri).unwrap().is_some());
+
+        // 重连失败：entry 无 peer，工具与快照一并清空
+        let registry = registry.with_connector(Arc::new(FakeConnector::default()));
+        let health = registry.reconnect("srv-a", &NoSecretStore).await.unwrap();
+        assert_eq!(health.status, HealthStatus::Unreachable);
+        assert!(registry.all_wrapped_tools().is_empty());
+        assert!(prompt_names(&registry).is_empty());
+        assert!(registry.resources_for_key(&allow_all()).unwrap().is_empty());
+        assert!(registry.templates_for_key(&allow_all()).unwrap().is_empty());
+        assert!(registry.resolve_read(&allow_all(), uri).unwrap().is_none());
+        assert!(
+            registry
+                .resolve_prompt(&allow_all(), "travel__srv-a__p")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_prompt_wire_names_across_servers_keep_the_first() {
+        let mut a = server_config("srv-a");
+        a.provider = "shared".to_string();
+        let mut b = server_config("srv-b");
+        b.provider = "shared".to_string();
+        let registry = McpServerRegistry::from_peers(
+            &[a, b],
+            vec![
+                Arc::new(SurfacePeer::new("t1", &["p"], &[])),
+                Arc::new(SurfacePeer::new("t2", &["p", "q"], &[])),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            prompt_names(&registry),
+            ["travel__shared__p", "travel__shared__q"]
+        );
+        let resolved = registry
+            .resolve_prompt(&allow_all(), "travel__shared__p")
+            .unwrap()
+            .expect("prompt");
+        assert_eq!(resolved.server_id, "srv-a");
+
+        // refresh 与新增 server 走同一口径
+        registry.refresh().await;
+        assert_eq!(prompt_names(&registry).len(), 2);
+        let mut c = server_config("srv-c");
+        c.provider = "shared".to_string();
+        let connector = Arc::new(FakeConnector::default());
+        connector.add_peer("srv-c", Arc::new(SurfacePeer::new("t3", &["p", "r"], &[])));
+        let registry = registry.with_connector(connector);
+        registry.add_server(c, &NoSecretStore).await.unwrap();
+        assert_eq!(
+            prompt_names(&registry),
+            [
+                "travel__shared__p",
+                "travel__shared__q",
+                "travel__shared__r"
+            ]
         );
     }
 }

@@ -11,6 +11,7 @@ mod crud;
 mod defaults;
 mod mcp;
 mod metadata;
+mod oauth;
 mod read;
 mod resource_keys;
 pub mod schema;
@@ -80,6 +81,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
                 .delete(mcp::delete_server),
         )
         .route("/mcp-servers/{id}/probe", post(mcp::probe_server))
+        .merge(oauth::router())
         .route("/mcp-presets", get(read::mcp_presets))
         .route("/events", get(read::events))
         .route("/security-events", get(read::security_events))

@@ -122,7 +122,8 @@ asterlane admin [--server URL] [--token-env NAME] [--format json|yaml|markdown] 
   resources [create|update <id>|rm <id>]   # 缺省列表；create/update 需 --json 或 --from-file
   proxy-keys [issue <id> [--expires-at RFC3339] | revoke-token <id>
               | create | update <id> | rm <id>]
-  mcp-servers [get <id> | probe <id> | create | update <id> | rm <id>]
+  mcp-servers [get <id> | probe <id> | authorize <id> | deauthorize <id>
+               | create | update <id> | rm <id>]
   metadata list
   metadata get <tool>
   metadata set <tool> --description TEXT

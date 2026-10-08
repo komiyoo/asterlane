@@ -19,9 +19,9 @@ MCP `tools/call` 不参与这套格式协商：协议入口固定以 JSON 执行
 
 - **Response Rendering / 结果再呈现**：在 REST invoke 结果返回消费者前，将其中的 JSON 载荷重新序列化为目标格式。它是纯粹的**表示层**转换——不增删语义信息，不改变协议结构。
 - 与既有模块的边界：
-  - `transform` 是**请求**方向的 header/body 变换，rendering 是**响应**方向的表示转换，二者不共享代码路径；
+  - rendering 只处理**响应**方向的表示转换，不改写请求的 header/body；
   - `shaping` 负责结果**大小**（截断 + cursor 分页），rendering 负责结果**格式**。rendering 在前、shaping 在后（见管线位置）。
-- 模块归属：新增独立模块 `render`（`src/render.rs`），不并入 `shaping` 或 `transform`，保持模块边界清晰。
+- 模块归属：新增独立模块 `render`（`src/render.rs`），不并入 `shaping`，保持模块边界清晰。
 
 # 格式与语义
 

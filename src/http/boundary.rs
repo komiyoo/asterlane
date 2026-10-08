@@ -23,6 +23,27 @@ use crate::error::{AsterlaneError, ErrorCode};
 
 use super::AppState;
 
+/// 授权码流程的浏览器回调路径。它的 query 里是一次性的授权 code 与 state。
+pub(super) const OAUTH_CALLBACK_PATH: &str = "/oauth/callback";
+
+/// `TraceLayer` 的请求 span：字段与 tower-http 默认 span 相同（`method`、`uri`、
+/// `version`，DEBUG 级），但授权回调的 `uri` 只记路径、不记 query——默认 span 会把
+/// 整个 URI 带进该请求内每一条日志，授权 code 与 state 就会出现在 debug 日志里。
+pub(super) fn request_span<B>(request: &axum::http::Request<B>) -> tracing::Span {
+    let uri = request.uri();
+    let logged = if uri.path() == OAUTH_CALLBACK_PATH {
+        uri.path().to_string()
+    } else {
+        uri.to_string()
+    };
+    tracing::debug_span!(
+        "request",
+        method = %request.method(),
+        uri = %logged,
+        version = ?request.version(),
+    )
+}
+
 /// 从应用状态读取 HTTP 护栏配置；构建期锁繁忙时回退缺省并记 warn。
 pub(super) fn config_from_state(state: &AppState) -> HttpServerConfig {
     match state.config.try_read() {

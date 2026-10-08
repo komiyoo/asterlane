@@ -50,9 +50,8 @@ timestamp: 2026-07-03T00:00:00Z
 | `limit.*` | `limit.daily_calls_exhausted` | per-key 当日调用配额 `max_calls_per_day` 耗尽（UTC 零点重置） | "daily call quota exhausted for this key" |
 | `mcp.*` | `mcp.invalid_tool_call` | 参数不合法 | "invalid tool call arguments" |
 | `mcp.*` | `mcp.upstream_mcp_failure` | 上游 MCP server 失败 | "upstream MCP server error" |
-| `mcp.*` | `mcp.upstream_unavailable` | FailClosed：至少一个 MCP 上游 `Unreachable`，拒绝把 stale 目录当权威结果 | "one or more MCP upstreams are unreachable" |
-| `transform.*` | `transform.dangerous_header` | 变换规则尝试设置危险 header | "transform rule targets protected header" |
-| `transform.*` | `transform.invalid_pointer` | JSON Pointer 路径不合法 | "invalid transform pointer: {detail}" |
+| `mcp.*` | `mcp.upstream_unavailable` | FailClosed：至少一个 MCP 上游 `Unreachable` 或 `AuthRequired`，拒绝把 stale 目录当权威结果 | "one or more MCP upstreams are unreachable" |
+| `mcp.*` | `mcp.upstream_auth_required` | 授权码类 OAuth 上游需要管理员授权：没有已存凭据、凭据无法解密或刷新被拒（client-credentials 上游被拒是 `mcp.upstream_mcp_failure`） | "upstream MCP server requires administrator authorization" |
 | `admin.*` | `admin.unauthorized` | admin token 缺失或不匹配 | "missing or invalid admin token" |
 | `admin.*` | `admin.invalid_query` | admin 查询参数不合法 | "invalid group_by: {value}" |
 | `admin.*` | `admin.not_found` | admin 管理的实体未找到；`McpError::UnknownServer`（未知 MCP server id）也映射到此码 | "unknown MCP server: {server_id}" |
@@ -74,7 +73,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `store.*` | 5 |
 | `proxy.*` | 6 |
 | `limit.*` | 7 |
-| `transform.*` | 8 |
+| 退出码 8 | 曾分配给 `transform.*`，已退役，不复用 |
 | 其他 | 1 |
 
 ## HTTP 边界
@@ -91,12 +90,11 @@ timestamp: 2026-07-03T00:00:00Z
 | `catalog.unknown_tool` | 404 |
 | `store.*` | 503 |
 | `proxy.upstream_timeout` / `proxy.connection_failed` | 504 |
-| `mcp.upstream_mcp_failure` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
+| `mcp.upstream_mcp_failure` / `mcp.upstream_auth_required` / `proxy.retry_exhausted` / `proxy.upstream_error` | 502 |
 | `mcp.upstream_unavailable` | 503 |
 | `limit.quota_exceeded` / `limit.calls_exhausted` | 429（`calls_exhausted` 无 Retry-After） |
 | `limit.daily_calls_exhausted` | 429（Retry-After = 距下个 UTC 零点秒数） |
 | `limit.queue_full` / `limit.queue_timeout` | 503 |
-| `transform.*` | 500 |
 | `admin.unauthorized` | 401 |
 | `admin.invalid_query` | 400 |
 | `admin.not_found` | 404 |
@@ -124,7 +122,7 @@ MCP 错误分两种承载方式，遵循社区共识：
 
 | 错误类别 | 承载方式 | 理由 |
 | --- | --- | --- |
-| 上游 4xx/5xx/超时、重试耗尽 | tool result `isError: true` | 给 LLM 看，让它调整策略 |
+| 上游 4xx/5xx/超时、重试耗尽、上游需要管理员授权（`mcp.upstream_auth_required`） | tool result `isError: true` | 给 LLM 看，让它调整策略 |
 | 未知工具、参数错误 | JSON-RPC error `-32602`（Invalid params）/ `-32601`（Method not found） | 给基础设施看 |
 | 网关自身故障 | JSON-RPC error `-32603`（Internal error） | 仅限网关内部错误 |
 | 配额/限流 | tool result `isError: true` + 文本说明 | 让 LLM 知道应等待 |
@@ -139,6 +137,8 @@ MCP 错误分两种承载方式，遵循社区共识：
 - 上游原始响应体（可能含密钥或敏感业务数据）。
 - secret ref 的完整 URI（只暴露 `secret://provider/` 前缀，不暴露具体路径段）。
 - upstream key 明文（只暴露 `upstream_key_ref` 的脱敏标识，如 `key:abcd…wxyz`）。
+- 上游 OAuth 的 access token、refresh token、client secret、授权 code 与 state，以及 rmcp `AuthError` 与授权服务器返回的内容（错误描述、响应体）：只进 tracing 详情（写入前抹掉 code 与 state），用户可见错误只说哪一步失败（如 "OAuth token exchange failed"）。
+- 管理员授权的浏览器回调 `GET /oauth/callback` 失败时返回的是固定文案的 HTML 错误页（不是上面的 JSON 形态），带 `request_id`；页面不反射 query 参数或授权服务器返回的内容。发起授权的失败仍是 JSON：不是授权码授权方式 `admin.invalid_query`、server 不存在 `admin.not_found`、没配 `client_id` 且授权服务器不支持动态注册 `admin.conflict`、元数据发现等步骤失败 `mcp.upstream_mcp_failure`；没有新增错误码。
 
 脱敏由 `src/observability` 模块的 redaction helper 统一处理（见 [Observability](observability.md)）。模块错误在构造时只携带引用类型（`KeyId`、`SecretRef`），不携带明文；边界转换时引用类型 `Display` 实现输出脱敏形式。
 
@@ -155,7 +155,7 @@ src/error.rs
 各模块：
 
 ```text
-src/catalog.rs -> CatalogError (thiserror)
+src/catalog/   -> CatalogError (thiserror)
 src/policy.rs  -> PolicyError
 src/proxy/     -> ProxyError
 src/store/     -> StoreError

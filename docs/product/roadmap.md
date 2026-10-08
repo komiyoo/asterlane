@@ -4,7 +4,7 @@ title: Asterlane 演进规划
 description: 按产品定位的五根支柱评估实现缺口，给出分阶段优先级、准入准出条件与待产品决策项。
 resource: docs/product/roadmap.md
 tags: [roadmap, planning, gaps, product]
-timestamp: 2026-08-20T00:00:00Z
+timestamp: 2026-10-02T00:00:00Z
 ---
 
 # 背景
@@ -47,7 +47,7 @@ timestamp: 2026-08-20T00:00:00Z
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| **上游 MCP 无 OAuth 2.1 运行时**：只支持静态凭据注入 | 定位缺口（最重） | `config::UpstreamAuth` 仅 `None`/`Header`/`Bearer`；`mcp::registry` 的 `transport_config` 据此注入静态头。无 401 `WWW-Authenticate` 挑战处理、无动态客户端注册、无 token 刷新、无 RFC 8707 resource 参数 |
+| **已交付（2026-10-01）：上游 MCP OAuth（client-credentials、授权码、动态客户端注册、加密凭据存储、管理员一次性授权）** | 定位缺口（最重，已清） | `UpstreamAuth::OAuth`（`grant: client_credentials \| authorization_code`）+ 顶层 `oauth` 节；`mcp::oauth` 基于 rmcp `auth`：RFC 9728 / 8414 元数据发现、RFC 8707 `resource`、client-credentials 在请求路径上自动重新换取；授权码凭据 ChaCha20-Poly1305 加密存入 SQLite（`upstream_oauth_credentials`，无数据库时只在内存），没有凭据、解密失败或刷新被拒时 server 显示 `auth_required`。管理员一次性授权：`POST /admin/mcp-servers/{id}/oauth/authorize`（元数据发现、未配 `client_id` 时动态注册、PKCE 与 state，state 只在内存、10 分钟、一次性）→ 浏览器回调 `GET /oauth/callback`（顶层路由，只靠 state）换 token、加密保存并重连 → `DELETE …/oauth` 撤销；admin 视图 `oauth: {grant, status, expires_at}`，控制台「授权 / 撤销授权」与可编辑 OAuth 字段的表单，CLI `admin mcp-servers authorize / deauthorize`；rmcp 在 debug 级会打印授权 code，`serve` 的 tracing 加了固定的 `info` 级上限。已用进程内模拟授权服务器端到端验证；**尚未对真实 OAuth 类上游验证**（见 Phase 8 准出） |
 | **已交付：Vault / Infisical 装配**（2026-08-19） | 兑现差（已清） | `GatewayConfig.secrets` + `secret_store_from_config`：serve 在 MCP connect 前装配；`token_ref` 仅 env/file；缺省探测 `/v1/sys/health` 与 `/api/status` |
 | **已交付：secret 缓存 / TTL / 重试**（2026-08-20） | 生产就绪（已清） | `secrets.cache_ttl_secs` 缺省 60（`0` 关闭），只缓存 vault/infisical；`remote_retries` 缺省 2，仅超时/连接失败/5xx。失败不入缓存。env/file 不缓存。轮换 = TTL 过期后重新拉取 |
 | 云 KMS 后端 | 定位缺口（轻） | [Architecture](../architecture/architecture.md) 的 Credential Vault 节列为方向，无代码 |
@@ -75,16 +75,16 @@ timestamp: 2026-08-20T00:00:00Z
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| **请求变换完全未接线** | 兑现差（重） | `transform::apply_transforms` 只有模块内单测调用，`proxy` 不引用，`GatewayConfig` 无 transforms 配置节。根 `README.md` 已下调为「尚未接入执行路径」，接线 / 删除仍待产品决策 |
-| 只代理上游 tools，不代理上游 resources / prompts | 定位缺口 | 网关已提供自有 workflow prompt；`RemoteMcpPeer` 仍只有 `list_tools` / `call_tool`，未代理上游 resources / prompts |
-| 无 stdio / 本地进程 MCP server | 待决策 | `mcp::registry` 仅用 `StreamableHttpClientTransport` |
+| **已交付：删除请求变换**（2026-10-01） | 兑现差（已清） | 原 `transform` 模块无生产调用方，按「删除优先」移除 `src/transform` 与 `transform.*` 错误码（CLI 退出码 8 退役，不复用）；[Product Requirements](product-requirements.md)、[Architecture](../architecture/architecture.md)、根 `README.md` 等现行文档同步撤回承诺 |
+| **已交付：代理上游 resources 与 prompts**（2026-10-02） | 定位缺口（已清） | 远程上游的 prompts、resources、resource templates 与 tools 同一周期刷新；可见范围沿用工具 scope；下游 URI 为 `asterlane://{server_id}/{上游原 URI}`。见 [MCP Protocol](../architecture/mcp-protocol.md#prompts-与-resources) |
+| 无 stdio / 本地进程 MCP server | 非目标 | 2026-10-01 定为不做。`mcp::peer` 仅用 `StreamableHttpClientTransport` |
 | 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口 | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建 |
 | **已交付：多上游 MCP FailOpen / FailClosed**（2026-08-20） | 定位缺口（已清） | `mcp.failure_mode` 缺省 `fail_open`（刷新失败留 stale）。`fail_closed` 时任一 `Unreachable` 使 MCP/REST `tools/list` 返回 `mcp.upstream_unavailable`（503）；`tools/call` 与 `/healthz` 不株连 |
 | 无 circuit breaker、无跨 provider failover | 生产就绪 | 仅同 resource 内 key 轮换（`proxy::retry` + `keys::pool`） |
 | **已交付：非幂等方法不重试**（2026-08-20） | 生产就绪（已清） | `proxy::retry` 的 `is_idempotent_method`：仅 GET 参与状态码/超时/连接失败重试；POST/PUT/PATCH/DELETE 一次失败即返回 |
 | 每 endpoint 覆盖负载均衡策略 | 定位缺口（轻） | 策略只配在 resource 级 `key_pool.strategy`；[Product Requirements](product-requirements.md) 承诺可按 endpoint 覆盖 |
 
-**判断**：请求变换是从 NyaProxy 借鉴的既定能力，模块写完了却没接上任何调用方——这是全库最典型的兑现差，必须在下一阶段清账（接线或下线二选一，不留第三态）。多上游 MCP 失败语义已可配置：默认 FailOpen，FailClosed 避免把 stale 工具当权威目录。
+**判断**：请求变换曾是全库最典型的兑现差（从 NyaProxy 借鉴，模块写完却没接上任何调用方），2026-10-01 已通过删除清账。多上游 MCP 失败语义已可配置：默认 FailOpen，FailClosed 避免把 stale 工具当权威目录。远程上游的 resources 与 prompts 已于 2026-10-02 代理，stdio 仍是非目标。
 
 ## 支柱五：使用日志与管理可见性
 
@@ -96,6 +96,7 @@ timestamp: 2026-08-20T00:00:00Z
 | **已交付：admin CLI 写操作**（2026-08-19） | 兑现差（已清） | `asterlane admin resources|proxy-keys|mcp-servers` 的 create / update / rm，body 为 `--json` 或 `--from-file`（JSON/YAML object），转发已有 admin HTTP CRUD |
 | **已交付：key pool 热更新与 upstream_keys 同步**（2026-08-20） | 定位缺口（已清） | resource CRUD 接受 `auth`/`key_pool`；`swap_config_and_catalog` 重建 `KeyPoolRegistry` 并按 secret_ref 携带冷却/EWMA；`upstream_keys` 按 resource 替换写入。无独立 `/admin/upstream-keys` REST |
 | IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
+| `prompts/get` 与 `resources/read` 不写 `request_events`，也不计入调用配额 | 已知缺口 | 二者只走 key 与上游的速率、并发准入（`LimitRegistry::admit_rate`）。配额与请求日志仍只覆盖 `tools/call` / REST invoke |
 | usage 只有小时桶；无上游耗时聚合 | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项 |
 | **已交付：HTTP 错误 `request_id`**（2026-08-20） | 生产就绪（已清） | 入站中间件生成或接纳 `X-Request-Id`；`AsterlaneError` JSON 的 `error.request_id` 非空；invoke 成功路径仍用 executor 自己的 id |
 | 无告警规则 / Grafana dashboard 示例 | 生产就绪（轻） | 仓库内无相关资产 |
@@ -108,14 +109,14 @@ timestamp: 2026-08-20T00:00:00Z
 | **状态全进程内，多副本失效** | 生产就绪（重） | `limits::registry` 的用量表、`keys::pool` 的 `PoolState`、`shaping::ResultCache` 均为进程内 `Mutex` |
 | **已交付：HTTP 边界**（2026-08-19） | 生产就绪（已清） | `GatewayConfig.http`：`DefaultBodyLimit` + `http.body_too_large`（413）；REST/admin `TimeoutLayer` + `http.timeout`（408），不套 `/mcp` 与探活；响应头 `nosniff` / `DENY` / `no-referrer` |
 | **已交付：容器非 root + HEALTHCHECK**（2026-08-19） | 生产就绪（已清） | `Dockerfile`：`USER asterlane`（uid 10001）+ `HEALTHCHECK` 探 `/healthz` |
-| 无发布工程：无 CHANGELOG、无镜像/二进制发布、版本仍 `0.1.0` | 生产就绪 | `.github/workflows/ci.yml` 只有 fmt/clippy/test/docs/deny |
+| **已交付：发布工程**（2026-10-01） | 生产就绪（已清） | 根 `CHANGELOG.md`；`.github/workflows/release.yml`（tag 触发，构建二进制与镜像并创建 GitHub Release）；`ci.yml` 的 `build` job。版本仍是 `0.1.0`，流水线首次真实运行待维护者推 tag 验证，见 [Release Process](../engineering/release-process.md) |
 | 无覆盖率、基准与负载测试 | 增强 | 无 llvm-cov / criterion 配置 |
 
 ## 横切：技术债与文档腐烂
 
 截至 2026-08-19 已清：删除 `PlaceholderAdapter` / `GatewayToolSource` / `UpstreamToolMapping`；`mcp` 模块注释对齐 rmcp 3.x；`handle_meta_tool_call` 对 invoke 管线名字返回 `mcp.invalid_tool_call`；PRD「当前实现状态」改为历史快照并指向本文件；[Admin Console](../admin/admin-console.md) 与 [MCP Governance & Key Limits](../runtime/mcp-governance-and-key-limits.md) 回填已交付现状；[Tool Debugging & CLI](../admin/tool-debugging-and-cli.md) 不再引用 gitignore 的 `task.md`。根 `README.md` 请求变换过声称已于同日下调。
 
-剩余兑现差只剩请求变换接线或删除（见 Phase 7）。
+原先剩余的最后一项兑现差（请求变换未接线）已于 2026-10-01 通过删除清账（见 Phase 7）。
 
 # 分阶段规划
 
@@ -126,7 +127,7 @@ timestamp: 2026-08-20T00:00:00Z
 **目标**：消除「文档说有、代码没有」的全部条目，并补上长期运行必需的护栏。按可独立合入的切片推进，不绑成一次巨型 PR。
 
 - **已交付（2026-08-19）**：MCP `tools/list` 支持 `discovery_mode: lazy`，与 REST 行为对齐；根 `README.md` 下调请求变换过声称；上游失败退还 `max_calls` / `max_calls_per_day`；Vault / Infisical 经 `secrets` 节装配；HTTP 边界（请求体上限、REST/admin 超时、安全响应头）；admin CLI 补齐 resources / proxy-keys / mcp-servers 写操作；`request_events` 可配置保留窗口 + 后台清理；容器非 root + HEALTHCHECK；文档去腐（删除 MCP 占位死代码、回填 PRD/控制台/治理文档、去掉对 gitignore `task.md` 的现行引用）
-- 请求变换接线：`GatewayConfig` 增 transforms 配置节，`proxy::executor` 调用 `transform::apply_transforms`；若产品判定不做，则删除模块并同步下调 [Architecture](../architecture/architecture.md) 的声明（README 已下调）
+- **已交付（2026-10-01）**：请求变换——删除 `transform` 模块与 `transform.*` 错误码，并同步撤回 [Product Requirements](product-requirements.md) 与 [Architecture](../architecture/architecture.md) 等现行文档的声明
 
 **准出**：`rg` 全库无「文档承诺但生产路径零引用」的能力；容器以非 root 启动且 healthcheck 通过；连续写入压测下 `request_events` 表体积收敛。
 
@@ -134,22 +135,25 @@ timestamp: 2026-08-20T00:00:00Z
 
 **目标**：让网关能接管需要 OAuth 的第三方 MCP server，这是支柱一的结构性补齐。
 
-- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数。token 落 secret 后端，永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器
-- 动态客户端注册（若目标上游要求；CIMD / DCR 仅作为网关持有 client 的注册手段）
+- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数，基于 rmcp `auth` feature。2026-10-01 定范围：client-credentials + 管理员一次性授权码授权；授权码流程的 token 加密后存入 SQLite（无数据库时只在内存），永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器。**已交付（2026-10-01）**：配置、client-credentials（含请求路径上的重新换取）、加密凭据存储、授权码类上游的 `auth_required` 状态与 FailClosed 语义、管理员一次性授权（authorize / 回调 / 撤销、控制台与 CLI 入口，见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)）
+- **已交付（2026-10-01）**：动态客户端注册，仅用于授权码流程中未预置 `client_id` 的上游（rmcp 的 DCR 只注册 `authorization_code` 公开客户端；授权服务器仍返回 client secret 时网关没有地方保存它，此类上游须配置预注册客户端）
 - **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
 - **已交付（2026-08-20）**：订阅上游 `tools/list_changed`（`subscriptions/listen` + session 回调）；周期 refresh 保留为兜底，不再是唯一失效路径
-- resources / prompts 代理：先做产品决策（见下节），确定做则扩 `RemoteMcpPeer` 与下游 capabilities
+- **已交付（2026-10-02）**：resources / prompts 代理（仅远程上游）。`RemoteMcpPeer` 增加列 prompts、取 prompt、列 resources、列 templates、读 resource；下游开启 resources capability。key 范围沿用工具 scope。不计入调用配额、不写 `request_events`（见支柱五的已知缺口）。不做 resource 订阅，也不向下游推送这两类 list changed
 - 上游形态扩展：multipart / form-urlencoded 请求，流式响应
 
 **准出**：至少一个真实 OAuth 类上游 MCP server 端到端可用，且代理侧只见 gateway key；上游工具变更在一次心跳内反映到下游 `tools/list_changed`。
+
+**进展（2026-10-01）**：OAuth 部分已用进程内模拟授权服务器和上游端到端走通——client-credentials；授权码类「需要授权 → 管理员授权 → 可调用 → 重启后无需重新授权 → 撤销后回到需要授权」；代理侧只见 gateway key，token、授权 code 与 client secret 不出现在响应、控制台、CLI 输出、回调页面与日志（`trace` 级也没有）。上游 `tools/list_changed` 已于 2026-08-20 交付。**尚缺**：对至少一个真实 OAuth 类上游 MCP server 的端到端验证，因此本阶段准出尚未满足。
 
 ## Phase 9：规模化与发布工程
 
 **目标**：从「单机能跑」到「可多副本部署与分发」。
 
-- Postgres 存储后端：sqlx feature、迁移双轨、`main.rs` 按 URL scheme 分流
-- 共享状态：限流计数、配额、key pool 冷却与 result cache 迁到共享后端；保留单机模式为默认
-- 发布工程：CHANGELOG、版本策略、镜像与二进制发布流水线、`cargo-semver-checks`
+- Postgres 存储后端：sqlx feature、迁移双轨、`main.rs` 按 URL scheme 分流（2026-10-01：本轮不做，维持 SQLite）
+- 共享状态：限流计数、配额、key pool 冷却与 result cache 迁到共享后端；保留单机模式为默认（2026-10-01：本轮不做）
+- **已交付（2026-10-01）**：发布工程。根 `CHANGELOG.md`（Keep a Changelog）；版本策略（每次发布默认 patch +0.0.1）与发布步骤，见 [Release Process](../engineering/release-process.md)；tag 触发的 `release.yml`：校验 tag 与 `Cargo.toml` 版本及 CHANGELOG 小节，在原生 runner 上构建 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin` 二进制并附到 GitHub Release，推送 linux/amd64 + linux/arm64 镜像到 `ghcr.io/komiyoo/asterlane`；`ci.yml` 的 `build` job（`cargo build --release --locked` 与 Docker 构建）。流水线首次真实运行待维护者推 tag 验证
+- 发布时运行 `cargo-semver-checks`：本轮不做。[Compatibility Policy](../architecture/compatibility-policy.md) 规定发布到 crates.io 时才启用，而本轮发布只到 GitHub Release 与 GHCR
 - K8s 部署物（manifest 或 chart）
 
 **准出**：两副本部署下 per-key 配额与限流全局一致；打标签即产出镜像与二进制。
@@ -158,26 +162,29 @@ timestamp: 2026-08-20T00:00:00Z
 
 **目标**：把可观测性从「有数据」推到「能运营」。
 
-- 成本核算：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
+- 成本核算（2026-10-01：暂缓）：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
 - usage 分钟/日桶、上游耗时维度
-- IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（或删除死代码）
+- IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（2026-10-01：先出模块设计，评审后再定接线或保留；设计与推荐见 [Rate Limit Dimensions](../architecture/rate-limit-dimensions.md)）
 - **已交付（2026-08-20）**：key pool 热更新；upstream keys 经 resource CRUD 同步进 `upstream_keys`（不新开 `/admin/upstream-keys` REST）
 - circuit breaker、跨 provider failover
 - 告警规则与 Grafana dashboard 示例
 - 覆盖率、基准与负载测试基线
 
-# 待产品决策项
+# 产品决策
 
-以下不是工程排期问题，需要先定方向，否则会做出方向性错误的实现：
+2026-10-01 已对下表前七项定调，执行顺序与验收见 [2026-10 实施计划](../plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md)。未定项仍须先定方向再排期，否则会做出方向性错误的实现。
 
-| 决策 | 选项 | 影响 |
+| 决策 | 结论 | 影响 |
 | --- | --- | --- |
-| **请求变换是能力还是债务** | 接线 / 删除 | 决定 Phase 7 首条的工作量与 `README.md` 定位表述 |
-| **是否支持 stdio / 本地进程 MCP server** | 支持 / 明确列为非目标 | 支持则触及进程生命周期管理与安全模型，与 headless server 定位冲突；不支持则应写入非目标，停止暗示。即使支持，也不得默认暴露 filesystem / shell（个人 VPS MCP 反例） |
-| **是否代理 tools 之外的 MCP primitive** | resources+prompts / 仅 tools | 决定项目自称「MCP 网关」还是「MCP 工具网关」，影响对外定位表述 |
-| **上游 OAuth 是否另开用户委托模式** | Phase 8 仅网关持有 client / 另开 per-user 同意流 | 网关持有即可接管「只要 client credentials / 预置 app」的远程 MCP。用户委托（Pomerium 的 per-user GitHub / Linear token）是第二种凭据模式：下游仍必须是 gateway key，不得改成人类登录；实现与密钥隔离都要单独设计。默认建议：Phase 8 只做网关持有 |
-| **多租户与 RBAC 是否进入产品** | 进入 / 长期非目标 | 现有文档列为非目标，但 Postgres 与共享状态一旦落地，补多租户的成本会显著上升，宜在 Phase 9 前定调。进入也不采用 agentgateway 式 `jwt.sub && mcp.tool.name` CEL 作为默认模型；授权主体仍是 gateway key |
-| **成本核算的计量口径** | 按次 / 按 token / 按上游账单维度 | 决定 `request_units` 语义与 usage 表结构，改动有迁移成本 |
+| **请求变换是能力还是债务** | 2026-10-01：删除（已完成） | `transform` 模块无生产调用方，按「删除优先」移除；[Product Requirements](product-requirements.md) 同步撤回该承诺。`transform.*` 错误码从未在生产路径发出，随模块删除 |
+| **是否支持 stdio / 本地进程 MCP server** | 2026-10-01：不支持，列为非目标 | 只对接远程（Streamable HTTP）上游，见「不变的非目标」 |
+| **是否代理 tools 之外的 MCP primitive** | 2026-10-02：已交付 resources + prompts | 仅远程上游。key 可见范围沿用工具 scope（`domain__provider__<上游名称>`），不新增配置字段；下游 URI 为 `asterlane://{server_id}/{上游原 URI}`。`prompts/get` 与 `resources/read` 不写 `request_events`、不计入调用配额 |
+| **上游 OAuth 是否另开用户委托模式** | 2026-10-01：只做网关持有 | 支持 client-credentials，以及管理员发起一次授权码（PKCE，必要时 DCR）后由网关保存并刷新 token。整个网关共用一个上游身份；按用户委托仍不做，下游仍只用 gateway key |
+| **成本核算的计量口径** | 2026-10-01：暂缓 | `request_units` 维持恒为 1，不写代码、不做迁移 |
+| **Postgres 与共享状态** | 2026-10-01：本轮不做 | 存储维持 SQLite；多副本与共享状态不在本轮范围 |
+| **未接线的限流维度（IP / UpstreamKey / GatewayPrincipal）** | 2026-10-01：先出设计，暂不删除 | 设计评审后再决定接线或保留；`X-Forwarded-For` 信任边界列为设计内待决项 |
+| **版本策略** | 2026-10-01：每次发布默认 patch +0.0.1 | 0.x 期间 breaking 仍按 [Compatibility Policy](../architecture/compatibility-policy.md) 在 CHANGELOG 显著标注；流程见 [Release Process](../engineering/release-process.md) |
+| **多租户与 RBAC 是否进入产品** | 未定 | 现有文档列为非目标；Postgres 与共享状态落地前须定调。进入也不采用 agentgateway 式 `jwt.sub && mcp.tool.name` CEL 作为默认模型；授权主体仍是 gateway key |
 
 # 不变的非目标
 
@@ -188,6 +195,7 @@ timestamp: 2026-08-20T00:00:00Z
 - 用 `{target}_{tool}` 前缀拼接或 `prefixMode` 作为 canonical 工具名；canonical 仍是 `domain__provider__tool`，暴露名走既有最短无歧义 alias（[Naming Convention](../architecture/naming-convention.md)）
 - 桌面客户端外壳、AI client 配置自动检测、客户端自更新（[Product Requirements](product-requirements.md) 的 Toolport 不借鉴项）
 - human-in-the-loop 审批队列，优先级持续低于 key scope 与限流
+- stdio / 本地进程 MCP server（2026-10-01 定为非目标）：只对接远程 Streamable HTTP 上游，不管理本地进程生命周期
 
 # Citations
 

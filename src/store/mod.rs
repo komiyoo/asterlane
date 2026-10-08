@@ -7,6 +7,7 @@
 pub mod config_merge;
 pub mod error;
 pub mod mcp_servers;
+pub mod oauth_credentials;
 pub mod repository;
 mod retention;
 pub mod sqlite;
@@ -18,6 +19,7 @@ pub mod tool_metadata;
 pub use config_merge::{MergeReport, load_db_entries, merge_db_config, merge_db_into_config};
 pub use error::StoreError;
 pub use mcp_servers::{McpServerRecord, McpServerRepository};
+pub use oauth_credentials::UpstreamOAuthCredentialRepository;
 pub use repository::{
     AggregationDimension, AggregationFilter, AggregationRepository, OverallStats, ProxyKeyRecord,
     ProxyKeyRepository, RequestEventFilter, RequestEventRepository, Resource, ResourceRepository,

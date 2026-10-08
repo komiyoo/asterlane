@@ -12,6 +12,7 @@ function server(): OutputMcpServerResponse {
     builtin: false,
     requires_key: true,
     auth_type: "bearer",
+    oauth: null,
     security: { integrity_policy: "warn", defense_enabled: false, result_budget_bytes: null },
     limits: { rps: 2, rpm: null, max_concurrent: null },
     health_check_enabled: true,

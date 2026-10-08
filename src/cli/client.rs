@@ -60,7 +60,6 @@ fn exit_code_for_code(code: &str) -> i32 {
         "store" => 5,
         "proxy" => 6,
         "limit" => 7,
-        "transform" => 8,
         _ => 1,
     }
 }
@@ -266,7 +265,6 @@ mod tests {
         assert_eq!(exit_code_for_code("store.unavailable"), 5);
         assert_eq!(exit_code_for_code("proxy.upstream_timeout"), 6);
         assert_eq!(exit_code_for_code("limit.quota_exceeded"), 7);
-        assert_eq!(exit_code_for_code("transform.invalid_pointer"), 8);
         assert_eq!(exit_code_for_code("internal.unexpected"), 1);
         assert_eq!(exit_code_for_code(""), 1);
     }

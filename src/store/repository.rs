@@ -2,6 +2,9 @@
 //!
 //! 遵循 `docs/engineering/development-workflow.md` Store Strategy：
 //! handler 不直接写 SQL，所有数据库操作走 repository trait。
+//!
+//! 生产代码超过 500 行。拆分方向：请求事件、安全事件、资源与 key、用量聚合
+//! 四组 trait 各成文件，本模块再导出，调用方路径保持 `store::repository`。
 
 use crate::observability::{RequestEvent, SecurityEvent, SecurityEventKind};
 use crate::store::error::StoreError;

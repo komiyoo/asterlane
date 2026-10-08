@@ -111,6 +111,21 @@ impl McpHealthResponse {
     }
 }
 
+/// server 视图里的 `oauth` 段。非 OAuth server 为 `null`。
+///
+/// `client_secret_ref` 只是引用。不含 client secret、token 或 code。
+/// `expires_at` 取不到时省略。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub(crate) struct McpOAuthResponse {
+    pub grant: String,
+    pub status: String,
+    pub client_id: Option<String>,
+    pub client_secret_ref: Option<String>,
+    pub scopes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
 /// `GET /admin/mcp-servers` 与创建/更新响应。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub(crate) struct McpServerResponse {
@@ -122,6 +137,7 @@ pub(crate) struct McpServerResponse {
     pub builtin: bool,
     pub requires_key: bool,
     pub auth_type: AuthTypeResponse,
+    pub oauth: Option<McpOAuthResponse>,
     pub security: McpSecurityResponse,
     pub limits: McpLimitsResponse,
     pub health_check_enabled: bool,
@@ -144,6 +160,7 @@ impl McpServerResponse {
             builtin: config.builtin_mcp.contains(&server.id),
             requires_key: !matches!(server.auth, UpstreamAuth::None),
             auth_type: AuthTypeResponse::from_auth(&server.auth),
+            oauth: None,
             security: McpSecurityResponse {
                 integrity_policy: server.security.integrity_policy,
                 defense_enabled: server.security.defense.enabled,

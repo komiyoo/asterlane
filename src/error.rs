@@ -79,14 +79,11 @@ pub enum ErrorCode {
     McpInvalidToolCall,
     /// 上游 MCP server 失败。
     McpUpstreamMcpFailure,
-    /// FailClosed：至少一个 MCP 上游 `Unreachable`，拒绝把 stale 目录当权威结果。
+    /// FailClosed：至少一个 MCP 上游 `Unreachable` 或 `AuthRequired`，拒绝把 stale
+    /// 目录当权威结果。
     McpUpstreamUnavailable,
-
-    // ── transform ──
-    /// 变换规则尝试设置危险 header。
-    TransformDangerousHeader,
-    /// JSON Pointer 路径不合法。
-    TransformInvalidPointer,
+    /// 授权码类上游 MCP server 需要管理员授权（没有已存凭据、凭据无法解密或刷新被拒）。
+    McpUpstreamAuthRequired,
 
     // ── admin ──
     /// admin token 缺失或不匹配。
@@ -135,8 +132,7 @@ impl ErrorCode {
             Self::McpInvalidToolCall => "mcp.invalid_tool_call",
             Self::McpUpstreamMcpFailure => "mcp.upstream_mcp_failure",
             Self::McpUpstreamUnavailable => "mcp.upstream_unavailable",
-            Self::TransformDangerousHeader => "transform.dangerous_header",
-            Self::TransformInvalidPointer => "transform.invalid_pointer",
+            Self::McpUpstreamAuthRequired => "mcp.upstream_auth_required",
             Self::AdminUnauthorized => "admin.unauthorized",
             Self::AdminInvalidQuery => "admin.invalid_query",
             Self::AdminNotFound => "admin.not_found",
@@ -173,8 +169,8 @@ impl ErrorCode {
             | Self::LimitDailyCallsExhausted => "limit",
             Self::McpInvalidToolCall
             | Self::McpUpstreamMcpFailure
-            | Self::McpUpstreamUnavailable => "mcp",
-            Self::TransformDangerousHeader | Self::TransformInvalidPointer => "transform",
+            | Self::McpUpstreamUnavailable
+            | Self::McpUpstreamAuthRequired => "mcp",
             Self::AdminUnauthorized
             | Self::AdminInvalidQuery
             | Self::AdminNotFound
@@ -271,6 +267,8 @@ impl AsterlaneError {
     /// | proxy      | 6      |
     /// | limit      | 7      |
     /// | 其他       | 1      |
+    ///
+    /// 退出码 8 曾分配给已删除的 `transform.*`，已退役，不复用。
     pub fn exit_code(&self) -> i32 {
         match self.error_code().category() {
             "config" => 2,
@@ -279,7 +277,6 @@ impl AsterlaneError {
             "store" => 5,
             "proxy" => 6,
             "limit" => 7,
-            "transform" => 8,
             _ => 1,
         }
     }
@@ -322,6 +319,7 @@ impl AsterlaneError {
             | ErrorCode::ProxyUpstreamError
             | ErrorCode::ProxyConnectionFailed
             | ErrorCode::McpUpstreamMcpFailure
+            | ErrorCode::McpUpstreamAuthRequired
             | ErrorCode::LimitQuotaExceeded
             | ErrorCode::LimitQueueFull
             | ErrorCode::LimitQueueTimeout
@@ -402,7 +400,7 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::AuthForbiddenTool => 403,
         ErrorCode::AuthMissingUpstreamSecret => 503,
         ErrorCode::CatalogUnknownTool => 404,
-        ErrorCode::McpUpstreamMcpFailure => 502,
+        ErrorCode::McpUpstreamMcpFailure | ErrorCode::McpUpstreamAuthRequired => 502,
         ErrorCode::McpUpstreamUnavailable => 503,
         ErrorCode::CatalogInvalidPagination
         | ErrorCode::CatalogAmbiguousToolName
@@ -414,7 +412,6 @@ fn http_status_for(code: ErrorCode) -> u16 {
         | ErrorCode::LimitCallsExhausted
         | ErrorCode::LimitDailyCallsExhausted => 429,
         ErrorCode::LimitQueueFull | ErrorCode::LimitQueueTimeout => 503,
-        ErrorCode::TransformDangerousHeader | ErrorCode::TransformInvalidPointer => 500,
         ErrorCode::AdminUnauthorized => 401,
         ErrorCode::AdminInvalidQuery => 400,
         ErrorCode::AdminNotFound => 404,
@@ -512,6 +509,10 @@ mod tests {
             ErrorCode::McpUpstreamUnavailable.as_str(),
             "mcp.upstream_unavailable"
         );
+        assert_eq!(
+            ErrorCode::McpUpstreamAuthRequired.as_str(),
+            "mcp.upstream_auth_required"
+        );
         assert_eq!(ErrorCode::AdminUnauthorized.as_str(), "admin.unauthorized");
         assert_eq!(ErrorCode::AdminInvalidQuery.as_str(), "admin.invalid_query");
         assert_eq!(ErrorCode::AdminNotFound.as_str(), "admin.not_found");
@@ -557,6 +558,7 @@ mod tests {
         assert_eq!(ErrorCode::McpInvalidToolCall.category(), "mcp");
         assert_eq!(ErrorCode::McpUpstreamMcpFailure.category(), "mcp");
         assert_eq!(ErrorCode::McpUpstreamUnavailable.category(), "mcp");
+        assert_eq!(ErrorCode::McpUpstreamAuthRequired.category(), "mcp");
         assert_eq!(ErrorCode::AdminUnauthorized.category(), "admin");
         assert_eq!(ErrorCode::AdminInvalidQuery.category(), "admin");
         assert_eq!(ErrorCode::AdminNotFound.category(), "admin");
@@ -798,6 +800,18 @@ mod tests {
     }
 
     #[test]
+    fn http_mcp_upstream_auth_required_returns_502_and_cli_exit_4() {
+        let err = AsterlaneError::internal(
+            ErrorCode::McpUpstreamAuthRequired,
+            "upstream MCP server requires administrator authorization",
+        );
+        let view = err.http_response();
+        assert_eq!(view.status, 502);
+        assert_eq!(view.code, ErrorCode::McpUpstreamAuthRequired);
+        assert_eq!(err.exit_code(), 4);
+    }
+
+    #[test]
     fn http_mcp_upstream_unavailable_returns_503() {
         let err = AsterlaneError::internal(
             ErrorCode::McpUpstreamUnavailable,
@@ -934,6 +948,20 @@ mod tests {
             err.mcp_error(),
             McpErrorForm::ToolResultIsError(_)
         ));
+    }
+
+    #[test]
+    fn mcp_upstream_auth_required_returns_tool_result_is_error() {
+        let err = AsterlaneError::internal(
+            ErrorCode::McpUpstreamAuthRequired,
+            "upstream MCP server requires administrator authorization",
+        );
+        match err.mcp_error() {
+            McpErrorForm::ToolResultIsError(message) => {
+                assert!(message.contains("administrator authorization"));
+            }
+            other => panic!("expected tool result isError, got {other:?}"),
+        }
     }
 
     #[test]

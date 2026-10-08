@@ -8,3 +8,4 @@
 - [Observability](observability.md) - 请求事件、指标、脱敏、聚合口径。
 - [Compatibility Policy](compatibility-policy.md) - 配置、工具名、错误码、公共 API 的兼容边界。
 - [Crate Selection](crate-selection.md) - 各能力维度的 Rust crate 选型矩阵与版本。
+- [Rate Limit Dimensions](rate-limit-dimensions.md) - 限流维度设计：在用与未接线维度、接线或保留或删除的取舍与推荐、`X-Forwarded-For` 信任边界待决项。

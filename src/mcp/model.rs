@@ -1,10 +1,10 @@
 //! MCP 边界数据模型。
 //!
 //! 定义 Asterlane 自己的工具描述符与调用结果，不把 `rmcp` 类型泄漏到
-//! catalog、policy、proxy。transport / handler 在 `registry`、`server`、
-//! `notify` 使用官方 `rmcp` 3.x。
+//! catalog、policy、proxy。transport / handler 在 `peer`、`transport`、
+//! `convert`、`server`、`notify` 使用官方 `rmcp` 3.x。
 //!
-//! 上游 MCP 的原始 tool name 由 `registry::wrap_tools` 写入
+//! 上游 MCP 的原始 tool name 由 `convert::wrap_tools` 写入
 //! `WrappedTool.upstream_path`，转发时剥网关前缀（见 naming-convention.md）。
 
 use schemars::JsonSchema;

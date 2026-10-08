@@ -5,7 +5,8 @@
 //! 任何 MCP server 启动时（registry 不存在）health 全 `unknown`。
 //! 写路径流程：输入校验（400）→ registry 增删改 → `swap_config_and_catalog`
 //! 原子替换 → registry 快照同步 catalog + integrity baseline rebase →
-//! DB best-effort 持久化 → `AdminAudit`。响应永不含明文密钥或 secret ref。
+//! DB best-effort 持久化 → `AdminAudit`。响应永不含明文密钥；除 OAuth server 的
+//! `oauth` 段外也不含 secret ref（该段回显 `client_secret_ref` 供编辑表单使用）。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,7 +18,7 @@ use axum::http::StatusCode;
 use serde_json::json;
 use tracing::warn;
 
-use crate::config::{GatewayConfig, McpServerConfig, UpstreamAuth};
+use crate::config::{GatewayConfig, McpServerConfig, OAuthConfig, UpstreamAuth};
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
 use crate::limits::LimitRegistry;
@@ -26,14 +27,20 @@ use crate::store::{McpServerRecord, McpServerRepository};
 
 use super::auth::AdminKeyId;
 use super::crud::{record_audit, swap_config_and_catalog};
+use super::oauth::oauth_view;
 use super::types::{
-    McpHealthResponse, McpServerDetailResponse, McpServerResponse, McpServerToolResponse,
-    McpServerWriteParams,
+    McpHealthResponse, McpOAuthResponse, McpServerDetailResponse, McpServerResponse,
+    McpServerToolResponse, McpServerWriteParams,
 };
 
 impl McpServerWriteParams {
     /// 转换为配置结构并做输入校验；非法输入一律 400 `admin.invalid_query`。
-    fn into_config(self, path_id: Option<&str>) -> Result<McpServerConfig, AsterlaneError> {
+    /// `oauth` 是当前配置的顶层 `oauth` 节，`authorization_code` 依赖它。
+    fn into_config(
+        self,
+        path_id: Option<&str>,
+        oauth: Option<&OAuthConfig>,
+    ) -> Result<McpServerConfig, AsterlaneError> {
         let id = path_id.map(str::to_string).or(self.id).unwrap_or_default();
         for (field, value) in [
             ("id", &id),
@@ -47,6 +54,8 @@ impl McpServerWriteParams {
         }
         let auth = self.auth.unwrap_or_default();
         validate_auth(&auth)?;
+        auth.validate_mcp_oauth(&self.url, oauth)
+            .map_err(|message| invalid(format!("invalid oauth auth: {message}")))?;
         Ok(McpServerConfig {
             id,
             domain: self.domain,
@@ -73,9 +82,10 @@ fn not_found(id: &str) -> AsterlaneError {
 }
 
 /// auth 字段校验：bearer/header 凭据不能为空，header name 不能为空。
+/// OAuth 字段由 `UpstreamAuth::validate_mcp_oauth` 校验（见 `into_config`）。
 fn validate_auth(auth: &UpstreamAuth) -> Result<(), AsterlaneError> {
     match auth {
-        UpstreamAuth::None => Ok(()),
+        UpstreamAuth::None | UpstreamAuth::OAuth { .. } => Ok(()),
         UpstreamAuth::Bearer { token_ref } => {
             if token_ref.trim().is_empty() {
                 return Err(invalid("auth.token_ref is required for bearer auth"));
@@ -116,12 +126,15 @@ fn require_registry(state: &AppState) -> Result<Arc<McpServerRegistry>, Asterlan
 
 // ── 契约 §6 JSON 构造 ──
 
-fn server_json(
+pub(super) fn server_json(
     server: &McpServerConfig,
     config: &GatewayConfig,
     health: Option<&ServerHealth>,
+    oauth: Option<McpOAuthResponse>,
 ) -> McpServerResponse {
-    McpServerResponse::from_config(server, config, health)
+    let mut response = McpServerResponse::from_config(server, config, health);
+    response.oauth = oauth;
+    response
 }
 
 /// registry 健康快照按 server id 索引；无 registry 返回空表。
@@ -145,11 +158,12 @@ fn health_by_id(state: &AppState) -> HashMap<String, ServerHealth> {
 pub(super) async fn list_servers(State(state): State<AppState>) -> Json<Vec<McpServerResponse>> {
     let config = state.config_snapshot().await;
     let health = health_by_id(&state);
-    let list = config
-        .mcp_servers
-        .iter()
-        .map(|server| server_json(server, &config, health.get(&server.id)))
-        .collect();
+    let mut list = Vec::with_capacity(config.mcp_servers.len());
+    for server in &config.mcp_servers {
+        let item_health = health.get(&server.id);
+        let oauth = oauth_view(&state, server, item_health).await;
+        list.push(server_json(server, &config, item_health, oauth));
+    }
     Json(list)
 }
 
@@ -163,6 +177,7 @@ pub(super) async fn get_server(
         return Err(not_found(&id));
     };
     let health = health_by_id(&state);
+    let oauth = oauth_view(&state, server, health.get(&id)).await;
     let catalog = state.catalog.read().await;
     let tools = catalog
         .all_tools()
@@ -183,7 +198,7 @@ pub(super) async fn get_server(
         })
         .collect();
     Ok(Json(McpServerDetailResponse {
-        server: server_json(server, &config, health.get(&id)),
+        server: server_json(server, &config, health.get(&id), oauth),
         tools,
     }))
 }
@@ -197,8 +212,8 @@ pub(super) async fn create_server(
     Extension(admin): Extension<AdminKeyId>,
     Json(input): Json<McpServerWriteParams>,
 ) -> Result<(StatusCode, Json<McpServerResponse>), AsterlaneError> {
-    let server = input.into_config(None)?;
     let config = state.config_snapshot().await;
+    let server = input.into_config(None, config.oauth.as_ref())?;
     // 重复 id 预检（含 api_resources——catalog 按 resource_id 分片，不允许互撞），干净 400
     if config.mcp_server(&server.id).is_some() || config.resource(&server.id).is_some() {
         return Err(invalid(format!("id '{}' already exists", server.id)));
@@ -218,9 +233,10 @@ pub(super) async fn create_server(
     record_audit(&state, &admin.0, "create", "mcp_server", &server.id).await;
 
     let config = state.config_snapshot().await;
+    let oauth = oauth_view(&state, &server, Some(&health)).await;
     Ok((
         StatusCode::CREATED,
-        Json(server_json(&server, &config, Some(&health))),
+        Json(server_json(&server, &config, Some(&health), oauth)),
     ))
 }
 
@@ -234,8 +250,8 @@ pub(super) async fn update_server(
 ) -> Result<Json<McpServerResponse>, AsterlaneError> {
     // 省略 auth 表示保留已有 secret ref。响应不回显引用，编辑端无法原样重传。
     let preserve_auth = input.auth.is_none();
-    let mut server = input.into_config(Some(&id))?;
     let config = state.config_snapshot().await;
+    let mut server = input.into_config(Some(&id), config.oauth.as_ref())?;
     let Some(existing_auth) = config.mcp_server(&id).map(|item| item.auth.clone()) else {
         return Err(not_found(&id));
     };
@@ -258,7 +274,8 @@ pub(super) async fn update_server(
     record_audit(&state, &admin.0, "update", "mcp_server", &id).await;
 
     let config = state.config_snapshot().await;
-    Ok(Json(server_json(&server, &config, Some(&health))))
+    let oauth = oauth_view(&state, &server, Some(&health)).await;
+    Ok(Json(server_json(&server, &config, Some(&health), oauth)))
 }
 
 /// `DELETE /admin/mcp-servers/{id}` — 移除配置、registry entry 与 catalog
@@ -290,6 +307,11 @@ pub(super) async fn delete_server(
         && let Err(e) = repo.delete_mcp_server(&id).await
     {
         warn!(error = %e, server_id = %id, "failed to delete mcp server from store");
+    }
+    if let Some(oauth) = &state.upstream_oauth
+        && let Err(e) = oauth.clear_credentials(&id).await
+    {
+        warn!(error = %e, server_id = %id, "failed to clear mcp server oauth credentials");
     }
     record_audit(&state, &admin.0, "delete", "mcp_server", &id).await;
     Ok(StatusCode::NO_CONTENT)
@@ -379,7 +401,7 @@ mod tests {
     use crate::GatewayConfig;
     use crate::admin::auth::AdminAuth;
     use crate::catalog::ToolCatalog;
-    use crate::mcp::registry::McpFuture;
+    use crate::mcp::peer::McpFuture;
     use crate::mcp::{McpError, RemoteMcpPeer};
     use crate::observability::SecurityEventKind;
     use crate::store::SqliteRequestEventRepository;

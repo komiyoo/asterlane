@@ -345,7 +345,8 @@ mod batch_tests {
     use super::*;
     use crate::catalog::WrappedTool;
     use crate::config::{GatewayConfig, HttpMethod};
-    use crate::mcp::registry::{McpFuture, McpServerRegistry, RemoteMcpPeer};
+    use crate::mcp::peer::{McpFuture, RemoteMcpPeer};
+    use crate::mcp::registry::McpServerRegistry;
     use crate::mcp::{McpError, UpstreamCallOutcome};
     use crate::naming::ToolName;
     use std::sync::Mutex;

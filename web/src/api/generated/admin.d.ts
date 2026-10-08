@@ -23,7 +23,27 @@ export type InputUpstreamAuth =
   | {
       token_ref: string;
       type: "bearer";
+    }
+  | {
+      /**
+       * `client_credentials` 必填；`authorization_code` 可选（缺省走动态客户端注册）。
+       */
+      client_id?: string | null;
+      /**
+       * secret ref，不存明文。`client_credentials` 必填。
+       */
+      client_secret_ref?: string | null;
+      grant: InputOAuthGrant;
+      scopes?: string[];
+      type: "oauth";
     };
+/**
+ * 上游 OAuth 授权方式。整个网关共用一个上游身份，不做按用户委托。
+ *
+ * This interface was referenced by `AsterlaneAdminApi`'s JSON-Schema
+ * via the `definition` "InputOAuthGrant".
+ */
+export type InputOAuthGrant = "client_credentials" | "authorization_code";
 /**
  * What to do when drift is detected.
  *
@@ -121,12 +141,12 @@ export type OutputLoadBalanceStrategy =
   | "fastest_response"
   | "weighted";
 /**
- * MCP server 健康状态（serde 小写，供 wave 2 admin JSON 直接输出）。
+ * MCP server 健康状态（serde snake_case，供 admin JSON 与 schema 输出）。
  *
  * This interface was referenced by `AsterlaneAdminApi`'s JSON-Schema
  * via the `definition` "OutputHealthStatus".
  */
-export type OutputHealthStatus = "ok" | "unreachable" | "unknown" | "disabled";
+export type OutputHealthStatus = "ok" | "unreachable" | "auth_required" | "unknown" | "disabled";
 /**
  * Preset 目录里的默认凭据形态。不含 secret ref。
  *
@@ -150,7 +170,7 @@ export type OutputMcpPresetAuthResponse =
  * This interface was referenced by `AsterlaneAdminApi`'s JSON-Schema
  * via the `definition` "OutputAuthTypeResponse".
  */
-export type OutputAuthTypeResponse = "none" | "bearer" | "header";
+export type OutputAuthTypeResponse = ("none" | "bearer" | "header") | "oauth";
 /**
  * What to do when drift is detected.
  *
@@ -780,6 +800,7 @@ export interface OutputMcpServerDetailResponse {
   health_check_enabled: boolean;
   id: string;
   limits: OutputMcpLimitsResponse;
+  oauth: OutputMcpOAuthResponse | null;
   provider: string;
   requires_key: boolean;
   security: OutputMcpSecurityResponse;
@@ -797,6 +818,23 @@ export interface OutputMcpLimitsResponse {
   max_concurrent: number | null;
   rpm: number | null;
   rps: number | null;
+}
+/**
+ * server 视图里的 `oauth` 段。非 OAuth server 为 `null`。
+ *
+ * `client_secret_ref` 只是引用。不含 client secret、token 或 code。
+ * `expires_at` 取不到时省略。
+ *
+ * This interface was referenced by `AsterlaneAdminApi`'s JSON-Schema
+ * via the `definition` "OutputMcpOAuthResponse".
+ */
+export interface OutputMcpOAuthResponse {
+  client_id: string | null;
+  client_secret_ref: string | null;
+  expires_at?: string | null;
+  grant: string;
+  scopes: string[];
+  status: string;
 }
 /**
  * 读取侧 security。与写入的 `SecurityConfig` 不是同一形状。
@@ -837,6 +875,7 @@ export interface OutputMcpServerResponse {
   health_check_enabled: boolean;
   id: string;
   limits: OutputMcpLimitsResponse;
+  oauth: OutputMcpOAuthResponse | null;
   provider: string;
   requires_key: boolean;
   security: OutputMcpSecurityResponse;

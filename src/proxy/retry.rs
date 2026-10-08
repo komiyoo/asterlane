@@ -37,8 +37,46 @@ impl From<ProxyError> for ExecutionError {
     }
 }
 
+/// 一次上游 HTTP 调用的输入（`execute_with_retry` 的参数聚合）。
+///
+/// 全部字段为借用：URL、凭据注入形状与参数分解在整个重试循环内保持不变。
+pub(super) struct UpstreamRequest<'a> {
+    pub(super) http_method: HttpMethod,
+    pub(super) upstream_path: &'a str,
+    pub(super) base_url: &'a str,
+    pub(super) auth: &'a UpstreamAuth,
+    pub(super) args: &'a serde_json::Value,
+    /// 资源单 ref 凭据；有 key pool 时为 `None`（凭据在循环内 per-key 解析）。
+    pub(super) secret: Option<&'a SecretString>,
+    pub(super) pool: Option<&'a ResourceKeyPool>,
+    pub(super) param_locations: Option<&'a ParamLocations>,
+}
+
+// 手写 Debug：`secret` 不得输出，`args` 是调用方负载，也不进 Debug。
+impl std::fmt::Debug for UpstreamRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpstreamRequest")
+            .field("http_method", &self.http_method)
+            .field("upstream_path", &self.upstream_path)
+            .field("base_url", &self.base_url)
+            .field("secret", &self.secret.map(|_| "<redacted>"))
+            .field("pool", &self.pool.map(|_| "<ResourceKeyPool>"))
+            .finish_non_exhaustive()
+    }
+}
+
+/// 上游调用成功的结果与观测字段。
+#[derive(Debug)]
+pub(super) struct UpstreamResponse {
+    pub(super) result: InvokeResult,
+    pub(super) retry_count: u8,
+    pub(super) upstream_key_ref: String,
+    /// 成功那次尝试的服务端耗时（毫秒）。
+    pub(super) upstream_latency_ms: u32,
+}
+
 /// `Duration` → 毫秒 u32（饱和截断）。
-fn duration_ms(d: Duration) -> u32 {
+pub(super) fn duration_ms(d: Duration) -> u32 {
     d.as_millis().min(u32::MAX as u128) as u32
 }
 
@@ -75,18 +113,20 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
     /// `pool` 存在时每次尝试按配置策略 acquire key 并 per-key 解析凭据；
     /// 429/5xx/超时触发该 key 冷却（429/503 优先用上游 `Retry-After`），
     /// 下次尝试轮换到其他 key；成功时记录该 key 的 EWMA 延迟。
-    #[allow(clippy::too_many_arguments)]
     pub(super) async fn execute_with_retry(
         &self,
-        http_method: HttpMethod,
-        upstream_path: &str,
-        base_url: &str,
-        auth: &UpstreamAuth,
-        args: &serde_json::Value,
-        secret: &Option<SecretString>,
-        pool: Option<&ResourceKeyPool>,
-        param_locations: Option<&ParamLocations>,
-    ) -> Result<(InvokeResult, u8, String, u32), ExecutionError> {
+        request: UpstreamRequest<'_>,
+    ) -> Result<UpstreamResponse, ExecutionError> {
+        let UpstreamRequest {
+            http_method,
+            upstream_path,
+            base_url,
+            auth,
+            args,
+            secret,
+            pool,
+            param_locations,
+        } = request;
         let method = http_method.to_reqwest();
         let url = build_url(base_url, upstream_path, args, param_locations);
         let is_get = http_method == HttpMethod::Get;
@@ -122,7 +162,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                 (None, None)
             };
             // pool 存在时用选中 key 的凭据，否则用资源单 ref 凭据
-            let attempt_secret = pool_secret.as_ref().or(secret.as_ref());
+            let attempt_secret = pool_secret.as_ref().or(secret);
 
             let mut builder = self.http.request(method.clone(), &url);
             builder = apply_auth(auth, attempt_secret, builder);
@@ -186,8 +226,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                         if let (Some(p), Some(guard)) = (pool, &key_guard) {
                             p.pool().record_latency(guard.key_id(), attempt_elapsed);
                         }
-                        return Ok((
-                            InvokeResult {
+                        return Ok(UpstreamResponse {
+                            result: InvokeResult {
                                 request_id: String::new(),
                                 status,
                                 body,
@@ -198,8 +238,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                             },
                             retry_count,
                             upstream_key_ref,
-                            duration_ms(attempt_elapsed),
-                        ));
+                            upstream_latency_ms: duration_ms(attempt_elapsed),
+                        });
                     }
 
                     // 判定可重试（非 GET 的 max_attempts 已钳为 1，不会进入此分支）

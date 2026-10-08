@@ -21,7 +21,6 @@ The project should borrow NyaProxy's gateway primitives, but reinterpret them fo
 - upstream key pool and load balancing
 - rate limiting and queueing
 - retry, key rotation, and failover
-- request transformation
 - request history, metrics, key usage, and dashboard views
 
 # Starting A Development Task
@@ -95,7 +94,6 @@ The runtime should remain split by responsibility:
 | `keys` | Upstream key pool, cooldown, health, weights. |
 | `routing` | Load balancing and failover strategy. |
 | `limits` | Rate limits, quota, queue admission. |
-| `transform` | Header, query, path, and body transformations. |
 | `proxy` | Upstream HTTP execution. |
 | `mcp` | MCP protocol adapter and remote MCP proxy. |
 | `observability` | Request events, metrics, usage aggregation. |
@@ -204,7 +202,7 @@ just docs check
 
 脚本行为与仓库其他任务入口见 [scripts/README.md](../../scripts/README.md)。
 
-CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny；test job 以「Contract drift」比较 `schemas/admin.json`。`.github/workflows/web.yml` 用固定的 `vp` 1.0.0-rc.0、Node 22.23.1 和 Bun 1.4.2 冻结安装，再检查生成类型、`vp check`、`vp test --run` 和 `vp build`，并上传带提交号的 `web/dist`。`.github/workflows/deploy-smoke.yml` 分别构建网关镜像和静态站镜像，再跑不需要图形界面的部署冒烟。三个工作流都不部署，也不推镜像。供应链检查用 `cargo-deny`（`deny.toml`）。Lint 配置在 `Cargo.toml` `[lints]` 与 `clippy.toml`（测试代码允许 `unwrap`/`expect`/`print`）。
+CI（`.github/workflows/ci.yml`）运行 fmt / clippy / test / docs / deny / build；test job 以「Contract drift」比较 `schemas/admin.json`。`.github/workflows/web.yml` 用固定的 `vp` 1.0.0-rc.0、Node 22.23.1 和 Bun 1.4.2 冻结安装，再检查生成类型、`vp check`、`vp test --run` 和 `vp build`，并上传带提交号的 `web/dist`。`.github/workflows/deploy-smoke.yml` 分别构建网关镜像和静态站镜像，再跑不需要图形界面的部署冒烟。这三个工作流都不部署，也不推镜像。供应链检查用 `cargo-deny`（`deny.toml`）。发布由 tag 触发另一个 workflow，见 [Release Process](release-process.md)。Lint 配置在 `Cargo.toml` `[lints]` 与 `clippy.toml`（测试代码允许 `unwrap`/`expect`/`print`）。
 
 PR 描述用 `.github/PULL_REQUEST_TEMPLATE.md`：验证表格要求填实际结果而非打勾，自查分文档、工程纲领、安全三块，按改动相关性选填。
 

@@ -2,14 +2,17 @@
 
 mod boundary;
 mod error;
+mod lifecycle;
+mod oauth_callback;
 mod request_id;
 mod routes;
 mod state;
+mod tools;
 
 pub use crate::mcp::ToolListChangedPeers;
 pub use state::AppState;
 // 供 admin 调试调用复用 `/v1/tools/{name}/invoke` 的执行管线。
-pub(crate) use routes::execute_invoke;
+pub(crate) use tools::execute_invoke;
 // 从 integrity 模块直接再导出，供外部调用方从 http 入口获取。
 pub use crate::integrity::QuarantinedTools;
 
@@ -71,10 +74,16 @@ pub fn build_app_with_ct(
 
     let mut api = Router::new()
         .route("/config", get(routes::get_config))
-        .route("/v1/tools", get(routes::list_tools))
-        .route("/v1/tools/{name}/invoke", post(routes::invoke_tool));
+        .route("/v1/tools", get(tools::list_tools))
+        .route("/v1/tools/{name}/invoke", post(tools::invoke_tool));
     if state.admin_auth.is_some() {
         api = api.nest("/admin", crate::admin::router(&state));
+        // 授权码流程的浏览器回调：顶层路由、不经 admin 认证，只靠 state 校验。
+        // 没有 admin 就没人能发起授权，也就不挂载。控制台由独立静态站提供，
+        // 网关不再把 `/` 重定向到 `/admin/ui`。
+        if state.upstream_oauth.is_some() {
+            api = api.route(boundary::OAUTH_CALLBACK_PATH, get(oauth_callback::callback));
+        }
     }
     api = boundary::with_request_timeout(api, http_cfg.request_timeout_secs);
 
@@ -84,7 +93,7 @@ pub fn build_app_with_ct(
         .route("/metrics", get(metrics_handler));
 
     boundary::with_global_guards(public.merge(api).merge(mcp_router), &http_cfg)
-        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(tower_http::trace::TraceLayer::new_for_http().make_span_with(boundary::request_span))
         .layer(axum::middleware::from_fn(request_id::attach_request_id))
         .with_state(state)
 }
@@ -150,6 +159,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),
@@ -262,6 +272,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -313,6 +324,7 @@ mod tests {
             http: Default::default(),
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
+            oauth: None,
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),

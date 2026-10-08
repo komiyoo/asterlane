@@ -267,6 +267,21 @@
       ],
       "type": "object"
     },
+    "InputOAuthGrant": {
+      "description": "上游 OAuth 授权方式。整个网关共用一个上游身份，不做按用户委托。",
+      "oneOf": [
+        {
+          "const": "client_credentials",
+          "description": "全自动：网关用 client id/secret 换 token。",
+          "type": "string"
+        },
+        {
+          "const": "authorization_code",
+          "description": "管理员一次性授权，之后网关保存并刷新 token。",
+          "type": "string"
+        }
+      ]
+    },
     "InputPoolKeyConfig": {
       "description": "池内单个 key：secret ref + 权重。",
       "properties": {
@@ -569,6 +584,46 @@
             "token_ref"
           ],
           "type": "object"
+        },
+        {
+          "description": "网关作为 OAuth 客户端访问上游 MCP server；token 永不离开网关。\nserde 的 `snake_case` 会把 `OAuth` 变成 `o_auth`，这里显式改名。",
+          "properties": {
+            "client_id": {
+              "default": null,
+              "description": "`client_credentials` 必填；`authorization_code` 可选（缺省走动态客户端注册）。",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "client_secret_ref": {
+              "default": null,
+              "description": "secret ref，不存明文。`client_credentials` 必填。",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "grant": {
+              "$ref": "#/definitions/InputOAuthGrant"
+            },
+            "scopes": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "oauth",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "grant"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -661,12 +716,21 @@
     },
     "OutputAuthTypeResponse": {
       "description": "资源与 MCP 列表里的凭据形态。不含 secret ref。",
-      "enum": [
-        "none",
-        "bearer",
-        "header"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "none",
+            "bearer",
+            "header"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "oauth",
+          "description": "serde 的 `snake_case` 会把 `OAuth` 变成 `o_auth`，这里显式改名。",
+          "type": "string"
+        }
+      ]
     },
     "OutputConfigIssueLevel": {
       "description": "校验问题级别。序列化为 `error` / `warn`。",
@@ -773,7 +837,7 @@
       "type": "object"
     },
     "OutputHealthStatus": {
-      "description": "MCP server 健康状态（serde 小写，供 wave 2 admin JSON 直接输出）。",
+      "description": "MCP server 健康状态（serde snake_case，供 admin JSON 与 schema 输出）。",
       "oneOf": [
         {
           "const": "ok",
@@ -783,6 +847,11 @@
         {
           "const": "unreachable",
           "description": "最近一次探测（含连接）失败。",
+          "type": "string"
+        },
+        {
+          "const": "auth_required",
+          "description": "授权码类 OAuth 上游需要管理员授权（见模块文档）。",
           "type": "string"
         },
         {
@@ -1140,6 +1209,49 @@
       ],
       "type": "object"
     },
+    "OutputMcpOAuthResponse": {
+      "description": "server 视图里的 `oauth` 段。非 OAuth server 为 `null`。\n\n`client_secret_ref` 只是引用。不含 client secret、token 或 code。\n`expires_at` 取不到时省略。",
+      "properties": {
+        "client_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_secret_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grant": {
+          "type": "string"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant",
+        "status",
+        "client_id",
+        "client_secret_ref",
+        "scopes"
+      ],
+      "type": "object"
+    },
     "OutputMcpPresetAuthResponse": {
       "description": "Preset 目录里的默认凭据形态。不含 secret ref。",
       "oneOf": [
@@ -1284,6 +1396,16 @@
         "limits": {
           "$ref": "#/definitions/OutputMcpLimitsResponse"
         },
+        "oauth": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OutputMcpOAuthResponse"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "provider": {
           "type": "string"
         },
@@ -1317,6 +1439,7 @@
         "builtin",
         "requires_key",
         "auth_type",
+        "oauth",
         "security",
         "limits",
         "health_check_enabled",
@@ -1353,6 +1476,16 @@
         "limits": {
           "$ref": "#/definitions/OutputMcpLimitsResponse"
         },
+        "oauth": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OutputMcpOAuthResponse"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "provider": {
           "type": "string"
         },
@@ -1380,6 +1513,7 @@
         "builtin",
         "requires_key",
         "auth_type",
+        "oauth",
         "security",
         "limits",
         "health_check_enabled",

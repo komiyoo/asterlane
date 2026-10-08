@@ -13,33 +13,44 @@ fn translate_to_wire_regex(pattern: &str) -> String {
     pattern.replace(':', "__")
 }
 
-/// Key scope 有效判定（见 docs/runtime/mcp-governance-and-key-limits.md §2）：
-///
-/// 1. `denied_tools` 正则命中 → 拒绝（最高优先）；
-/// 2. 允许 = `allowed_tools` 正则命中 ∨ `resource_id ∈ allowed_servers`
-///    ∨ wire name ∈ `allowed_tool_names`；
-/// 3. 三个允许列表全空 → 全拒绝。
+/// Key scope 有效判定（见 docs/runtime/mcp-governance-and-key-limits.md §2）。
 ///
 /// `resource_id` 由调用方从 catalog `WrappedTool.resource_id` 传入。
+/// 规则在 [`key_can_use_name`]：prompts 与 resources 传包装后的匹配名。
 pub fn key_can_use_tool(
     key: &ProxyKey,
     tool_name: &ToolName,
     resource_id: &str,
 ) -> Result<bool, PolicyError> {
-    let full_name = tool_name.to_wire_name();
+    key_can_use_name(key, &tool_name.to_wire_name(), resource_id)
+}
 
+/// 按字符串匹配名判权。工具、prompt、resource、template 共用：
+///
+/// 1. `denied_tools` 正则命中 → 拒绝（最高优先）；
+/// 2. 允许 = `allowed_tools` 正则命中 ∨ `resource_id ∈ allowed_servers`
+///    ∨ `full_name ∈ allowed_tool_names`；
+/// 3. 三个允许列表全空 → 全拒绝。
+///
+/// `full_name` 是 `domain__provider__<name>`。`resource_id` 是上游 server id
+/// （HTTP API 则是 resource id）。
+pub fn key_can_use_name(
+    key: &ProxyKey,
+    full_name: &str,
+    resource_id: &str,
+) -> Result<bool, PolicyError> {
     if !key.denied_tools.is_empty() {
         let denied: Vec<String> = key
             .denied_tools
             .iter()
             .map(|p| translate_to_wire_regex(p))
             .collect();
-        if RegexSet::new(&denied)?.is_match(&full_name) {
+        if RegexSet::new(&denied)?.is_match(full_name) {
             return Ok(false);
         }
     }
     if key.allowed_servers.iter().any(|s| s == resource_id)
-        || key.allowed_tool_names.iter().any(|n| n == &full_name)
+        || key.allowed_tool_names.iter().any(|n| n == full_name)
     {
         return Ok(true);
     }
@@ -51,7 +62,7 @@ pub fn key_can_use_tool(
         .iter()
         .map(|p| translate_to_wire_regex(p))
         .collect();
-    Ok(RegexSet::new(&allowed)?.is_match(&full_name))
+    Ok(RegexSet::new(&allowed)?.is_match(full_name))
 }
 
 #[derive(Debug, Error)]
@@ -163,5 +174,70 @@ mod tests {
         key.allowed_tool_names = vec!["search__exa__crawl".to_string()];
         let tool = ToolName::new("search", "exa", "crawl").unwrap();
         assert!(!key_can_use_tool(&key, &tool, "exa-mcp").unwrap());
+    }
+
+    // ── 按字符串名判权（prompt、resource、template 共用）──
+
+    #[test]
+    fn name_check_agrees_with_tool_check() {
+        let tool = ToolName::new("docs", "wiki", "summarize").unwrap();
+        let wire = tool.to_wire_name();
+        let mut scoped = key(vec![r"^docs:.*"], vec![]);
+        scoped.allowed_servers = vec!["docs".to_string()];
+        let cases = [
+            key(vec![r"^docs:.*"], vec![]),
+            key(vec![r"^docs:.*"], vec![r"^docs:wiki:"]),
+            key(vec![], vec![]),
+            key(vec![r"^other:"], vec![]),
+            scoped,
+        ];
+        for key in cases {
+            for resource_id in ["docs", "other"] {
+                assert_eq!(
+                    key_can_use_tool(&key, &tool, resource_id).unwrap(),
+                    key_can_use_name(&key, &wire, resource_id).unwrap()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn name_check_matches_raw_names_with_characters_tool_names_reject() {
+        let name = "docs__wiki__guide/README.md v2";
+        // 配置里的冒号形式与 wire 形式都按前缀匹配
+        assert!(key_can_use_name(&key(vec![r"^docs:wiki:"], vec![]), name, "x").unwrap());
+        assert!(key_can_use_name(&key(vec![r"^docs__wiki__guide/"], vec![]), name, "x").unwrap());
+        assert!(!key_can_use_name(&key(vec![r"^docs:other:"], vec![]), name, "x").unwrap());
+    }
+
+    #[test]
+    fn name_check_deny_wins_over_every_allow_rule() {
+        let mut key = key(vec![r"^docs:.*"], vec![r"^docs:wiki:secret"]);
+        key.allowed_servers = vec!["docs".to_string()];
+        key.allowed_tool_names = vec!["docs__wiki__secret".to_string()];
+        assert!(!key_can_use_name(&key, "docs__wiki__secret", "docs").unwrap());
+        assert!(key_can_use_name(&key, "docs__wiki__public", "docs").unwrap());
+    }
+
+    #[test]
+    fn name_check_structured_scopes_and_empty_lists() {
+        let mut key = key(vec![], vec![]);
+        // 三个允许列表全空：全拒绝
+        assert!(!key_can_use_name(&key, "docs__wiki__a", "docs").unwrap());
+        key.allowed_servers = vec!["docs".to_string()];
+        assert!(key_can_use_name(&key, "docs__wiki__a", "docs").unwrap());
+        assert!(!key_can_use_name(&key, "docs__wiki__a", "ops").unwrap());
+        key.allowed_servers.clear();
+        key.allowed_tool_names = vec!["docs__wiki__a".to_string()];
+        assert!(key_can_use_name(&key, "docs__wiki__a", "ops").unwrap());
+        assert!(!key_can_use_name(&key, "docs__wiki__b", "ops").unwrap());
+    }
+
+    #[test]
+    fn name_check_reports_invalid_regex() {
+        let allow = key(vec!["("], vec![]);
+        assert!(key_can_use_name(&allow, "docs__wiki__a", "docs").is_err());
+        let deny = key(vec![], vec!["("]);
+        assert!(key_can_use_name(&deny, "docs__wiki__a", "docs").is_err());
     }
 }

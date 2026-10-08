@@ -4,7 +4,7 @@ title: Asterlane Original Product Requirements
 description: Captures the original product intent for Asterlane as an agent-native third-party resource and MCP credential gateway.
 resource: docs/product/product-requirements.md
 tags: [requirements, product, agent-native, mcp, credentials]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-10-02T00:00:00Z
 ---
 
 # 背景
@@ -23,7 +23,7 @@ Asterlane 的原始需求不是做 AI 模型网关，而是做 **第三方资源
 - Agent 只接入 Asterlane，不直接持有或感知上游真实凭据。
 - 不同 gateway key 可以看到和调用不同范围的工具。
 - 平台能够统计每个 key、工具、上游资源的使用次数、分布、错误和延迟。
-- 借鉴 NyaProxy 的代理、key 池、负载均衡、限流、重试、请求变换、使用记录和可观测能力。
+- 借鉴 NyaProxy 的代理、key 池、负载均衡、限流、重试、使用记录和可观测能力。
 - 支持把网关中配置的 HTTP API 和第三方 MCP server 包装成 MCP tool 提供给 AI。
 - MCP 工具发现应支持按正则过滤和分页，避免 agent 一次性获取全部工具。
 - 包装后的 MCP tool 名称需要稳定、可过滤、可扩展，默认采用 capability-first 的多段式命名。
@@ -52,8 +52,6 @@ Asterlane 的原始需求不是做 AI 模型网关，而是做 **第三方资源
   - round-robin、random、least-requests、fastest-response、weighted 等负载均衡策略。
   - endpoint、upstream key、client IP、proxy user 多层限流。
   - 队列、超时、重试、key rotation 和 failover。
-  - 请求 header/template 变量替换。
-  - JSON body 字段增删改等请求变换。
   - 按代理 key、上游 key、endpoint 或用户维度做限制与统计。
   - dashboard / request history / key usage 这类可观测能力。
 - 支持把配置到网关层的 HTTP API 通过 MCP 暴露给 AI。
@@ -177,11 +175,13 @@ gateway-facing key 是 agent 或应用身份。每个 key 有自己的 tool scop
 
 ## HTTP API Wrapper
 
-把配置到网关层的 REST/HTTP API 包装成 MCP tool。调用时由网关注入上游凭据、拼接 path/query/header/body，并记录调用结果。请求变换可借鉴 NyaProxy 的 header 变量替换和 JSON body substitution，但必须显式配置。
+把配置到网关层的 REST/HTTP API 包装成 MCP tool。调用时由网关注入上游凭据、拼接 path/query/header/body，并记录调用结果。
 
 ## Remote MCP Proxy
 
 支持代理第三方 MCP server。Asterlane 负责上游 MCP 鉴权、tool name namespace 包装、tool list 过滤、tool call 转发、错误归一化和使用日志。
+
+代理范围是远程 MCP server 的 tools、resources 与 prompts。stdio / 本地进程 MCP server 不是目标：网关只对接 Streamable HTTP 上游，不管理本地进程。resource 与 prompt 的可见范围沿用工具 scope，不另设配置字段。
 
 ## Rate Limit And Queue
 
@@ -190,10 +190,6 @@ gateway-facing key 是 agent 或应用身份。每个 key 有自己的 tool scop
 ## Retry And Failover
 
 对 429、5xx、超时等可恢复错误支持受控重试。重试策略可选择同 key 重试、key rotation、provider fallback 或直接失败。所有重试必须进入日志，避免隐藏真实失败率。
-
-## Request Transformation
-
-支持 header、query、path 和 JSON body 的显式变换，用于适配上游 API 差异、默认参数、字段删除或模型兼容。变换规则必须可审计，并默认不允许 agent 任意写入危险 header。
 
 ## Observability Store
 
@@ -331,7 +327,7 @@ Meta-tool 设计（Asterlane 版）：
 | Toolport 功能 | 不借鉴原因 |
 | --- | --- |
 | Tauri 桌面 UI / OS keychain 集成 | Asterlane 是 headless server，不需要桌面壳 |
-| stdio transport（sidecar 模式） | Asterlane 走 HTTP/MCP streamable HTTP |
+| stdio transport（sidecar 模式） | 非目标。Asterlane 只对接远程 Streamable HTTP 上游，代理其 tools、resources 与 prompts |
 | 20 AI client 配置自动检测 | 不在 Asterlane 产品范围 |
 | auto-updater / 签名分发 | 服务端部署，不做客户端自更新 |
 | human-in-the-loop 审批队列 | 架构上可以做但优先级低于 key scope + rate limit；后续按需追加 |
