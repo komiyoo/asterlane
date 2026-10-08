@@ -65,7 +65,7 @@ tools/list
 → asl__search    按任务搜索，先给短摘要
 → asl__describe  只为选中的名字取完整参数
 → asl__call      调用一个
-→ asl__batch     一次调用最多 10 个，各自返回
+→ asl__batch     一次最多 10 个独立调用；顺序只对齐结果，失败不回滚
 → asl__fetch     续取被截断的长结果
 ```
 

@@ -101,7 +101,7 @@ src/mcp/result.rs          # 内部/执行结果到 MCP CallToolResult 的转换
 | `search` | `POST /v1/tools/asl__search/invoke?format=json`，body 含 `query` 与可选分页参数 | 从 `content[0].Text` 解析 `{tools,next_cursor}`；响应形状不符时返回本地错误 |
 | `get` | `POST /v1/tools/asl__describe/invoke?format=json`，body 为 `{ "names": [...] }` | 解析有序 `results`，单次最多 10 个名称 |
 | `call` | `POST /v1/tools/{name}/invoke?format=json`，body 为参数 object | 直接交给输出层 |
-| `call-batch` | `POST /v1/tools/asl__batch/invoke?format=json`，body 为 `{ "calls": [...] }` | 解析有序 `results`，单次最多 10 个独立调用 |
+| `call-batch` | `POST /v1/tools/asl__batch/invoke?format=json`，body 为 `{ "calls": [...] }` | 解析有序 `results`。顺序只对齐结果，失败不中止也不回滚，无事务。单次最多 10 个独立调用 |
 
 路径中的工具名必须进行 URL path-segment 编码，不能直接插值未经编码的用户输入。查询参数继续复用 `client.rs` 的 RFC 3986 编码逻辑。
 

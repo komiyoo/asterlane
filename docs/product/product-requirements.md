@@ -287,7 +287,7 @@ Meta-tool 设计（Asterlane 版）：
 | `asl__search` | 按关键词搜索可用 tool，默认返回名称、封顶描述、顶层参数签名与参数摘要；`include_schema: true` 返回与 `asl__describe` 相同的压缩 inputSchema |
 | `asl__describe` | 按 key 范围批量获取完整描述与压缩后的 inputSchema |
 | `asl__call` | 间接调用任意已发现 tool（走正常 proxy 路径：凭据注入 + 限流 + 审计） |
-| `asl__batch` | 一次提交最多 10 个独立调用，逐项返回执行结果 |
+| `asl__batch` | 一次提交最多 10 个独立调用，按输入顺序逐项返回；顺序只对齐结果，失败不中止也不回滚，无事务 |
 | `asl__fetch` | 分页获取超长结果的后续片段（result shaping） |
 
 ### 2. Tool Integrity / Rug-Pull 检测

@@ -155,9 +155,13 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
         ToolDescriptor {
             name: CALL_TOOLS.to_string(),
             description: "Call up to 10 independent tools in one request after reading their \
-                          input schemas with asl__describe. Calls run in input order, \
-                          each result is returned separately, and a failed item does not stop \
-                          later items. Retry failed items individually when appropriate."
+                          input schemas with asl__describe. Calls run in input order and each \
+                          result is returned separately. That order only aligns results: a later \
+                          call cannot use an earlier result, and must not assume an earlier \
+                          call's upstream side effect is visible. A failed item does not stop or \
+                          roll back the others. Successful upstream side effects remain; there is \
+                          no transaction. Retry failed items individually. When the next arguments \
+                          depend on a previous result, use asl__call."
                 .to_string(),
             input_schema: BatchCallToolsRequest::input_schema(),
         },
@@ -476,6 +480,19 @@ mod tests {
             call_tool.input_schema["required"],
             json!(["name", "arguments"])
         );
+    }
+
+    #[test]
+    fn batch_descriptor_states_fixed_call_semantics() {
+        let descs = meta_tool_descriptors();
+        let batch = descs.iter().find(|d| d.name == CALL_TOOLS).unwrap();
+        let text = batch.description.as_str();
+        assert!(text.contains("input order"));
+        assert!(text.contains("only aligns results"));
+        assert!(text.contains("upstream side effect"));
+        assert!(text.contains("does not stop or roll back"));
+        assert!(text.contains("no transaction"));
+        assert!(text.contains("asl__call"));
     }
 
     #[test]

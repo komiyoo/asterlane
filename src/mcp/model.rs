@@ -35,6 +35,10 @@ pub struct BatchGetToolsRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct BatchCallToolsRequest {
+    /// Independent calls, at most 10. Results follow this order. The order only
+    /// aligns results: a later call cannot use an earlier result and must not
+    /// assume an earlier upstream side effect is visible. One failure does not
+    /// stop or roll back the others. There is no transaction.
     #[serde(deserialize_with = "deserialize_batch")]
     #[schemars(length(min = 1, max = 10))]
     pub calls: Vec<BatchToolCall>,
@@ -208,6 +212,10 @@ mod tests {
             BatchCallToolsRequest::input_schema()["properties"]["calls"]["minItems"],
             1
         );
+        let calls = &BatchCallToolsRequest::input_schema()["properties"]["calls"];
+        let description = calls["description"].as_str().unwrap_or_default();
+        assert!(description.contains("no transaction"));
+        assert!(description.contains("side effect"));
     }
 
     #[test]

@@ -5,7 +5,7 @@ const DESCRIPTION: &str = "Find, inspect, and call tools available to the curren
 const WORKFLOW: &str = "Use the tools visible to your current gateway key for this task:\n\
 1. Call asl__search with {\"query\": \"<what you need>\"}. If the result has next_cursor, pass that cursor to search the next page. Each hit has a capped description and a compact parameter signature, not the callable argument schema.\n\
 2. Choose names returned by search and call asl__describe with {\"names\": [\"<returned canonical name>\"]} to read their descriptions and input_schema. The schema keeps the types and constraints needed to call the tool. You may request up to 10 names at once. Treat not_found as unavailable.\n\
-3. Call asl__call with {\"name\": \"<returned canonical name>\", \"arguments\": {}} using arguments that match the schema. For up to 10 independent calls, use asl__batch with {\"calls\": [{\"name\": \"<returned canonical name>\", \"arguments\": {}}]}. Batch results follow input order; inspect each result and retry only failed items when appropriate. Handle input_required if a tool requests more input.\n\
+3. Call asl__call with {\"name\": \"<returned canonical name>\", \"arguments\": {}} using arguments that match the schema. For up to 10 independent calls, use asl__batch with {\"calls\": [{\"name\": \"<returned canonical name>\", \"arguments\": {}}]}. Batch results follow input order. That order only aligns results: a later call cannot use an earlier result, and must not assume an earlier upstream side effect is visible. A failed item does not stop or roll back the others; there is no transaction. Inspect each result and retry only failed items. When the next arguments depend on a previous result, use asl__call. Handle input_required if a tool requests more input.\n\
 4. If a result includes a continuation cursor, call asl__fetch with {\"cursor\": \"<returned cursor>\"} to retrieve the remaining content.\n\
 Only use names returned for this key; search and describe do not reveal tools outside its scope.";
 
@@ -45,5 +45,7 @@ mod tests {
         ] {
             assert!(text.contains(tool), "missing {tool}");
         }
+        assert!(text.contains("no transaction"));
+        assert!(text.contains("upstream side effect"));
     }
 }

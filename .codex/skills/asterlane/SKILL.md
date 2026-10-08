@@ -97,7 +97,7 @@ cargo run -- tools call-batch --args '{"calls":[{"name":"search__exa__neural_sea
 cargo run -- tools search "web search" --format json | jq '.tools[].name'
 ```
 
-成功输出支持 `json|yaml|markdown`，优先级为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。`tools search` 返回 `{tools,next_cursor}`，支持 `--limit`/`--cursor` 翻页；`tools get` 与 `tools call-batch` 返回有序 `results`。这些在线命令向 REST 端点请求 JSON，再只在客户端渲染，不改变 MCP `tools/call` 固定 JSON 的边界。
+成功输出支持 `json|yaml|markdown`，优先级为 `--format`、`ASTERLANE_FORMAT`、TTY 默认；TTY 默认 markdown，pipe 默认 JSON。`tools search` 返回 `{tools,next_cursor}`，支持 `--limit`/`--cursor` 翻页；`tools get` 与 `tools call-batch` 返回有序 `results`。`call-batch` 按输入顺序执行独立调用：顺序只对齐结果，一项失败不中止也不回滚其余项，无事务。这些在线命令向 REST 端点请求 JSON，再只在客户端渲染，不改变 MCP `tools/call` 固定 JSON 的边界。
 
 ## Operate The Gateway With The CLI
 

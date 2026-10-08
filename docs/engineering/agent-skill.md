@@ -52,7 +52,7 @@ cargo run -- tools search "web search" --format json | jq '.tools[].name'
 
 `search__exa__neural_search` 的真实上游调用要求网关进程启动时可读取 `EXA_DEFAULT`；该变量来自示例配置的 `secret://exa/default`，不得把真实值写入文档或仓库。
 
-成功输出格式优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认：交互式终端默认 markdown，pipe 默认 JSON。`tools search` 返回 `{tools,next_cursor}`，可用 `--limit`/`--cursor` 翻页；`tools get` 和 `tools call-batch` 返回有序 `results`。这些命令在传输层请求 REST JSON，再只在客户端渲染；它们不修改服务端 REST 默认，也不改变 MCP `tools/call` 固定 JSON 的边界。完整架构见 [统一 CLI 客户端架构](../admin/cli-client-architecture.md)。
+成功输出格式优先级为 `--format` > `ASTERLANE_FORMAT` > TTY 默认：交互式终端默认 markdown，pipe 默认 JSON。`tools search` 返回 `{tools,next_cursor}`，可用 `--limit`/`--cursor` 翻页；`tools get` 和 `tools call-batch` 返回有序 `results`。`call-batch` 按输入顺序执行独立调用：顺序只对齐结果，一项失败不中止也不回滚其余项，无事务。这些命令在传输层请求 REST JSON，再只在客户端渲染；它们不修改服务端 REST 默认，也不改变 MCP `tools/call` 固定 JSON 的边界。完整架构见 [统一 CLI 客户端架构](../admin/cli-client-architecture.md)。
 
 # CLI 操作段
 

@@ -1,5 +1,10 @@
 # Documentation Update Log
 
+## 2026-10-08（asl__batch 批量契约写给客户端）
+
+- **结论**：`asl__batch` 维持单一固定语义，不增加 `mode`，也不提供事务回滚。工具描述、`calls` 的 schema 说明和 `asterlane_tool_workflow` 写明：按输入顺序对齐结果；后一项不能使用前一项的返回值，也不能假定前一项的上游副作用已经可见；一项失败不中止也不回滚其余项。下一次参数依赖上一次结果时用 `asl__call`。
+- **依据**：[API Discovery · 大目录代理入口](runtime/api-discovery.md#大目录代理入口)、`src/discovery.rs` 的 `meta_tool_descriptors`、`src/mcp/call.rs` 的 `call_tools`。
+
 ## 2026-10-08（搜索签名与 schema 投影）
 
 - **结论**：`asl__search` 增加顶层 `signature`，结果描述封顶为第一句或 200 字。`include_schema` 与 `asl__describe` 返回同一份压缩 schema。catalog、`tools/list` 和管理面仍用原始 schema。

@@ -132,7 +132,7 @@ api_resources:
 
 1. `asl__search` 返回 key 可见的简短候选；`limit` 和 `cursor` 支持关键词与语义排序翻页，响应为 `{tools, next_cursor}`。
 2. `asl__describe` 接受 `{names: [规范名, ...]}`（1–10 个），返回同顺序的 `{results: [...]}`；每项的 `tool` 包含名称、完整描述和压缩后的 `input_schema`。压缩只作用于这次响应：去掉 `$schema`、`$id`、`example` / `examples`、空描述，以及值为 `true` 的 `additionalProperties`；属性或 `$defs` 条目上与键名相同的 `title` 一并去掉。类型、`required`、`enum`、`format`、`pattern`、数值与长度边界、`default`、`additionalProperties: false`、`oneOf` / `anyOf` / `allOf`、`$ref` 与 `$defs` 保留，属性说明同样封顶。不可见与不存在都返回 `error: "not_found"`。过大的单项定义以 `cursor` 续取。catalog、`tools/list` 和管理面里的 schema 仍是原文。
-3. `asl__batch` 接受 `{calls: [{name, arguments}, ...]}`（1–10 项独立调用），返回同顺序的 `{results: [...]}`；每项包含 `result`、`input_required` 或 `error`，成功执行项另有 `request_id`。它沿用 `asl__call` 的别名解析，每项分别进入 `ProxyExecutor::invoke_call`，执行权限、限额、凭据注入、隔离检查、审计和结果裁剪。调用顺序执行；一项失败不撤销或跳过其他项，批量本身不提供事务语义。
+3. `asl__batch` 接受 `{calls: [{name, arguments}, ...]}`（1–10 项独立调用），返回同顺序的 `{results: [...]}`；每项包含 `result`、`input_required` 或 `error`，成功执行项另有 `request_id`。它沿用 `asl__call` 的别名解析，每项分别进入 `ProxyExecutor::invoke_call`，执行权限、限额、凭据注入、隔离检查、审计和结果裁剪。调用按输入顺序执行，结果与 `calls` 对齐。这个顺序只用于对齐结果：后一项读不到前一项的返回值，也不能假定前一项的上游副作用已经可见。一项失败不撤销已成功的调用，也不跳过其余项。批量不提供事务或回滚；成功项的副作用在该项返回时已经留在上游。下一次参数依赖上一次结果时改用 `asl__call`。
 
 批量入口拒绝空数组与超过上限的数组；授权失败、上游失败和 MCP `input_required` 保留在对应结果项中，调用方可只重试该项。批量结果有总字节预算；超出的工具输出使用现有按 key 绑定的 `ResultCache` 与 `asl__fetch` 续取，不丢弃完整结果。单次请求只允许调用 catalog 中当前 key 获准的工具，不提供任意代码执行或任意上游 URL 请求。
 
