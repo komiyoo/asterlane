@@ -89,6 +89,10 @@ admin:
 api_resources: []
 proxy_keys: []
 EOF
+# 入口以 root 启动后把进程降到 uid 10001。配置和 file secret 都是绑定挂载，
+# Linux 上保留宿主机权限。0600 且属主不是 10001 时，读配置会 Permission denied。
+# Compose 会忽略 secret 的 mode。临时目录是 0700，这两个文件放宽后其他宿主机用户仍读不到 token。
+chmod 644 "$config_file" "$token_file"
 
 free_port() {
   python3 - <<'PY'
