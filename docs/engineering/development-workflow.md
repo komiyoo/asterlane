@@ -44,7 +44,7 @@ NyaProxy 只作为网关原语的概念参考，按 Asterlane 的资源与 MCP �
 
 管理 API 提供健康检查、资源目录、proxy key 范围、上游 key pool 状态、近期请求事件、按 key / provider / tool / status 的用量汇总，以及配置校验报告。
 
-当前控制台是 `web/` 里的 React/TypeScript 静态站，经 Nginx 同源访问 `/admin/*`。网关不再内嵌页面。管理 API 的 Rust DTO、`schemas/admin.json` 和 `web/src/api/generated/admin.d.ts` 由 `just api types` 串联生成；`just api types --check` 只比较。11 个页面和资源、代理密钥、MCP、工具的写操作都在静态入口可用。`just check` 包含前端静态检查、单元测试、构建和契约差异检查。`just web e2e` 用 Nginx 镜像和隔离网关做浏览器回归，`just web deploy-smoke` 演练镜像启动与回滚；两者都不在默认检查里。纯 `cargo build` / `cargo test` 仍然不安装 Node 依赖。
+当前控制台是 `web/` 里的 React/TypeScript 静态站。现有生产构建把 `/admin/*` 写成同源相对路径，由 Nginx 转发。同源不是产品约束，线上放置见 [线上部署](../admin/deployment.md)。网关不再内嵌页面。管理 API 的 Rust DTO、`schemas/admin.json` 和 `web/src/api/generated/admin.d.ts` 由 `just api types` 串联生成；`just api types --check` 只比较。11 个页面和资源、代理密钥、MCP、工具的写操作都在静态入口可用。`just check` 包含前端静态检查、单元测试、构建和契约差异检查。`just web e2e` 用 Nginx 镜像和隔离网关做浏览器回归，`just web deploy-smoke` 演练镜像启动与回滚；两者都不在默认检查里。纯 `cargo build` / `cargo test` 仍然不安装 Node 依赖。
 
 Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶段路线）见 [Admin Console](../admin/admin-console.md)。
 

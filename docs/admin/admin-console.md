@@ -13,7 +13,7 @@ timestamp: 2026-08-19T00:00:00Z
 
 控制台是 admin API 的**纯消费者**：所有数据经 `/admin/*` JSON 端点获取，不开私有数据通道。凡控制台需要而 admin API 没有的数据，先补端点再画页面——API 缺口清单见下文。
 
-2026-09-26 确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：React + TypeScript + Kumo，Vite+ 工具链与 Bun 包管理，前后端独立构建部署、同源访问。2026-09-27 起页面由 `web/` 的静态站提供，网关不再内嵌 `src/admin/ui/`。下文页面能力是已交付行为；C0–C6 记录这些能力第一次落地时的实现。
+2026-09-26 确定 [控制台与网关分离架构](../architecture/console-separation.md#决策与实施状态)：React + TypeScript + Kumo，Vite+ 工具链与 Bun 包管理，前后端独立构建部署。2026-09-27 起页面由 `web/` 的静态站提供，网关不再内嵌 `src/admin/ui/`。现有构建经控制台入口同源访问管理 API；同源不是产品约束，见 [线上部署](deployment.md)。下文页面能力是已交付行为；C0–C6 记录这些能力第一次落地时的实现。
 
 # 非目标
 
@@ -26,11 +26,11 @@ timestamp: 2026-08-19T00:00:00Z
 
 | 决策 | 结论 | 依据 |
 | --- | --- | --- |
-| 部署形态 | 独立静态站与 Rust 网关，由控制台入口同源代理 `/admin/*` | 网关端口不再提供页面。静态站把 `/admin/ui` 与 `/admin/ui/` 重定向到 `/` |
+| 部署形态 | 独立静态站与 Rust 网关。现有入口由 Nginx 同源代理 `/admin/*`；与网关不同源是允许的 | 网关端口不再提供页面。静态站把 `/admin/ui` 与 `/admin/ui/` 重定向到 `/`。拆源的做法见 [线上部署](deployment.md) |
 | 认证 | 独立 admin key（Bearer），与 proxy key 物理分离 | 架构护栏：admin key 与 proxy key 不得混用（NyaProxy 混用是反模式） |
 | C1 技术栈 | 目标为 `web/` 下 React + TypeScript + Kumo，Vite+ 管研发工具链，Bun 管依赖 | 原免构建决策由 [前端工具链](../architecture/console-separation.md#前端工具链) 替代；Rust 编译不依赖前端 |
 | C3 演进方式 | 按业务模块迁移既有页面；API DTO 生成 schema 与 TS 类型，共用基础组件 | 见 [API 契约与类型](../architecture/console-separation.md#api-契约与类型) 与 [迁移与发布](../architecture/console-separation.md#迁移与发布) |
-| token 传递 | 浏览器端 admin key 手输、存 sessionStorage、随 fetch 走 `Authorization: Bearer` | 不写 cookie，同源 + Bearer 天然免 CSRF |
+| token 传递 | 浏览器端 admin key 手输、存 sessionStorage、随 fetch 走 `Authorization: Bearer` | 不写 cookie。浏览器不会自动带上这个头，其他源也读不到这块 sessionStorage |
 
 登录引导页本身不含敏感数据，可公开返回；所有数据请求必须带 admin key。旧地址怎么回到新入口，见 [迁移与发布](../architecture/console-separation.md#迁移与发布)。
 
@@ -109,7 +109,8 @@ admin:
 - `GET /oauth/callback` 是唯一不经 admin 认证的授权相关入口，只靠一次性 state（内存、10 分钟、只能用一次）；回调请求的 URI 在请求日志里只记路径，不记 query（授权 code 与 state）。
 - 写操作（C3 起）必须产生审计记录，包含 admin key id、操作、目标、结果。
 - admin 请求同样在带 `request_id` 的 span 内；`Authorization` header 永不落日志（对齐 [Observability](../architecture/observability.md)）。
-- 不开 CORS；生产部署建议 admin 面经内网或反代 TLS 暴露（部署事项，不进代码）。
+- 现有网关不开 CORS。跨源时只允许构建时固定的一个控制台源，且只覆盖 `/admin/*`：不用 `*`，不反射任意 Origin，不打开凭据 cookie。页面不能填写后端地址。`/mcp`、`/v1/*` 与 `/oauth/callback` 不发 CORS。这三处还没落地，见 [线上部署](deployment.md)。
+- 生产上管理 API 经 TLS 暴露，由 admin token 认证。Access 可以挡在控制台页面前面，不能代替这枚 token。
 
 # Citations
 

@@ -1,7 +1,7 @@
 ---
 type: Architecture Decision
 title: 控制台与网关分离架构
-description: 确定独立控制台的模块边界、API 契约、前端工具链、同源部署、迁移与验收要求。
+description: 确定独立控制台的模块边界、API 契约、前端工具链、部署边界、迁移与验收要求。
 resource: docs/architecture/console-separation.md
 tags: [architecture, admin, frontend, deployment, contracts]
 generated: { by: okf-docs-organizer/v0.2, at: "2026-09-26T23:43:27+08:00" }
@@ -178,7 +178,7 @@ flowchart LR
 
 ## 开发与检查
 
-Rust 维持根目录 Cargo 工程；`web/` 是独立前端包。`vp dev` 的 `/admin` 代理目标默认本机网关，可通过开发环境变量覆盖端口，避免 Worktree 端口冲突；生产 API 地址固定同源相对路径，不能由页面输入任意后端 URL。
+Rust 维持根目录 Cargo 工程；`web/` 是独立前端包。`vp dev` 的 `/admin` 代理目标默认本机网关，可通过开发环境变量覆盖端口，避免 Worktree 端口冲突。现有生产构建把 API 地址固定为同源相对路径。页面不能输入任意后端 URL；以后若与网关不同源，API 源也只能在构建时写死一个。线上怎么放见 [线上部署](../admin/deployment.md)。
 
 仓库级 `just check` 最终汇总 Rust 检查、OKF、契约漂移检查及前端检查。纯前端命令在 `web/` 执行 `vp check`、`vp test --run`、`vp build`；端到端另有 `just web e2e`。后端独立 Cargo 构建与测试不隐式安装 JS 依赖。具体命令在实施后同步开发与 Worktree 文档。
 
@@ -190,7 +190,7 @@ Rust 维持根目录 Cargo 工程；`web/` 是独立前端包。`vp dev` 的 `/a
 
 HTML 使用重新验证策略，带内容 hash 的静态资源可长期缓存；API 和一次性 token 响应不进入代理缓存。静态站补齐页面安全头，因为 Rust 的响应头不再覆盖页面。保留上版静态资源至少一个发布周期，验证页面跨版本加载和回滚，不依赖 service worker 缓存。
 
-控制台域名由 HTTPS 入口提供服务；同源转发不要求网关开放 CORS。网关面向 agent 的 `/mcp`、`/v1/*` 继续通过其既有入口访问，不经过 SPA 回退。
+控制台域名由 HTTPS 入口提供服务。现有 Nginx 在同一源转发 `/admin/*`，因此网关不必开 CORS。控制台与网关不同源是允许的，认证不依赖 cookie；拆开的前提和尚未落地的改动见 [线上部署](../admin/deployment.md)。网关面向 agent 的 `/mcp`、`/v1/*` 继续通过其既有入口访问，不经过 SPA 回退。
 
 ## 本地组合部署
 

@@ -1,6 +1,6 @@
 # 星径控制台前端
 
-`web/` 是控制台的静态站。它用 React、TypeScript strict、Kumo 和 Vite+ 构建，和 Rust 网关分开安装、构建、发布。页面请求只使用同源相对路径 `/admin/*`。生产包不写入管理员凭据，也不能在页面里指定后端地址。
+`web/` 是控制台的静态站。它用 React、TypeScript strict、Kumo 和 Vite+ 构建，和 Rust 网关分开安装、构建、发布。页面请求只使用同源相对路径 `/admin/*`。生产包不写入管理员凭据，也不能在页面里指定后端地址。同源是当前构建的做法，不是产品约束；线上把网关和静态站拆开的决策见 [线上部署](../docs/admin/deployment.md)。
 
 包管理只用 Bun。不要再生成 `package-lock.json`、`pnpm-lock.yaml` 或 `yarn.lock`。
 

@@ -1,5 +1,10 @@
 # Documentation Update Log
 
+## 2026-10-09（线上部署：同源不是产品约束）
+
+- **结论**：管理认证是 Bearer，token 在控制台源的 `sessionStorage`，不写 cookie。控制台和网关可以不同源。当前构建仍请求同源相对路径 `/admin/*`，网关没有 CORS。线上目标是网关留在自有机器，控制台放到 Cloudflare Workers Static Assets；拆源前要先固定构建期 API 源、只为这一个源对 `/admin/*` 打开 CORS，并放宽 CSP 的 `connect-src`。在那之前用同一台机器上的 Nginx 与 Tunnel 上线。
+- **依据**：[线上部署](admin/deployment.md)。[控制台与网关分离架构](architecture/console-separation.md)、[Admin Console](admin/admin-console.md) 和 [Architecture](architecture/architecture.md) 里「同源是唯一部署形态」的说法已改成指向该决策。
+
 ## 2026-10-08（asl__batch 批量契约写给客户端）
 
 - **结论**：`asl__batch` 维持单一固定语义，不增加 `mode`，也不提供事务回滚。工具描述、`calls` 的 schema 说明和 `asterlane_tool_workflow` 写明：按输入顺序对齐结果；后一项不能使用前一项的返回值，也不能假定前一项的上游副作用已经可见；一项失败不中止也不回滚其余项。下一次参数依赖上一次结果时用 `asl__call`。
