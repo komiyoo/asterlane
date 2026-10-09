@@ -37,6 +37,9 @@ task.md
 # Local Git worktrees
 /.worktrees/
 
+# CodeGraph index
+/.codegraph/
+
 # Frontend toolchain outputs
 web/node_modules/
 web/dist/

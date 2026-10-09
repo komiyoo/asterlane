@@ -20,6 +20,15 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
    - `docs/engineering/agent-skill.md` — 操作网关（实现见 `.codex/skills/asterlane/SKILL.md`）
 4. 产品、架构、运行时、管理面经 `docs/README.md` 的对应分类进入。根 `README.md` 只说明要解决的问题和整体架构；运行示例在 `docs/admin/running.md`，其余命令在分类文档和 `.codex/skills/asterlane/SKILL.md`。
 
+# 代码探索
+
+定位符号、调用关系和模块边界时，先用 CodeGraph，再按需要打开文件。它不代替上一节的文档发现路径。
+
+- 查询用 `codegraph explore "<符号或问题>"`，或等价的 MCP 工具 `codegraph_explore`
+- 仓库根没有 `.codegraph/` 时，在仓库根执行 `codegraph init`。不要在家目录或文件系统根目录初始化
+- `.codegraph/` 是本地索引，已在 `.gitignore` 中，不要提交
+- CodeGraph 不可用或结果不够时，再用文本搜索和阅读源码
+
 # 工作方式
 
 - 面向用户的讨论和项目文档默认中文；协议名、代码标识、命令、错误码可保留英文
