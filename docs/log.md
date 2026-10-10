@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-10-10（仓库门面补齐；许可证统一为 MIT）
+
+- **结论**：根 `README.md` 与 `README.zh-CN.md` 补了状态说明、功能列表、快速上手、安装方式、控制台截图（`.github/assets/console.png`）、与直连上游的对比、非目标、路线图链接和致谢，徽章加了许可证与 Rust 版本。快速上手只放一条最短路径，完整步骤仍在 [运行网关](admin/running.md)；[文档约定 · 仓库门面](engineering/documentation-conventions.md#仓库门面) 去掉了「README 不写运行命令」，改为这一口径。`CONTRIBUTING.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md` 改为英文版，中文原文移到同名 `*.zh-CN.md`，[文档地图](README.md) 链接指向中文版。
+- **许可证**：根 `LICENSE` 原为 Apache-2.0 全文，与 `Cargo.toml` 和 README 声明的 MIT 不一致；现在统一为 MIT，`LICENSE` 换成 MIT 全文，贡献指南里「首次发布前统一」的提示改为按 MIT 授权。
+- **验证**：`just docs check` 通过；控制台截图来自用 `examples/gateway.yaml` 启动的本地网关。
+
 ## 2026-10-10（根 README 改为英文）
 
 - **结论**：根 `README.md` 改为英文版，中文原文移到 `README.zh-CN.md`，两份标题下互相给出语言切换链接。`docs/` 仍是中文；[文档地图](README.md) 的 README 链接指向中文版，并附英文版链接。改工具名等对外文字时，两份 README 要同步。

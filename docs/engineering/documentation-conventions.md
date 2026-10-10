@@ -4,7 +4,7 @@ title: 文档体系约定
 description: 面向 GitHub 读者的文档地图、仓库门面、OKF 层级、生命周期、引用规则与自进化检查。
 resource: docs/engineering/documentation-conventions.md
 tags: [conventions, docs, okf, workflow]
-timestamp: 2026-08-19T00:00:00Z
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 读者
@@ -22,15 +22,17 @@ timestamp: 2026-08-19T00:00:00Z
 
 下列文件由 GitHub 单独展示。它们不是 OKF 概念，不放进 `docs/<category>/`，也不要在概念文档里复制一份。
 
+`README.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、`SECURITY.md` 是英文版，同目录的 `*.zh-CN.md` 是中文版，两版标题下互相给出语言切换链接。改其中一版时同步另一版。`docs/` 里的链接指向中文版。
+
 | 文件 | 职责 |
 | --- | --- |
-| `README.md` | 项目要解决的核心问题、整体架构、大致运行机制，以及指向文档、贡献和许可证。运行命令不写在这里 |
+| `README.md` | 功能概览、最短的快速上手与安装方式、要解决的核心问题、整体架构、大致运行机制、非目标，以及指向文档、贡献和许可证。快速上手只放一条最短路径，完整步骤留在 [运行网关](../admin/running.md) |
 | `CONTRIBUTING.md` | 如何报告问题、改代码、验证、更新文档 |
 | `CODE_OF_CONDUCT.md` | 参与 issue、PR 和讨论时的行为准则 |
 | `SECURITY.md` | 如何私下报告漏洞。不写利用步骤、payload 或真实凭据 |
 | `CHANGELOG.md` | 用户可见的版本变化，格式见 [发布流程](release-process.md) |
-| `LICENSE` | 许可证全文 |
-| `.github/` | PR 模板与 issue 模板 |
+| `LICENSE` | MIT 许可证全文 |
+| `.github/` | PR 模板与 issue 模板；`.github/assets/` 放 README 引用的图片 |
 
 # 写法
 

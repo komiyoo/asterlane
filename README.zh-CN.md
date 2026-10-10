@@ -3,8 +3,86 @@
 [English](README.md) | 简体中文
 
 [![CI](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml/badge.svg)](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust 1.94+](https://img.shields.io/badge/rust-1.94%2B-orange.svg)](https://www.rust-lang.org)
 
 代理要接的 MCP 和 HTTP API 一多，鉴权、客户端配置、权限和上下文会一起散掉。Asterlane 把这些收进一个网关。模型调用不经过这里。
+
+> [!NOTE]
+> 项目处于早期开发阶段（`0.1.0`，尚未打过发布 tag）。配置字段、管理 API 和 CLI 输出在提交之间仍可能变化。破坏性变更记录在 [CHANGELOG.md](CHANGELOG.md)。
+
+## 功能
+
+- **凭据留在网关。** 上游 API key 和 OAuth token 从环境变量、文件、Vault 或 Infisical 取得，调用时注入。代理只持有 gateway key。
+- **所有客户端只连一个入口。** 远程 MCP server（Streamable HTTP）和 HTTP API 都通过同一个 MCP 端点 `/mcp` 提供。
+- **按 key 划定工具范围。** 允许和拒绝规则是作用在稳定工具名上的正则；拒绝优先，单次请求只能缩小范围。
+- **默认占用很少的上下文。** `tools/list` 只返回六个网关工具；代理按任务搜索、取详情、调用。超长结果截断后分段续取。
+- **HTTP API 包成工具。** 在 YAML 里声明端点，或从 OpenAPI 文档发现。
+- **上游 OAuth。** 网关作为远程 MCP server 的 OAuth 客户端（client credentials 或授权码），token 加密保存。
+- **限额与 key 池。** 按 key 的速率与调用配额，按上游的速率与并发上限；同一资源可配多把上游 key，支持轮换、冷却，幂等请求失败会重试。
+- **可见性。** 每次调用记录 key、工具、结果和耗时，存进 SQLite；`/metrics` 提供 Prometheus 指标；另有管理控制台和 CLI。
+
+## 快速上手
+
+需要 Rust 1.94 及以上和 `jq`。下面使用 [`examples/gateway.yaml`](examples/gateway.yaml)，把占位符换成你自己的值。没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。
+
+终端 1：在 `127.0.0.1:3000` 启动网关，数据库只在内存里。
+
+```bash
+export ASTERLANE_CONFIG=examples/gateway.yaml
+export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export EXA_DEFAULT=replace-me-exa-api-key
+cargo run -- serve --database-url sqlite::memory:
+```
+
+终端 2：预览 key `agent-search-research` 能看见的工具，为它签发 gateway token，再调用一次工具。
+
+```bash
+export ASTERLANE_CONFIG=examples/gateway.yaml
+export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+
+cargo run -- list-tools --key agent-search-research
+
+export ASTERLANE_KEY="$(
+  cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
+    jq -r '.token'
+)"
+cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
+```
+
+代理把 `http://127.0.0.1:3000/mcp` 当作 MCP server 接入，凭据用这枚 gateway token。更多选项见 [运行网关](docs/admin/running.md)。
+
+## 安装
+
+**从源码安装**
+
+```bash
+git clone https://github.com/komiyoo/asterlane.git
+cd asterlane
+cargo install --path . --locked
+asterlane --help
+```
+
+**Docker Compose（网关 + 管理控制台）**
+
+先改好 `run.yaml`，然后在仓库根执行：
+
+```bash
+export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+docker compose up -d --build
+```
+
+网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`，用管理员 token 登录控制台。线上部署见 [线上部署](docs/admin/deployment.md)。
+
+**预编译二进制与镜像**
+
+每个发布 tag 会在 [GitHub Releases](https://github.com/komiyoo/asterlane/releases) 提供 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin` 的二进制，并推送多架构镜像 `ghcr.io/komiyoo/asterlane`。目前还没有打过发布 tag。
+
+## 管理控制台
+
+![Asterlane 管理控制台：工具目录页](.github/assets/console.png)
+
+控制台管理资源、MCP 服务、gateway key、key 池、用量、事件和审计日志。
 
 ## 要解决的问题
 
@@ -145,17 +223,42 @@ flowchart LR
 3. 调用时，网关在这个范围内选定上游凭据，经过限额后访问对应的 MCP 或 HTTP API，再把结果交回代理。
 4. 调用记录留在网关，供管理员查看和收回权限。
 
-跑起来的命令见 [运行网关](docs/admin/running.md)。配置、权限和部署见 [文档](docs/README.md)。
+配置、权限和部署见 [文档](docs/README.md)。
+
+## 和直连上游的对比
+
+| | 代理直连每个上游 | 代理经过 Asterlane |
+| --- | --- | --- |
+| 上游凭据放在哪 | 每个客户端的配置里 | 只在网关 |
+| 新增一个上游 | 每个客户端都要改 | 只改一次网关配置 |
+| 谁决定工具权限 | 各个客户端 | 网关，按 gateway key 划定，可收回 |
+| 连接时代理看到什么 | 每个 server 的全部工具 | 六个网关工具，其余按需取 |
+| 调用记录 | 分散在各个客户端和上游 | 集中在网关，可按 key 和工具查看 |
+
+## 不做什么
+
+- **不是模型网关。** 不转发、不路由、不计费 LLM 推理请求。
+- **不接本地 stdio MCP server。** 上游 MCP server 都是远程的，走 Streamable HTTP；网关不启动本地进程。
+- **不做身份提供方。** 代理用 gateway key 认证；网关不是 OAuth 授权服务器，也不通过 SSO 登录终端用户。
+
+## 路线图
+
+现有缺口和优先级见 [演进规划](docs/product/roadmap.md)，使用者能看到的变化见 [更新日志](CHANGELOG.md)。
 
 ## 文档
 
 - [文档地图](docs/README.md)
 - [运行网关](docs/admin/running.md)
-- [贡献指南](CONTRIBUTING.md)
-- [安全政策](SECURITY.md)
-- [行为准则](CODE_OF_CONDUCT.md)
+- [线上部署](docs/admin/deployment.md)
+- [贡献指南](CONTRIBUTING.zh-CN.md)
+- [安全政策](SECURITY.zh-CN.md)
+- [行为准则](CODE_OF_CONDUCT.zh-CN.md)
 - [更新日志](CHANGELOG.md)
 
-## License
+## 致谢
+
+Asterlane 基于 [rmcp](https://github.com/modelcontextprotocol/rust-sdk)（官方 Rust MCP SDK）、[axum](https://github.com/tokio-rs/axum)、[reqwest](https://github.com/seanmonstar/reqwest)、[sqlx](https://github.com/launchbadge/sqlx)、[governor](https://github.com/boinkor-net/governor) 和 [Tokio](https://tokio.rs) 构建。管理控制台使用 [React](https://react.dev) 和 Cloudflare 的 [Kumo](https://www.npmjs.com/package/@cloudflare/kumo) 组件。
+
+## 许可证
 
 [MIT](LICENSE)

@@ -13,7 +13,7 @@
 - [Admin Console](admin/admin-console.md) — 控制台页面与管理 API。
 - [Observability](architecture/observability.md) — 请求事件、指标与脱敏。
 - [更新日志](../CHANGELOG.md) — 用户可见的版本变化。
-- [安全报告](../SECURITY.md) — 私下报告漏洞。
+- [安全报告](../SECURITY.zh-CN.md) — 私下报告漏洞。
 
 ## 理解设计
 
@@ -24,8 +24,8 @@
 
 ## 参与开发
 
-- [贡献指南](../CONTRIBUTING.md) — 报告问题、提交 PR、本地检查。
-- [行为准则](../CODE_OF_CONDUCT.md) — 参与讨论和改代码时的约定。
+- [贡献指南](../CONTRIBUTING.zh-CN.md) — 报告问题、提交 PR、本地检查。
+- [行为准则](../CODE_OF_CONDUCT.zh-CN.md) — 参与讨论和改代码时的约定。
 - [开发工作流](engineering/development-workflow.md) — 模块边界与完成前的验证。
 - [工程约定](engineering/engineering-conventions.md) — 分层、错误、日志和代码预算。
 - [发布流程](engineering/release-process.md) — 版本号、CHANGELOG 与 tag 发布。

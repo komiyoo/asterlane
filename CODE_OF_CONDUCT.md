@@ -1,11 +1,13 @@
-# 行为准则
+# Code of Conduct
 
-参与本仓库的 issue、pull request、讨论以及其他项目空间时，采用 [Contributor Covenant 2.1](https://www.contributor-covenant.org/zh-cn/version/2/1/code_of_conduct/)。
+English | [简体中文](CODE_OF_CONDUCT.zh-CN.md)
 
-我们欢迎不同背景的人报告问题、审查代码和提交改动。不接受针对个人的骚扰、歧视、公开他人的私人信息，以及打断协作的攻击性言论。
+This repository's issues, pull requests, discussions, and other project spaces follow the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/).
 
-## 报告
+We welcome people of every background to report issues, review code, and submit changes. Personal harassment, discrimination, publishing other people's private information, and hostile remarks that disrupt collaboration are not accepted.
 
-遇到上述行为，通过 [GitHub 私下安全咨询](https://github.com/komiyoo/asterlane/security/advisories/new) 告诉维护者。不要在公开 issue 里贴出当事人的私人信息。
+## Reporting
 
-维护者应当保密处理报告，并可以删除评论、关闭讨论，或暂时限制继续参与。
+If you experience or witness such behavior, tell the maintainers through a [GitHub private security advisory](https://github.com/komiyoo/asterlane/security/advisories/new). Do not post the private information of the people involved in a public issue.
+
+Maintainers handle reports confidentially and may remove comments, close discussions, or temporarily restrict further participation.

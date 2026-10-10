@@ -1,21 +1,23 @@
-# 安全政策
+# Security Policy
 
-## 支持的版本
+English | [简体中文](SECURITY.zh-CN.md)
 
-项目尚未发布正式版本。请针对默认分支 `main` 上的当前代码报告问题。出现已发布 tag 之后，本文件会列出仍接受安全修复的版本。
+## Supported versions
 
-## 报告漏洞
+The project has not published a release yet. Report issues against the current code on the default branch, `main`. Once tagged releases exist, this file will list the versions that still receive security fixes.
 
-使用 [GitHub 私下漏洞报告](https://github.com/komiyoo/asterlane/security/advisories/new)。不要开公开 issue，也不要把密钥、token、请求体或利用细节发到讨论区。
+## Reporting a vulnerability
 
-报告里请包含：
+Use [GitHub private vulnerability reporting](https://github.com/komiyoo/asterlane/security/advisories/new). Do not open a public issue, and do not post keys, tokens, request bodies, or exploit details in discussions.
 
-- 受影响的提交或版本
-- 复现所需的配置形态，密钥用占位符
-- 受影响的部分：网关认证、上游凭据、管理 API、MCP 代理或控制台
+Please include:
 
-请等维护者确认并准备好修复说明之后，再公开细节。
+- The affected commit or version
+- The shape of the configuration needed to reproduce it, with placeholders for secrets
+- The affected area: gateway authentication, upstream credentials, the admin API, the MCP proxy, or the console
 
-## 其他问题
+Please wait until a maintainer has confirmed the report and prepared a fix note before disclosing details publicly.
 
-功能请求和一般缺陷用 [issue](https://github.com/komiyoo/asterlane/issues)。使用问题见 [贡献指南](CONTRIBUTING.md)。
+## Other questions
+
+Use [issues](https://github.com/komiyoo/asterlane/issues) for feature requests and general bugs. For usage questions, see the [contributing guide](CONTRIBUTING.md).
