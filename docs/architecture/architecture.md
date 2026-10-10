@@ -60,6 +60,10 @@ The original product requirements are preserved in [Product Requirements](../pro
 
 # Data Flow
 
+![星径架构：管理员经控制台、代理带着 gateway key 进入同一个网关进程，网关访问上游 HTTP API 与远程 MCP](../../.github/assets/architecture.zh-CN.png)
+
+管理员通过控制台配置上游和每个 key 的范围。代理只带着 gateway key 进入网关。网关再拿自己保存的凭据去访问上游。
+
 ```text
 Agent
   -> Gateway proxy key (Authorization header)

@@ -209,14 +209,7 @@ asl__fetch { cursor: "…", offset: <bytes already given to the model> }
 
 Administrators configure upstreams and each key's scope through the console. Agents enter the gateway carrying only a gateway key. The gateway then reaches upstreams with the credentials it stores.
 
-```mermaid
-flowchart LR
-  Agent[AI agent] -->|gateway key| GW[Gateway]
-  Admin[Administrator] --> Console[Console]
-  Console --> GW
-  GW --> API[HTTP API]
-  GW --> MCP[Remote MCP]
-```
+![Asterlane architecture: the administrator uses the console, the agent enters with a gateway key, and the gateway calls upstream HTTP APIs and remote MCP servers](.github/assets/architecture.png)
 
 ## How it works
 

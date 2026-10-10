@@ -207,14 +207,7 @@ asl__fetch { cursor: "…", offset: <已经交给模型的字节数> }
 
 管理员通过控制台配置上游和每个 key 的范围。代理只带着 gateway key 进入网关。网关再拿自己保存的凭据去访问上游。
 
-```mermaid
-flowchart LR
-  Agent[AI 代理] -->|gateway key| GW[网关]
-  Admin[管理员] --> Console[控制台]
-  Console --> GW
-  GW --> API[HTTP API]
-  GW --> MCP[远程 MCP]
-```
+![星径架构：管理员经控制台、代理带着 gateway key 进入同一个网关进程，网关访问上游 HTTP API 与远程 MCP](.github/assets/architecture.zh-CN.png)
 
 ## 运行机制
 

@@ -1,5 +1,10 @@
 # Documentation Update Log
 
+## 2026-10-10（架构图）
+
+- **结论**：根 `README.md`、`README.zh-CN.md` 的架构一节，以及 [Architecture](architecture/architecture.md) 的数据流，直接嵌入渲染后的架构图。中文图是 `.github/assets/architecture.zh-CN.png`，英文图是 `.github/assets/architecture.png`。图里是管理员、控制台、代理、同一个网关进程、SQLite，以及上游 HTTP API 与远程 MCP。
+- **依据**：[Architecture · Data Flow](architecture/architecture.md#data-flow)。
+
 ## 2026-10-10（仓库门面补齐；许可证统一为 MIT）
 
 - **结论**：根 `README.md` 与 `README.zh-CN.md` 补了状态说明、功能列表、快速上手、安装方式、控制台截图（`.github/assets/console.png`）、与直连上游的对比、非目标、路线图链接和致谢，徽章加了许可证与 Rust 版本。快速上手只放一条最短路径，完整步骤仍在 [运行网关](admin/running.md)；[文档约定 · 仓库门面](engineering/documentation-conventions.md#仓库门面) 去掉了「README 不写运行命令」，改为这一口径。`CONTRIBUTING.md`、`SECURITY.md`、`CODE_OF_CONDUCT.md` 改为英文版，中文原文移到同名 `*.zh-CN.md`，[文档地图](README.md) 链接指向中文版。
