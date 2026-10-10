@@ -365,6 +365,7 @@ impl McpServerRegistry {
             peer,
             upstream_uri: upstream_uri.to_string(),
             server_id: server_id.to_string(),
+            scope_name: scope_name.to_string(),
         }))
     }
 
@@ -399,6 +400,8 @@ pub(crate) struct ResolvedRead {
     pub(crate) peer: Arc<dyn RemoteMcpPeer>,
     pub(crate) upstream_uri: String,
     pub(crate) server_id: String,
+    /// 命中的 resource 或 template 的判权名（`domain__provider__<name>`）。
+    pub(crate) scope_name: String,
 }
 
 /// refresh 结果摘要，供 tracing 与后台 task 记录。

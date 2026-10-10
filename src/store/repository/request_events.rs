@@ -1,6 +1,6 @@
 //! 请求事件 repository。
 
-use crate::observability::RequestEvent;
+use crate::observability::{RequestEvent, RequestKind};
 use crate::store::error::StoreError;
 use chrono::{DateTime, Utc};
 
@@ -11,6 +11,8 @@ pub struct RequestEventFilter {
     pub proxy_key_id: Option<String>,
     /// 按 resource ID 过滤。
     pub resource_id: Option<String>,
+    /// 按调用类型过滤。
+    pub request_kind: Option<RequestKind>,
     /// 按 tool wire name 过滤（精确匹配）。
     pub tool_name: Option<String>,
     /// 时间范围起始（含）。

@@ -1,5 +1,6 @@
 //! 使用量桶与聚合查询 repository。
 
+use crate::observability::RequestKind;
 use crate::store::error::StoreError;
 use chrono::{DateTime, Utc};
 
@@ -92,6 +93,8 @@ impl UsageBucketRepository for () {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct UsageSummary {
     pub dimension_value: String,
+    /// 只在按 tool 聚合时有值：同名的工具、prompt 与 resource 分成不同的行。
+    pub request_kind: Option<RequestKind>,
     pub request_count: i64,
     pub error_count: i64,
     pub total_units: i64,

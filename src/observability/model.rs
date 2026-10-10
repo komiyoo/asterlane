@@ -44,6 +44,43 @@ impl RequestStatus {
     }
 }
 
+/// 事件对应的下游调用类型。`tool_name` 的含义随它变化：工具是 wire name，
+/// prompt 是下游名，resource 是判权名（都是 `domain__provider__<名>`）。
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestKind {
+    /// 工具调用（REST invoke、MCP `tools/call`、admin 调试调用）。
+    #[default]
+    Tool,
+    /// MCP `prompts/get`。
+    Prompt,
+    /// MCP `resources/read`。
+    Resource,
+}
+
+impl RequestKind {
+    /// 存库与查询参数用的取值。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tool => "tool",
+            Self::Prompt => "prompt",
+            Self::Resource => "resource",
+        }
+    }
+
+    /// `as_str` 的反向解析；未知值返回 `None`。
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "tool" => Some(Self::Tool),
+            "prompt" => Some(Self::Prompt),
+            "resource" => Some(Self::Resource),
+            _ => None,
+        }
+    }
+}
+
 /// 单次工具调用的观测事件。
 ///
 /// 由调用方（proxy executor）填充并传入 `record_request_event`。
@@ -58,7 +95,10 @@ pub struct RequestEvent {
     pub proxy_key_id: String,
     /// 上游资源 ID。
     pub resource_id: String,
-    /// wire name，如 `search__tavily__web_search`。
+    /// 调用类型；旧数据没有该字段，按工具调用读入。
+    #[serde(default)]
+    pub request_kind: RequestKind,
+    /// wire name，如 `search__tavily__web_search`；含义随 `request_kind` 变化。
     pub tool_name: String,
     /// 脱敏上游 key 标识，如 `key:abcd…wxyz`。
     pub upstream_key_ref: String,
@@ -106,6 +146,7 @@ mod tests {
             request_id: "req_01J".to_string(),
             proxy_key_id: "agent-dev".to_string(),
             resource_id: "tavily-default".to_string(),
+            request_kind: RequestKind::Tool,
             tool_name: "search__tavily__web_search".to_string(),
             upstream_key_ref: "key:1234…wxyz".to_string(),
             status: RequestStatus::Success,

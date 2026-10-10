@@ -21,7 +21,7 @@ pub mod security;
 pub use aggregation::{AggregateDimension, BucketGranularity, UsageBucket, bucket_start};
 pub use capture::{capture_bytes, capture_text, redact_text, truncate_utf8};
 pub use metrics::{decrement_active_requests, increment_active_requests, record_request_event};
-pub use model::{RequestEvent, RequestStatus};
+pub use model::{RequestEvent, RequestKind, RequestStatus};
 pub use redaction::{
     BodySummary, redact_auth_header, redact_body, redact_header_value, redact_secret_key,
     redact_secret_ref, redact_secret_string,

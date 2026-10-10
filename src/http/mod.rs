@@ -1505,6 +1505,7 @@ mod tests {
             request_id: request_id.to_string(),
             proxy_key_id: "agent-search".to_string(),
             resource_id: "tavily".to_string(),
+            request_kind: crate::observability::RequestKind::Tool,
             tool_name: "search__tavily__web_search".to_string(),
             upstream_key_ref: "key:redacted".to_string(),
             status,

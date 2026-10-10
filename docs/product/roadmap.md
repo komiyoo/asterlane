@@ -4,7 +4,7 @@ title: Asterlane 演进规划
 description: 按产品定位的五根支柱评估实现缺口，给出分阶段优先级、准入准出条件与待产品决策项。
 resource: docs/product/roadmap.md
 tags: [roadmap, planning, gaps, product]
-timestamp: 2026-10-02T00:00:00Z
+timestamp: 2026-10-09T00:00:00Z
 ---
 
 # 背景
@@ -96,7 +96,7 @@ timestamp: 2026-10-02T00:00:00Z
 | **已交付：admin CLI 写操作**（2026-08-19） | 兑现差（已清） | `asterlane admin resources|proxy-keys|mcp-servers` 的 create / update / rm，body 为 `--json` 或 `--from-file`（JSON/YAML object），转发已有 admin HTTP CRUD |
 | **已交付：key pool 热更新与 upstream_keys 同步**（2026-08-20） | 定位缺口（已清） | resource CRUD 接受 `auth`/`key_pool`；`swap_config_and_catalog` 重建 `KeyPoolRegistry` 并按 secret_ref 携带冷却/EWMA；`upstream_keys` 按 resource 替换写入。无独立 `/admin/upstream-keys` REST |
 | IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
-| `prompts/get` 与 `resources/read` 不写 `request_events`，也不计入调用配额 | 已知缺口 | 二者只走 key 与上游的速率、并发准入（`LimitRegistry::admit_rate`）。配额与请求日志仍只覆盖 `tools/call` / REST invoke |
+| **已交付：`prompts/get` 与 `resources/read` 写 `request_events` 并计入调用配额**（2026-10-09） | 已知缺口（已清） | 与 `tools/call` 共用 `LimitRegistry::admit`，上游失败退还；`tool_name` 记 `domain__provider__<上游名>`。见 [Observability](../architecture/observability.md#请求事件模型) |
 | usage 只有小时桶；无上游耗时聚合 | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项 |
 | **已交付：HTTP 错误 `request_id`**（2026-08-20） | 生产就绪（已清） | 入站中间件生成或接纳 `X-Request-Id`；`AsterlaneError` JSON 的 `error.request_id` 非空；invoke 成功路径仍用 executor 自己的 id |
 | 无告警规则 / Grafana dashboard 示例 | 生产就绪（轻） | 仓库内无相关资产 |
@@ -139,7 +139,7 @@ timestamp: 2026-10-02T00:00:00Z
 - **已交付（2026-10-01）**：动态客户端注册，仅用于授权码流程中未预置 `client_id` 的上游（rmcp 的 DCR 只注册 `authorization_code` 公开客户端；授权服务器仍返回 client secret 时网关没有地方保存它，此类上游须配置预注册客户端）
 - **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
 - **已交付（2026-08-20）**：订阅上游 `tools/list_changed`（`subscriptions/listen` + session 回调）；周期 refresh 保留为兜底，不再是唯一失效路径
-- **已交付（2026-10-02）**：resources / prompts 代理（仅远程上游）。`RemoteMcpPeer` 增加列 prompts、取 prompt、列 resources、列 templates、读 resource；下游开启 resources capability。key 范围沿用工具 scope。不计入调用配额、不写 `request_events`（见支柱五的已知缺口）。不做 resource 订阅，也不向下游推送这两类 list changed
+- **已交付（2026-10-02）**：resources / prompts 代理（仅远程上游）。`RemoteMcpPeer` 增加列 prompts、取 prompt、列 resources、列 templates、读 resource；下游开启 resources capability。key 范围沿用工具 scope。2026-10-09 起计入调用配额并写 `request_events`（见支柱五）。不做 resource 订阅，也不向下游推送这两类 list changed
 - 上游形态扩展：multipart / form-urlencoded 请求，流式响应
 
 **准出**：至少一个真实 OAuth 类上游 MCP server 端到端可用，且代理侧只见 gateway key；上游工具变更在一次心跳内反映到下游 `tools/list_changed`。
@@ -178,7 +178,7 @@ timestamp: 2026-10-02T00:00:00Z
 | --- | --- | --- |
 | **请求变换是能力还是债务** | 2026-10-01：删除（已完成） | `transform` 模块无生产调用方，按「删除优先」移除；[Product Requirements](product-requirements.md) 同步撤回该承诺。`transform.*` 错误码从未在生产路径发出，随模块删除 |
 | **是否支持 stdio / 本地进程 MCP server** | 2026-10-01：不支持，列为非目标 | 只对接远程（Streamable HTTP）上游，见「不变的非目标」 |
-| **是否代理 tools 之外的 MCP primitive** | 2026-10-02：已交付 resources + prompts | 仅远程上游。key 可见范围沿用工具 scope（`domain__provider__<上游名称>`），不新增配置字段；下游 URI 为 `asterlane://{server_id}/{上游原 URI}`。`prompts/get` 与 `resources/read` 不写 `request_events`、不计入调用配额 |
+| **是否代理 tools 之外的 MCP primitive** | 2026-10-02：已交付 resources + prompts | 仅远程上游。key 可见范围沿用工具 scope（`domain__provider__<上游名称>`），不新增配置字段；下游 URI 为 `asterlane://{server_id}/{上游原 URI}`。`prompts/get` 与 `resources/read` 起初不写 `request_events`、不计入调用配额，2026-10-09 改为与 `tools/call` 同口径 |
 | **上游 OAuth 是否另开用户委托模式** | 2026-10-01：只做网关持有 | 支持 client-credentials，以及管理员发起一次授权码（PKCE，必要时 DCR）后由网关保存并刷新 token。整个网关共用一个上游身份；按用户委托仍不做，下游仍只用 gateway key |
 | **成本核算的计量口径** | 2026-10-01：暂缓 | `request_units` 维持恒为 1，不写代码、不做迁移 |
 | **Postgres 与共享状态** | 2026-10-01：本轮不做 | 存储维持 SQLite；多副本与共享状态不在本轮范围 |

@@ -6,6 +6,12 @@
 - **验证**：`just check` 通过，`cargo test` 1034 passed、2 ignored，与拆分前相同。
 - **依据**：[Engineering Conventions · 已知债务台账](engineering/engineering-conventions.md#已知债务台账)。
 
+## 2026-10-09（prompts/get 与 resources/read 计入配额并写请求事件）
+
+- **结论**：撤回 2026-10-02 「不计入调用配额、不写 `request_events`」的口径。`prompts/get` 与 `resources/read` 改走 `LimitRegistry::admit`，与 `tools/call` 一样计入 `max_calls` / `max_calls_per_day`，上游失败由 `CallQuotaGuard` 退还；被拒、成功与失败各写一条事件。`tool_name` 记 `domain__provider__<上游名>`（resource 用判权名，不写 URI），`resource_id` 是 server id，`upstream_key_ref` 是 `<mcp>`。启动回填的 `request_count − error_count` 因此也覆盖这两类调用。`LimitRegistry::admit_rate` 没有调用方，已删除。三处「写事件并累加 hour 桶」合并为 `store::persist_request_event`。尚未发版，CHANGELOG 直接改 Unreleased 条目，不算破坏性变更。
+- **限制**：`request_events` 没有区分方法的列，按 tool 聚合时工具、prompt、resource 的名字混在一起。
+- **依据**：[Observability · 请求事件模型](architecture/observability.md#请求事件模型)、[MCP Protocol · prompts 与 resources](architecture/mcp-protocol.md#prompts-与-resources)、[MCP Governance & Key Limits §3](runtime/mcp-governance-and-key-limits.md)、`src/mcp/downstream.rs` 的 `call_accounted`、`tests/mcp_resources_prompts.rs`。
+
 ## 2026-10-09（债务台账与根目录旧计划）
 
 - **结论**：`src/store/repository.rs` 按台账方向拆成 `src/store/repository/` 下四个文件（请求事件、安全事件、资源与 key、用量聚合），纯移动，调用方路径不变。`src/admin/crud.rs` 在 2026-10-08 合并后已降到 481 行。生产代码超过 500 行的文件清零，台账行数更新到 2026-10-09。根目录 `plans/` 下两份 7 月计划（统一 CLI 客户端、CLI 配置发现）对应功能早已实现，设计事实在 [CLI Client Architecture](admin/cli-client-architecture.md) 与 [CLI Config Discovery](admin/cli-config-discovery.md)，计划文件不在 OKF 树内、无引用，已删除。

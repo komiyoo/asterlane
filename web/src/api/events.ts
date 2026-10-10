@@ -10,6 +10,7 @@ export function listEvents(
     limit: params.limit,
     proxy_key_id: params.proxy_key_id,
     resource_id: params.resource_id,
+    request_kind: params.request_kind,
     tool_name: params.tool_name,
     from: params.from,
     to: params.to,

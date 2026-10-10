@@ -10,9 +10,8 @@
 //! 调用计数对**所有出现过的 key** 维护（含未配置限额的 key），供 admin
 //! 用量面板展示；限额上限仍只来自配置。
 //!
-//! `admit` 是 REST invoke、MCP tools/call（含 lazy）与 admin 调试调用共用的
-//! 单一准入 choke point。`prompts/get` 与 `resources/read` 走 `admit_rate`：
-//! 同样的 key 与上游速率、并发检查，但不检查、不计入调用配额。
+//! `admit` 是 REST invoke、MCP tools/call（含 lazy）、MCP `prompts/get` 与
+//! `resources/read`、admin 调试调用共用的单一准入 choke point。
 //! 配置热更新（CRUD）时整体重建并携带已用计数。
 //! 准入通过后 `record_call`；invoke 最终失败由 [`CallQuotaGuard`] Drop 调用
 //! [`LimitRegistry::refund_call`] 退还累计/日配额。GCRA rps/rpm 不可退还。
@@ -195,20 +194,6 @@ impl LimitRegistry {
         upstream_id: &str,
     ) -> Result<Option<QueuePermit>, LimitError> {
         self.admit_at(proxy_key_id, upstream_id, Utc::now()).await
-    }
-
-    /// key rps/rpm 与上游 rps/rpm/并发。不检查 `max_calls` / `max_calls_per_day`，
-    /// 也不计入调用配额。供 MCP `prompts/get` 与 `resources/read` 使用。
-    ///
-    /// 返回的 [`QueuePermit`] 须在上游调用期间持有。被拒不写 `request_events`
-    /// （调用方负责；本方法本身不落事件）。
-    pub async fn admit_rate(
-        &self,
-        proxy_key_id: &str,
-        upstream_id: &str,
-    ) -> Result<Option<QueuePermit>, LimitError> {
-        self.check_key(proxy_key_id)?;
-        self.admit_upstream(upstream_id).await
     }
 
     /// `admit` 的时间注入形态（测试直连；生产路径固定传 `Utc::now()`）。
@@ -547,24 +532,6 @@ proxy_keys:
         let reg = registry("api_resources: []");
         assert!(reg.admit("any-key", "any-upstream").await.is_ok());
         assert!(reg.check_key("any-key").is_ok());
-    }
-
-    #[tokio::test]
-    async fn admit_rate_skips_call_quota_and_does_not_count() {
-        let reg = registry(
-            "proxy_keys: [{id: k, limits: {max_calls: 1}}]\n\
-             mcp_servers: [{id: docs, domain: d, provider: p, url: https://example.test, limits: {rps: 1}}]",
-        );
-        reg.seed_call_count("k", 1);
-        assert!(matches!(
-            reg.admit("k", "docs").await.unwrap_err(),
-            LimitError::CallsExhausted
-        ));
-        assert!(reg.admit_rate("k", "docs").await.is_ok());
-        assert_eq!(reg.key_usage("k").unwrap().calls_total, 1);
-        // 上游 rps 仍生效，且第二次被拒也不计入配额。
-        assert!(reg.admit_rate("k", "docs").await.is_err());
-        assert_eq!(reg.key_usage("k").unwrap().calls_total, 1);
     }
 
     // ── 0 值非法 fail fast ──

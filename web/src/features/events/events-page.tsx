@@ -12,7 +12,12 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
-import { formatRequestStatus, statusClass } from "../format.ts";
+import {
+  formatRequestKind,
+  formatRequestStatus,
+  requestKindLabels,
+  statusClass,
+} from "../format.ts";
 import { parseLimit, toRfc3339 } from "../time.ts";
 import { cursorFromResponse } from "./cursor.ts";
 import { EventDetail } from "./event-detail.tsx";
@@ -22,6 +27,8 @@ const maxLimit = 200;
 interface EventFilters {
   proxyKey: string;
   resource: string;
+  /** 空串表示全部类型。 */
+  kind: string;
   tool: string;
   from: string;
   to: string;
@@ -31,6 +38,7 @@ interface EventFilters {
 const initialFilters: EventFilters = {
   proxyKey: "",
   resource: "",
+  kind: "",
   tool: "",
   from: "",
   to: "",
@@ -67,6 +75,7 @@ export function EventsPage() {
         limit: filters.limit,
         proxy_key_id: filters.proxyKey || null,
         resource_id: filters.resource || null,
+        request_kind: filters.kind || null,
         tool_name: filters.tool || null,
         from: toRfc3339(filters.from) ?? null,
         to: append ? cursorRef.current : (toRfc3339(filters.to) ?? null),
@@ -132,8 +141,22 @@ export function EventsPage() {
           value={draft.resource}
           onChange={(event) => setDraft({ ...draft, resource: event.target.value })}
         />
+        <label className="field">
+          <span>类型</span>
+          <select
+            value={draft.kind}
+            onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
+          >
+            <option value="">全部</option>
+            {Object.entries(requestKindLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
         <Input
-          label="工具名"
+          label="名称"
           value={draft.tool}
           onChange={(event) => setDraft({ ...draft, tool: event.target.value })}
         />
@@ -196,7 +219,8 @@ function EventTable({
             <th>时间</th>
             <th>代理密钥</th>
             <th>资源</th>
-            <th>工具</th>
+            <th>类型</th>
+            <th>名称</th>
             <th>状态</th>
             <th>延迟(ms)</th>
             <th>重试</th>
@@ -237,6 +261,7 @@ function EventRows({
         <td>{row.timestamp}</td>
         <td>{row.proxy_key_id}</td>
         <td>{row.resource_id}</td>
+        <td>{formatRequestKind(row.request_kind)}</td>
         <td>{row.tool_name}</td>
         <td className={statusClass(row.status)}>{formatRequestStatus(row.status)}</td>
         <td>{row.latency_ms}</td>
@@ -253,7 +278,7 @@ function EventRows({
       </tr>
       {open ? (
         <tr>
-          <td colSpan={12}>
+          <td colSpan={13}>
             <EventDetail event={row} />
           </td>
         </tr>

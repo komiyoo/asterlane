@@ -36,6 +36,13 @@
             "null"
           ]
         },
+        "request_kind": {
+          "description": "`tool`、`prompt` 或 `resource`；缺省不过滤。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "resource_id": {
           "type": [
             "string",
@@ -1664,6 +1671,14 @@
         "request_id": {
           "type": "string"
         },
+        "request_kind": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputRequestKind"
+            }
+          ],
+          "description": "调用类型；`tool_name` 对 prompt 是下游名，对 resource 是判权名。"
+        },
         "request_units": {
           "format": "uint32",
           "minimum": 0,
@@ -1711,6 +1726,7 @@
         "request_id",
         "proxy_key_id",
         "resource_id",
+        "request_kind",
         "tool_name",
         "upstream_key_ref",
         "status",
@@ -1724,6 +1740,26 @@
         "upstream_latency_ms"
       ],
       "type": "object"
+    },
+    "OutputRequestKind": {
+      "description": "事件对应的下游调用类型。`tool_name` 的含义随它变化：工具是 wire name，\nprompt 是下游名，resource 是判权名（都是 `domain__provider__<名>`）。",
+      "oneOf": [
+        {
+          "const": "tool",
+          "description": "工具调用（REST invoke、MCP `tools/call`、admin 调试调用）。",
+          "type": "string"
+        },
+        {
+          "const": "prompt",
+          "description": "MCP `prompts/get`。",
+          "type": "string"
+        },
+        {
+          "const": "resource",
+          "description": "MCP `resources/read`。",
+          "type": "string"
+        }
+      ]
     },
     "OutputRequestStatus": {
       "description": "上游请求的最终状态。\n\n`UpstreamError(0)` 与 `ConnectionFailed` 均表示传输层失败（未拿到有效响应），\n对应指标中的 `status=0` 哨兵（见 observability.md）。",
@@ -2167,6 +2203,17 @@
           "format": "int64",
           "type": "integer"
         },
+        "request_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OutputRequestKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "只在 `group_by=tool` 时有值：同名的工具、prompt 与 resource 分成不同的行。"
+        },
         "total_units": {
           "format": "int64",
           "type": "integer"
@@ -2174,6 +2221,7 @@
       },
       "required": [
         "dimension_value",
+        "request_kind",
         "request_count",
         "error_count",
         "total_units",

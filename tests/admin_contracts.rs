@@ -12,7 +12,7 @@ use asterlane::config::{AdminConfig, AdminKey};
 use asterlane::http::{AppState, build_app};
 use asterlane::limits::LimitRegistry;
 use asterlane::mcp::McpServerRegistry;
-use asterlane::observability::{RequestEvent, RequestStatus};
+use asterlane::observability::{RequestEvent, RequestKind, RequestStatus};
 use asterlane::secrets::DefaultSecretStore;
 use asterlane::store::{
     RequestEventRepository, SqliteRequestEventRepository, in_memory_pool, run_migrations,
@@ -771,6 +771,7 @@ async fn events_keep_payload_strings_and_audit_details() {
         request_id: "req_contract".to_string(),
         proxy_key_id: "agent-a".to_string(),
         resource_id: "example".to_string(),
+        request_kind: RequestKind::Tool,
         tool_name: "search__example__lookup".to_string(),
         upstream_key_ref: "key#0001".to_string(),
         status: RequestStatus::Success,
@@ -817,12 +818,21 @@ async fn events_keep_payload_strings_and_audit_details() {
     assert_eq!(events[0]["latency_ms"], 12);
     assert_eq!(events[0]["upstream_latency_ms"], 9);
     assert_eq!(events[0]["upstream_key_ref"], "key#0001");
+    assert_eq!(events[0]["request_kind"], "tool");
+
+    // 按调用类型过滤；未知类型是查询错误
+    let prompts = call_json(&state, "GET", "/admin/events?request_kind=prompt", None).await;
+    assert_eq!(prompts.status, StatusCode::OK);
+    assert_eq!(prompts.json(), serde_json::json!([]));
+    let invalid = call_json(&state, "GET", "/admin/events?request_kind=nope", None).await;
+    assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
 
     let usage = call_json(&state, "GET", "/admin/usage?group_by=tool", None).await;
     assert_eq!(usage.status, StatusCode::OK);
     let rows = &usage.json()["rows"];
     assert!(rows.as_array().is_some_and(|r| !r.is_empty()));
     assert!(rows[0]["dimension_value"].is_string());
+    assert_eq!(rows[0]["request_kind"], "tool");
     assert!(rows[0]["request_count"].is_number());
     assert!(rows[0]["avg_latency_ms"].is_number());
 

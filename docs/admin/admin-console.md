@@ -62,9 +62,9 @@ admin:
 | Tools | wrapped tool 目录（name、description，客户端过滤）；每行「调试」展开面板 = 参数 textarea（预填已存默认）+ 调用 + 存为默认 + 结果/耗时/request_id 显示 | `/admin/tools`、`GET/PUT/DELETE /admin/tools/{name}/defaults`、`POST /admin/tools/{name}/invoke` | 已上线（C1，调试面板随 C4）；catalog 大时改服务端过滤，复用 `catalog` 的过滤/分页 |
 | Proxy Keys | key scope 一览（allow/deny 正则、分页大小） | `/admin/proxy-keys` | 已上线（C1） |
 | Key Pools | upstream key 池状态：available/cooling/leased、冷却剩余、权重、EWMA 延迟、LB 策略 | `/admin/key-pools` | 已上线（C2）：key 以脱敏 `key#000N` 展示，ref 隐藏路径段；GET 读 resource CRUD 热更新后的池快照；配置形态见 [Configuration Schema – Key Pool](../runtime/config-schema.md) |
-| Events | 请求事件查询（key/resource/tool/时间范围过滤，时间游标分页）；行「详情」展示负载捕获字段 `request_args`/`response_preview`/`upstream_latency_ms`，含 `request_args` 的行提供「存为默认参数」（前端 PUT 到该 tool 的 defaults） | `/admin/events`（`?tool_name=` 精确过滤） | 已上线（C2，行详情随 C4）：`from`/`to` 为 RFC3339；`to` 不含边界，兼作游标——下一页传上一页末行 `timestamp`（同一时间戳的并发行可能被跳过，微秒精度下可接受） |
+| Events | 请求事件查询（key/resource/类型/名称/时间范围过滤，时间游标分页）；「类型」列区分工具、prompt 与 resource；行「详情」展示负载捕获字段 `request_args`/`response_preview`/`upstream_latency_ms`，工具类型的行提供「存为默认参数」（前端 PUT 到该 tool 的 defaults） | `/admin/events`（`?request_kind=` 按类型、`?tool_name=` 精确过滤） | 已上线（C2，行详情随 C4）：`from`/`to` 为 RFC3339；`to` 不含边界，兼作游标——下一页传上一页末行 `timestamp`（同一时间戳的并发行可能被跳过，微秒精度下可接受） |
 | Security Events | integrity drift、content defense 事件 | `/admin/security-events` | 已上线（C1） |
-| Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中） | `/admin/usage?group_by=&from=&to=` | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
+| Usage | 按 proxy_key/resource/tool/status/domain 聚合 + `bucket` 小时趋势序列（请求数、错误数、units、平均延迟、限流命中）；按 tool 聚合时同名的工具、prompt 与 resource 分行，并显示「类型」列 | `/admin/usage?group_by=&from=&to=`（`group_by=tool` 的行带 `request_kind`） | 已上线（C2）；非法参数返回 `admin.invalid_query`（400） |
 | Config | 配置校验报告、资源与 key 的 CRUD；resource 写路径 swap 重建 `KeyPoolRegistry`（按 secret_ref 携带冷却与 EWMA） | `/admin/config/validate`、`POST/PUT/DELETE /admin/resources`、`POST/PUT/DELETE /admin/proxy-keys` | 已上线（C3；key pool 热更新 2026-08-20） |
 | （跨页面）Tool Defaults | 工具默认调用参数全量列表（Tools 调试面板与 CLI 消费） | `GET /admin/tool-defaults` | 已上线（C4） |
 | （跨页面）数据刷新 | 页头「刷新」按钮重载当前页数据（连接成功后显示）；替代「重点当前 tab」这一不可发现的旧路径 | — | 已上线（2026-09-02） |

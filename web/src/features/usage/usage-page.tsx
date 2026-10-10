@@ -6,7 +6,7 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
-import { formatAverage } from "../format.ts";
+import { formatAverage, formatRequestKind } from "../format.ts";
 import { toRfc3339 } from "../time.ts";
 
 const dimensions = [
@@ -124,6 +124,11 @@ function UsageBody({
   );
 }
 
+/** 按工具聚合时同名的工具、prompt 与 resource 各占一行，key 要带上类型。 */
+function rowKey(row: OutputUsageSummaryResponse): string {
+  return `${row.request_kind ?? ""}:${row.dimension_value}`;
+}
+
 function UsageChart({ rows, bucket }: { rows: OutputUsageSummaryResponse[]; bucket: boolean }) {
   const max = Math.max(...rows.map((row) => row.request_count));
   return (
@@ -132,11 +137,12 @@ function UsageChart({ rows, bucket }: { rows: OutputUsageSummaryResponse[]; buck
         const width = max === 0 ? 0 : (row.request_count / max) * 100;
         const errorWidth =
           row.request_count === 0 ? 0 : (row.error_count / row.request_count) * 100;
+        const kind = row.request_kind === null ? "" : `[${formatRequestKind(row.request_kind)}] `;
         const label = bucket
           ? row.dimension_value.slice(5, 16).replace("T", " ")
-          : row.dimension_value;
+          : `${kind}${row.dimension_value}`;
         return (
-          <div className="bar-row" key={row.dimension_value}>
+          <div className="bar-row" key={rowKey(row)}>
             <span className="bar-lbl" title={row.dimension_value}>
               {label}
             </span>
@@ -157,11 +163,13 @@ function UsageChart({ rows, bucket }: { rows: OutputUsageSummaryResponse[]; buck
 }
 
 function UsageTable({ rows }: { rows: OutputUsageSummaryResponse[] }) {
+  const showKind = rows.some((row) => row.request_kind !== null);
   return (
     <div className="tablewrap">
       <table>
         <thead>
           <tr>
+            {showKind ? <th>类型</th> : null}
             <th>维度</th>
             <th>请求数</th>
             <th>错误数</th>
@@ -172,7 +180,8 @@ function UsageTable({ rows }: { rows: OutputUsageSummaryResponse[] }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.dimension_value}>
+            <tr key={rowKey(row)}>
+              {showKind ? <td>{formatRequestKind(row.request_kind)}</td> : null}
               <td>{row.dimension_value}</td>
               <td>{row.request_count}</td>
               <td>{row.error_count}</td>

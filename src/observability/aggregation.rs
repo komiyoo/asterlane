@@ -159,6 +159,7 @@ mod tests {
             request_id: "req_1".to_string(),
             proxy_key_id: "agent-dev".to_string(),
             resource_id: "tavily-default".to_string(),
+            request_kind: crate::observability::RequestKind::Tool,
             tool_name: "search__tavily__web_search".to_string(),
             upstream_key_ref: redact_secret_key("sk-1234567890abcdefwxyz"),
             status,

@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::http::AppState;
 use crate::limits::KeyUsage;
-use crate::observability::SecurityEventKind;
+use crate::observability::{RequestKind, SecurityEventKind};
 use crate::store::repository::{
     AggregationDimension, AggregationFilter, AggregationRepository, OverallStats,
     RequestEventFilter, RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
@@ -149,6 +149,18 @@ pub(super) async fn events(
 ) -> Result<Json<Vec<RequestEventResponse>>, AsterlaneError> {
     let from = parse_rfc3339("from", query.from.as_deref())?;
     let to = parse_rfc3339("to", query.to.as_deref())?;
+    let request_kind = query
+        .request_kind
+        .as_deref()
+        .map(|raw| {
+            RequestKind::parse(raw).ok_or_else(|| {
+                AsterlaneError::internal(
+                    ErrorCode::AdminInvalidQuery,
+                    format!("invalid request_kind: {raw} (expected tool|prompt|resource)"),
+                )
+            })
+        })
+        .transpose()?;
     let Some(repo) = &state.event_repo else {
         return Ok(Json(Vec::new()));
     };
@@ -156,6 +168,7 @@ pub(super) async fn events(
     let filter = RequestEventFilter {
         proxy_key_id: query.proxy_key_id,
         resource_id: query.resource_id,
+        request_kind,
         tool_name: query.tool_name,
         from,
         to,

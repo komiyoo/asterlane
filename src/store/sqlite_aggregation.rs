@@ -2,7 +2,8 @@
 //!
 //! 从 `sqlite.rs` 拆出——用量桶与聚合查询独立于事件/实体 CRUD。
 
-use crate::store::error::StoreError;
+use crate::observability::RequestKind;
+use crate::store::error::{StoreError, decode_error};
 use crate::store::repository::{
     AggregationDimension, AggregationFilter, AggregationRepository, OverallStats, UsageBucket,
     UsageBucketFilter, UsageBucketRepository, UsageSummary,
@@ -166,8 +167,17 @@ fn append_aggregation_filter(sql: &mut String, filter: &AggregationFilter, time_
 }
 
 fn row_to_usage_summary(row: SqliteRow) -> Result<UsageSummary, StoreError> {
+    let request_kind: Option<String> = row.try_get("request_kind").map_err(StoreError::from)?;
+    let request_kind = request_kind
+        .map(|kind| {
+            RequestKind::parse(&kind).ok_or_else(|| {
+                StoreError::Query(decode_error(format!("unknown request_kind: {kind}")))
+            })
+        })
+        .transpose()?;
     Ok(UsageSummary {
         dimension_value: row.try_get("dim_value").map_err(StoreError::from)?,
+        request_kind,
         request_count: row.try_get("request_count").map_err(StoreError::from)?,
         error_count: row.try_get("error_count").map_err(StoreError::from)?,
         total_units: row.try_get("total_units").map_err(StoreError::from)?,
@@ -205,9 +215,15 @@ impl AggregationRepository for SqliteRequestEventRepository {
         limit: u32,
     ) -> Result<Vec<UsageSummary>, StoreError> {
         let col = dimension_column(dimension);
+        // 按 tool 聚合时连同类型一起分组，同名的工具、prompt 与 resource 不合并
+        let (kind_col, group_by) = match dimension {
+            AggregationDimension::Tool => ("request_kind", format!("request_kind, {col}")),
+            _ => ("NULL", col.to_string()),
+        };
         let mut sql = format!(
             r#"
             SELECT {col} AS dim_value,
+                   {kind_col} AS request_kind,
                    COUNT(*) AS request_count,
                    SUM(CASE WHEN status_kind != 'success' THEN 1 ELSE 0 END) AS error_count,
                    SUM(request_units) AS total_units,
@@ -219,7 +235,7 @@ impl AggregationRepository for SqliteRequestEventRepository {
         );
         append_aggregation_filter(&mut sql, filter, "timestamp");
         sql.push_str(&format!(
-            " GROUP BY {col} ORDER BY request_count DESC LIMIT ?"
+            " GROUP BY {group_by} ORDER BY request_count DESC LIMIT ?"
         ));
 
         let rfc_from = filter.from.map(|d| d.to_rfc3339());
@@ -245,6 +261,7 @@ impl AggregationRepository for SqliteRequestEventRepository {
         let mut sql = String::from(
             r#"
             SELECT bucket_start AS dim_value,
+                   NULL AS request_kind,
                    SUM(request_count) AS request_count,
                    SUM(error_count) AS error_count,
                    SUM(total_units) AS total_units,
@@ -276,7 +293,7 @@ impl AggregationRepository for SqliteRequestEventRepository {
             r#"
             SELECT COUNT(*) AS total_requests,
                    SUM(CASE WHEN status_kind != 'success' THEN 1 ELSE 0 END) AS total_errors,
-                   COUNT(DISTINCT tool_name) AS unique_tools,
+                   COUNT(DISTINCT CASE WHEN request_kind = 'tool' THEN tool_name END) AS unique_tools,
                    COUNT(DISTINCT proxy_key_id) AS unique_proxy_keys,
                    COUNT(DISTINCT resource_id) AS unique_resources,
                    AVG(latency_ms) AS avg_latency_ms,

@@ -4,7 +4,7 @@ title: MCP 治理与 Key 限额
 description: MCP 供应商可观测/可管理（详情页、测活、工具介绍、上游限额）与 key 分发的结构化范围选择、rps/rpm/调用次数限额的需求梳理与设计契约。
 resource: docs/runtime/mcp-governance-and-key-limits.md
 tags: [mcp, admin, console, limits, keys, health, governance]
-timestamp: 2026-10-02T00:00:00+08:00
+timestamp: 2026-10-09T00:00:00+08:00
 ---
 
 # 背景
@@ -93,13 +93,13 @@ proxy_keys:
 
 - **按实体独立 quota**：每个配置了 `limits` 的实体（proxy key / api resource / mcp server）拥有独立 governor GCRA 限流器实例；新增 `LimitRegistry` 持有 `实体 id → {rps 限流器, rpm 限流器, 并发队列}` 映射，从配置构建，配置热更新（CRUD）时重建。
 - **LimiterKey**：per-key 全局限额新增 `LimiterKey::Principal(PrincipalId)` 维度（现有 `GatewayPrincipal(ApiId, PrincipalId)` 保留给未来 per-key-per-resource 需求）。
-- **执行顺序**（REST `/v1/tools/{name}/invoke`、MCP `tools/call`（含 lazy `asl__call`）、admin 调试调用共享同一准入管线）：
+- **执行顺序**（REST `/v1/tools/{name}/invoke`、MCP `tools/call`（含 lazy `asl__call`）、MCP `prompts/get` 与 `resources/read`、admin 调试调用共享同一准入管线）：
   1. proxy key `rps` → `rpm` → `max_calls`；
   2. 上游 `rps` → `rpm`；
   3. 上游 `max_concurrent` 队列准入（持 permit 执行）；
   4. key pool 选 key 与执行（既有）。
   admin 调试调用的合成 key 无 `limits` 配置，自然跳过第 1 步，仍受第 2、3 步保护上游。
-- MCP `prompts/get` 与 `resources/read` 只走 key rps/rpm 与上游 rps/rpm/并发（`LimitRegistry::admit_rate`）。不检查、不计入 `max_calls` / `max_calls_per_day`，也不写 `request_events`。网关自有的 `asterlane_tool_workflow` 不经这道准入。
+- MCP `prompts/get` 与 `resources/read`（2026-10-09 起）与 `tools/call` 同口径：走同一个 `LimitRegistry::admit`，计入 `max_calls` / `max_calls_per_day`，上游失败退还，被拒、成功与失败都写 `request_events`。网关自有的 `asterlane_tool_workflow` 是本地内容，不经这道准入，也不写事件。
 - **超限响应**：429，错误码 `limit.quota_exceeded`（既有），带 `Retry-After`（GCRA `reset_after` 秒）；`max_calls` 耗尽用新错误码 `limit.calls_exhausted`（429，无 Retry-After，需管理员调高配额）。命中照常落 request event（`status_kind` 沿用既有 rate-limited 口径）与 metrics。
 - **max_calls 计数口径**（as-built 2026-08-19）：累计/日配额计**成功完成**的 invoke。准入通过后 `record_call`；invoke 最终失败（上游 4xx/5xx/超时/连接失败、准入后 secret 解析失败、MCP 传输失败）由 `CallQuotaGuard` 调用 `refund_call` 退还这两项。被限流拒绝的尝试不计入、也不退还。GCRA rps/rpm 在 `check` 时消费且不可退还，故失败仍消耗速率令牌。远程 MCP 返回 `CallToolResult.is_error` 属于协议层完成，不退还。`request_events` 仍记录每一次尝试（含失败与 Limited）。启动回填：有 store 时 `summarize_by(ProxyKey)`，seed = `request_count − error_count`（成功次数；Limited 计入 `error_count` 且从未进入配额）。未配 store 时仅内存计数、重启归零。
 

@@ -4,7 +4,7 @@ title: MCP 协议版本与网关适配
 description: 将 Asterlane 对齐 MCP 2026-07-28，同时双栈兼容 2025-11-25 客户端与上游。
 resource: docs/architecture/mcp-protocol.md
 tags: [mcp, protocol, rmcp, compatibility]
-timestamp: 2026-10-02T00:00:00Z
+timestamp: 2026-10-09T00:00:00Z
 ---
 
 # 背景
@@ -107,7 +107,7 @@ resource 与 resource template 对下游的 URI 一律是 `asterlane://{server_i
 
 只对声明了对应 capability 的上游拉取。没声明的上游不报错、快照为空。快照与工具同一周期刷新：连接、周期 refresh、上游 `tools/list_changed`。某类列表拉取失败时保留该类的上一次快照，不把这次工具探测判失败。
 
-`prompts/get` 与 `resources/read` 走和 `tools/call` 相同的 key 级与上游级速率、并发准入（同一个 `LimitRegistry`），不计入调用配额，不写 `request_events`（已知缺口，见 [Roadmap](../product/roadmap.md) 支柱五）。被拒时返回 JSON-RPC `-32603`，消息是脱敏的限额说明，并记一条 `warn`。无权限、不存在的请求在准入之前就返回，不消耗限额。请求路径各有一个 span（`get_prompt_for`、`read_resource_for`），字段与 `tools/call` 同名：`wire_name`（仅 prompt）、`proxy_key_id`、`resource_id`（上游 server id）、`request_id`。网关自有的 `asterlane_tool_workflow` 是本地内容，不经这道准入。
+`prompts/get` 与 `resources/read` 走和 `tools/call` 相同的准入（同一个 `LimitRegistry::admit`：key 与上游的速率、并发，以及 `max_calls` / `max_calls_per_day`），上游失败退还调用配额；被拒、成功与失败都写 `request_events`，字段口径见 [Observability](observability.md#请求事件模型)。被拒时返回 JSON-RPC `-32603`，消息是脱敏的限额说明，并记一条 `warn`。无权限、不存在的请求在准入之前就返回，不消耗限额，也不写事件。请求路径各有一个 span（`get_prompt_for`、`read_resource_for`），字段与 `tools/call` 同名：`wire_name`（仅 prompt）、`proxy_key_id`、`resource_id`（上游 server id）、`request_id`。网关自有的 `asterlane_tool_workflow` 是本地内容，不经这道准入。
 
 `mcp.failure_mode: fail_closed` 只拦 `tools/list`，三份列表与 `prompts/get`、`resources/read` 不受影响（上游不可达时列表沿用上一次快照）。多轮输入（MRTR）不代理：上游对 `prompts/get` 或 `resources/read` 返回 input required 时，网关返回上游失败。
 

@@ -6,6 +6,7 @@
 
 pub mod config_merge;
 pub mod error;
+mod events;
 pub mod mcp_servers;
 pub mod oauth_credentials;
 pub mod repository;
@@ -18,6 +19,7 @@ pub mod tool_metadata;
 
 pub use config_merge::{MergeReport, load_db_entries, merge_db_config, merge_db_into_config};
 pub use error::StoreError;
+pub use events::persist_request_event;
 pub use mcp_servers::{McpServerRecord, McpServerRepository};
 pub use oauth_credentials::UpstreamOAuthCredentialRepository;
 pub use repository::{
@@ -75,6 +77,7 @@ mod tests {
             request_id: request_id.to_string(),
             proxy_key_id: proxy_key_id.to_string(),
             resource_id: resource_id.to_string(),
+            request_kind: crate::observability::RequestKind::Tool,
             tool_name: "search__tavily__web_search".to_string(),
             upstream_key_ref: redact_secret_key("sk-1234567890abcdefwxyz"),
             status,
@@ -936,6 +939,7 @@ mod tests {
             request_id: request_id.to_string(),
             proxy_key_id: proxy_key_id.to_string(),
             resource_id: resource_id.to_string(),
+            request_kind: crate::observability::RequestKind::Tool,
             tool_name: tool_name.to_string(),
             upstream_key_ref: "key:test".to_string(),
             status,
@@ -948,6 +952,77 @@ mod tests {
             response_preview: None,
             upstream_latency_ms: None,
         }
+    }
+
+    #[tokio::test]
+    async fn same_name_tool_prompt_and_resource_stay_apart() {
+        use crate::observability::RequestKind;
+        let repo = setup_repo().await;
+        let name = "docs__wiki__notes";
+        for (id, kind) in [
+            ("r1", RequestKind::Tool),
+            ("r2", RequestKind::Tool),
+            ("r3", RequestKind::Prompt),
+            ("r4", RequestKind::Resource),
+        ] {
+            let event = RequestEvent {
+                request_kind: kind,
+                ..sample_event_with_tool(id, "k1", "docs", name, RequestStatus::Success)
+            };
+            repo.insert_event(&event).await.unwrap();
+        }
+
+        // 按 tool 聚合：同名的三类各成一行，并带上类型
+        let rows = repo
+            .summarize_by(
+                AggregationDimension::Tool,
+                &AggregationFilter::default(),
+                10,
+            )
+            .await
+            .unwrap();
+        let mut counts: Vec<_> = rows
+            .iter()
+            .map(|r| (r.request_kind, r.dimension_value.as_str(), r.request_count))
+            .collect();
+        counts.sort_by_key(|row| row.0.map(RequestKind::as_str));
+        assert_eq!(
+            counts,
+            [
+                (Some(RequestKind::Prompt), name, 1),
+                (Some(RequestKind::Resource), name, 1),
+                (Some(RequestKind::Tool), name, 2),
+            ]
+        );
+        // 其他维度不带类型
+        let by_key = repo
+            .summarize_by(
+                AggregationDimension::ProxyKey,
+                &AggregationFilter::default(),
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(by_key[0].request_kind, None);
+        assert_eq!(by_key[0].request_count, 4);
+
+        // unique_tools 只数工具
+        let stats = repo
+            .overall_stats(&AggregationFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(stats.total_requests, 4);
+        assert_eq!(stats.unique_tools, 1);
+
+        // 事件按类型过滤，读回的类型与写入一致
+        let filter = RequestEventFilter {
+            request_kind: Some(RequestKind::Prompt),
+            ..Default::default()
+        };
+        let prompts = repo.list_events(&filter, 10).await.unwrap();
+        assert_eq!(prompts.len(), 1);
+        assert_eq!(prompts[0].request_id, "r3");
+        assert_eq!(prompts[0].request_kind, RequestKind::Prompt);
     }
 
     #[tokio::test]

@@ -4,7 +4,7 @@ title: 可观测性设计
 description: 定义请求事件、负载捕获、指标、脱敏、聚合口径与导出方式，覆盖 NyaProxy 可借鉴的观测字段。
 resource: docs/architecture/observability.md
 tags: [observability, metrics, tracing, security, capture]
-timestamp: 2026-07-05T00:00:00Z
+timestamp: 2026-10-09T00:00:00Z
 ---
 
 # 背景
@@ -29,7 +29,8 @@ struct RequestEvent {
     request_id: String,           // 贯穿全链路的唯一标识
     proxy_key_id: String,          // 网关 key 标识
     resource_id: String,           // 上游资源 ID
-    tool_name: String,             // wire name，如 search__tavily__web_search
+    request_kind: RequestKind,     // Tool / Prompt / Resource
+    tool_name: String,             // wire name，如 search__tavily__web_search；含义随 request_kind 变化
     upstream_key_ref: String,      // 脱敏标识：单 ref 路径 key:abcd…wxyz；key pool 路径 key#0001（KeyId）
     status: RequestStatus,         // Success / UpstreamError(status) / Timeout / ConnectionFailed / Limited
     latency_ms: u32,               // 网关端到端耗时（含排队/重试）
@@ -43,7 +44,11 @@ struct RequestEvent {
 }
 ```
 
-落库表 `request_events`（见 [Development Workflow – Store Strategy](../engineering/development-workflow.md)），同时作为 tracing 事件输出。`RequestEventFilter` 支持按 proxy key、resource、tool wire name 与时间范围过滤。
+落库表 `request_events`（见 [Development Workflow – Store Strategy](../engineering/development-workflow.md)），同时作为 tracing 事件输出。`RequestEventFilter` 支持按 proxy key、resource、调用类型、tool wire name 与时间范围过滤。
+
+MCP `prompts/get` 与 `resources/read` 也写同一张表，口径与 remote MCP 工具调用相同：`resource_id` 是 MCP server id，`upstream_key_ref` 是 `<mcp>`（被拒为 `<limited>`），上游失败记 `UpstreamError(0)`。`tool_name` 是 `domain__provider__<上游名>`：prompt 取对下游暴露的名字，resource 取命中的 resource 或 template 的判权名，不写 URI。捕获开启时，prompt 的 `request_args` 是参数，resource 的是 `{"uri": "<下游 URI>"}`。
+
+`request_kind`（`tool` | `prompt` | `resource`，2026-10-09 起）区分这三类，旧行按 `tool` 读入。同一个名字可能同时是工具、prompt 和 resource，所以按 tool 聚合时按 `(request_kind, tool_name)` 分组，每行带 `request_kind`；其他维度不区分类型，该字段为 `null`。`/admin/stats` 的 `unique_tools` 只数 `tool` 类型。`/admin/events` 可用 `request_kind=` 过滤。`usage_buckets` 只供时间序列求总数，不带类型。
 
 **status 口径（2026-07-06 决策）**：`status` 记录的是网络/传输层结果，不是业务层结果。remote MCP 工具返回 `ToolCallResult.is_error = true` 时传输本身成功，事件仍记 `Success`；业务级错误内容体现在 `response_preview`（is_error 字段随预览可见）。HTTP 上游的 4xx/5xx 属传输层可观测状态，照旧记 `UpstreamError(status)`。
 

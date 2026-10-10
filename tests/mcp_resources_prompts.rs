@@ -2,7 +2,8 @@
 //!
 //! 进程内 peer 当上游，rmcp 客户端经真实 `/mcp` 访问网关。覆盖：名字与 URI 改写、
 //! 按 key 范围可见、无权限与格式错误的读取（-32002 且不打到上游）、限流准入、
-//! 开放模式，以及 `discovery_mode` / `failure_mode` 不影响这三份列表。
+//! 调用配额与失败退还、`request_events`、开放模式，以及 `discovery_mode` /
+//! `failure_mode` 不影响这三份列表。
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -20,6 +21,7 @@ use asterlane::http::{AppState, build_app};
 use asterlane::limits::LimitRegistry;
 use asterlane::mcp::peer::McpFuture;
 use asterlane::mcp::{McpError, McpServerRegistry, RemoteMcpPeer};
+use asterlane::observability::{RequestEvent, RequestKind, RequestStatus};
 use asterlane::store::{
     RequestEventFilter, RequestEventRepository, SqliteRequestEventRepository, run_migrations,
 };
@@ -52,6 +54,8 @@ struct FakeUpstream {
     templates: Vec<ResourceTemplate>,
     /// 置位后 `tools/list` 失败（模拟上游掉线）。
     fail_tools: AtomicBool,
+    /// 置位后 `resources/read` 失败（请求仍会记录）。
+    fail_reads: AtomicBool,
     /// 收到的 `prompts/get`：上游原名与参数。
     gets: Mutex<Vec<(String, Option<JsonObject>)>>,
     /// 收到的 `resources/read` 上游 URI。
@@ -179,8 +183,15 @@ impl RemoteMcpPeer for FakeUpstream {
 
     fn read_resource(&self, uri: &str) -> McpFuture<'_, Result<ReadResourceResult, McpError>> {
         self.reads.lock().unwrap().push(uri.to_string());
+        let fail = self.fail_reads.load(Ordering::SeqCst);
         let result = ReadResourceResult::new(vec![ResourceContents::text("body", uri)]);
-        Box::pin(async move { Ok(result) })
+        Box::pin(async move {
+            if fail {
+                Err(McpError::upstream_failure("read failed"))
+            } else {
+                Ok(result)
+            }
+        })
     }
 }
 
@@ -310,12 +321,20 @@ impl Harness {
             .expect("handshake")
     }
 
-    async fn event_count(&self) -> usize {
-        self.repo
+    /// 按时间升序的请求事件。
+    async fn events(&self) -> Vec<RequestEvent> {
+        let mut events = self
+            .repo
             .list_events(&RequestEventFilter::default(), 100)
             .await
-            .expect("events")
-            .len()
+            .expect("events");
+        events.sort_by_key(|event| event.timestamp);
+        events
+    }
+
+    async fn calls_total(&self, key_id: &str) -> u64 {
+        let limits = self.state.limit_registry_snapshot().await;
+        limits.key_usage(key_id).unwrap().calls_total
     }
 
     /// 三个 server 的 prompts / resources / templates 列表请求总数。
@@ -490,7 +509,7 @@ async fn resources_and_templates_are_listed_with_rewritten_uris() {
 
 #[tokio::test]
 async fn resources_read_restores_the_upstream_uri() {
-    let h = start(&config_yaml(&two_keys("limits: { max_calls: 1 }"), "", "")).await;
+    let h = start(&config_yaml(&two_keys(""), "", "")).await;
     let docs = h.connect(Some(TOKEN_DOCS)).await;
 
     let body = read(&docs, "asterlane://docs/file:///notes.txt")
@@ -525,10 +544,113 @@ async fn resources_read_restores_the_upstream_uri() {
         ]
     );
 
-    // 不计入 max_calls，也不写 request_events
-    let usage = h.state.limit_registry_snapshot().await;
-    assert_eq!(usage.key_usage("key-docs").unwrap().calls_total, 0);
-    assert_eq!(h.event_count().await, 0);
+    // 事件里的名字是命中的 resource 或 template 的判权名，不是 URI
+    let names: Vec<String> = h.events().await.into_iter().map(|e| e.tool_name).collect();
+    assert_eq!(
+        names,
+        [
+            "docs__wiki__notes",
+            "docs__wiki__guide/README.md",
+            "docs__wiki__file"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn prompts_get_and_resources_read_count_toward_call_quota_and_write_events() {
+    let h = start(&config_yaml(&two_keys("limits: { max_calls: 2 }"), "", "")).await;
+    let docs = h.connect(Some(TOKEN_DOCS)).await;
+
+    let arguments = json!({"topic": "rust"}).as_object().cloned().unwrap();
+    docs.get_prompt(GetPromptRequestParams::new("docs__wiki__summarize").with_arguments(arguments))
+        .await
+        .expect("prompt");
+    read(&docs, "asterlane://docs/file:///notes.txt")
+        .await
+        .expect("read");
+    assert_eq!(h.calls_total("key-docs").await, 2);
+
+    // 配额用完：与 tools/call 同一条错误，上游没收到第三次请求
+    let exhausted = mcp_error(
+        read(&docs, "asterlane://docs/file:///notes.txt")
+            .await
+            .expect_err("quota"),
+    );
+    assert_eq!(exhausted.code, ErrorCode::INTERNAL_ERROR);
+    assert!(
+        exhausted.message.contains("call quota exhausted"),
+        "{}",
+        exhausted.message
+    );
+    assert_eq!(h.docs.reads().len(), 1);
+    assert_eq!(h.calls_total("key-docs").await, 2);
+
+    // 网关自有的 workflow prompt 是本地内容，不计配额、不写事件
+    docs.get_prompt(GetPromptRequestParams::new(WORKFLOW))
+        .await
+        .expect("workflow");
+
+    let events = h.events().await;
+    assert_eq!(events.len(), 3);
+    let prompt = &events[0];
+    assert_eq!(prompt.proxy_key_id, "key-docs");
+    assert_eq!(prompt.resource_id, "docs");
+    assert_eq!(prompt.request_kind, RequestKind::Prompt);
+    assert_eq!(prompt.tool_name, "docs__wiki__summarize");
+    assert_eq!(prompt.upstream_key_ref, "<mcp>");
+    assert_eq!(prompt.status, RequestStatus::Success);
+    assert!(prompt.request_id.starts_with("req_"));
+    // 负载捕获缺省开启：prompt 参数与 resource 的下游 URI
+    assert!(prompt.request_args.as_deref().unwrap().contains("rust"));
+    assert!(prompt.response_preview.as_deref().unwrap().contains("body"));
+    let read_event = &events[1];
+    assert_eq!(read_event.request_kind, RequestKind::Resource);
+    assert_eq!(read_event.tool_name, "docs__wiki__notes");
+    assert!(
+        read_event
+            .request_args
+            .as_deref()
+            .unwrap()
+            .contains("asterlane://docs/file:///notes.txt")
+    );
+    let limited = &events[2];
+    assert_eq!(limited.status, RequestStatus::Limited);
+    assert!(limited.rate_limited);
+    assert_eq!(limited.upstream_key_ref, "<limited>");
+}
+
+#[tokio::test]
+async fn failed_upstream_read_refunds_quota_and_records_the_failure() {
+    let h = start(&config_yaml(
+        &two_keys("limits: { max_calls: 1 }"),
+        "observability: { capture_payloads: false }",
+        "",
+    ))
+    .await;
+    let docs = h.connect(Some(TOKEN_DOCS)).await;
+
+    h.docs.fail_reads.store(true, Ordering::SeqCst);
+    let failed = mcp_error(
+        read(&docs, "asterlane://docs/file:///notes.txt")
+            .await
+            .expect_err("upstream failure"),
+    );
+    assert_eq!(failed.code, ErrorCode::INTERNAL_ERROR);
+    // 失败退还配额
+    assert_eq!(h.calls_total("key-docs").await, 0);
+    let events = h.events().await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, RequestStatus::UpstreamError(0));
+    assert_eq!(events[0].upstream_latency_ms, None);
+    // 捕获关闭时不写负载
+    assert_eq!(events[0].request_args, None);
+
+    // 退还后配额仍可用
+    h.docs.fail_reads.store(false, Ordering::SeqCst);
+    read(&docs, "asterlane://docs/file:///notes.txt")
+        .await
+        .expect("read after refund");
+    assert_eq!(h.calls_total("key-docs").await, 1);
 }
 
 #[tokio::test]
@@ -570,6 +692,8 @@ async fn unreadable_uris_are_resource_not_found_and_never_reach_the_upstream() {
     assert!(h.docs.reads().is_empty());
     assert!(h.ops.reads().is_empty());
     assert!(h.plain.reads.lock().unwrap().is_empty());
+    // 解析与判权失败不写事件（与 tools/call 一致）
+    assert!(h.events().await.is_empty());
 }
 
 #[tokio::test]
@@ -775,8 +899,16 @@ async fn key_rate_limit_applies_to_prompts_get_and_resources_read() {
     assert_eq!(limited.code, ErrorCode::INTERNAL_ERROR);
     assert_eq!(h.docs.gets().len(), 1);
 
-    // 被拒也不写 request_events；日志里有告警，span 字段与 tools 路径同名
-    assert_eq!(h.event_count().await, 0);
+    // 未知 URI 不写事件；一次成功与两次被拒各写一条；日志里有告警，span 字段与 tools 路径同名
+    let statuses: Vec<RequestStatus> = h.events().await.into_iter().map(|e| e.status).collect();
+    assert_eq!(
+        statuses,
+        [
+            RequestStatus::Success,
+            RequestStatus::Limited,
+            RequestStatus::Limited
+        ]
+    );
     let text = logs
         .text_containing("request rejected by limit admission")
         .replace('"', "");

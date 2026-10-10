@@ -1,4 +1,15 @@
-import type { OutputRequestStatus } from "../api/index.ts";
+import type { OutputRequestKind, OutputRequestStatus } from "../api/index.ts";
+
+export const requestKindLabels: Record<OutputRequestKind, string> = {
+  tool: "工具",
+  prompt: "prompt",
+  resource: "resource",
+};
+
+/** 调用类型的显示文字；没有类型（非按工具聚合）时为空串。 */
+export function formatRequestKind(kind: OutputRequestKind | null): string {
+  return kind === null ? "" : requestKindLabels[kind];
+}
 
 export function formatRequestStatus(status: OutputRequestStatus): string {
   if (status.kind === "UpstreamError") {

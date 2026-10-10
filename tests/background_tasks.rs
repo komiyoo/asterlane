@@ -15,7 +15,7 @@ use asterlane::http::AppState;
 use asterlane::integrity::{IntegrityPolicy, pin_initial_baseline};
 use asterlane::limits::{LimitRegistry, seed_from_store};
 use asterlane::mcp::{McpError, McpServerRegistry, RemoteMcpPeer};
-use asterlane::observability::{RequestEvent, RequestStatus, SecurityEventKind};
+use asterlane::observability::{RequestEvent, RequestKind, RequestStatus, SecurityEventKind};
 use asterlane::store::{
     AggregationDimension, AggregationFilter, AggregationRepository, OverallStats,
     RequestEventRepository, SecurityEventFilter, SecurityEventRepository,
@@ -325,6 +325,7 @@ fn event(request_id: &str, key: &str, status: RequestStatus, at: DateTime<Utc>) 
         request_id: request_id.to_string(),
         proxy_key_id: key.to_string(),
         resource_id: "srv-a".to_string(),
+        request_kind: RequestKind::Tool,
         tool_name: TOOL_A.to_string(),
         upstream_key_ref: "<mcp>".to_string(),
         status,

@@ -2,11 +2,12 @@
 
 use crate::limits::{CallQuotaGuard, LimitError, QueuePermit};
 use crate::observability::{
-    BucketGranularity, RequestEvent, RequestStatus, UsageBucket, bucket_start, next_request_id,
-    record_request_event,
+    RequestEvent, RequestKind, RequestStatus, next_request_id, record_request_event,
 };
 use crate::secrets::SecretStore;
-use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
+use crate::store::{
+    RequestEventRepository, SecurityEventRepository, UsageBucketRepository, persist_request_event,
+};
 use std::sync::Arc;
 
 use super::ResolvedCall;
@@ -96,6 +97,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             request_id,
             proxy_key_id: call.proxy_key.id.clone(),
             resource_id: resource_id.to_string(),
+            request_kind: RequestKind::Tool,
             tool_name: tool_name.to_string(),
             upstream_key_ref: "<limited>".to_string(),
             status: RequestStatus::Limited,
@@ -109,26 +111,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             upstream_latency_ms: None,
         };
         record_request_event(&event);
-        self.persist_limited_event(&event).await;
-    }
-
-    /// 被拒事件落库并写 hour 桶；失败只告警，不改变拒绝结果。
-    async fn persist_limited_event(&self, event: &RequestEvent) {
-        let Some(repo) = &self.event_repo else {
-            return;
-        };
-        let request_id = event.request_id.as_str();
-        if let Err(e) = repo.insert_event(event).await {
-            tracing::warn!(error = %e, request_id, "failed to persist limited event");
-        }
-        let granularity = BucketGranularity::Hour;
-        let bucket = UsageBucket::from_event(
-            bucket_start(event.timestamp, granularity),
-            granularity,
-            event,
-        );
-        if let Err(e) = repo.upsert_bucket(&(&bucket).into()).await {
-            tracing::warn!(error = %e, request_id, "failed to upsert limited bucket");
+        // 落库失败只告警，不改变拒绝结果
+        if let Some(repo) = &self.event_repo {
+            persist_request_event(repo.as_ref(), &event).await;
         }
     }
 }

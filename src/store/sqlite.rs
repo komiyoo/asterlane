@@ -6,7 +6,7 @@
 //! 不使用编译期宏 `query!`/`query_as!`（避免需要 `SQLX_OFFLINE` + `.sqlx/` 数据或 `DATABASE_URL`）。
 
 use crate::observability::{
-    RequestEvent, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
+    RequestEvent, RequestKind, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
 };
 use crate::store::error::{StoreError, decode_error};
 use crate::store::repository::{
@@ -74,12 +74,19 @@ fn row_to_event(row: SqliteRow) -> Result<RequestEvent, StoreError> {
         .with_timezone(&Utc);
 
     let status = decode_status(&row)?;
+    let request_kind: String = row.try_get("request_kind").map_err(StoreError::from)?;
+    let request_kind = RequestKind::parse(&request_kind).ok_or_else(|| {
+        StoreError::Query(decode_error(format!(
+            "unknown request_kind: {request_kind}"
+        )))
+    })?;
 
     Ok(RequestEvent {
         timestamp,
         request_id: row.try_get("request_id").map_err(StoreError::from)?,
         proxy_key_id: row.try_get("proxy_key_id").map_err(StoreError::from)?,
         resource_id: row.try_get("resource_id").map_err(StoreError::from)?,
+        request_kind,
         tool_name: row.try_get("tool_name").map_err(StoreError::from)?,
         upstream_key_ref: row.try_get("upstream_key_ref").map_err(StoreError::from)?,
         status,
@@ -116,17 +123,18 @@ impl RequestEventRepository for SqliteRequestEventRepository {
         sqlx::query(
             r#"
             INSERT INTO request_events
-                (timestamp, request_id, proxy_key_id, resource_id, tool_name,
+                (timestamp, request_id, proxy_key_id, resource_id, request_kind, tool_name,
                  upstream_key_ref, status_kind, status_code, latency_ms,
                  request_units, retry_count, rate_limited, queued_ms,
                  request_args, response_preview, upstream_latency_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&timestamp)
         .bind(&event.request_id)
         .bind(&event.proxy_key_id)
         .bind(&event.resource_id)
+        .bind(event.request_kind.as_str())
         .bind(&event.tool_name)
         .bind(&event.upstream_key_ref)
         .bind(status_kind)
@@ -153,7 +161,7 @@ impl RequestEventRepository for SqliteRequestEventRepository {
     ) -> Result<Vec<RequestEvent>, StoreError> {
         let mut sql = String::from(
             r#"
-            SELECT timestamp, request_id, proxy_key_id, resource_id, tool_name,
+            SELECT timestamp, request_id, proxy_key_id, resource_id, request_kind, tool_name,
                    upstream_key_ref, status_kind, status_code, latency_ms,
                    request_units, retry_count, rate_limited, queued_ms,
                    request_args, response_preview, upstream_latency_ms
@@ -167,6 +175,9 @@ impl RequestEventRepository for SqliteRequestEventRepository {
         }
         if filter.resource_id.is_some() {
             sql.push_str(" AND resource_id = ?");
+        }
+        if filter.request_kind.is_some() {
+            sql.push_str(" AND request_kind = ?");
         }
         if filter.tool_name.is_some() {
             sql.push_str(" AND tool_name = ?");
@@ -186,6 +197,9 @@ impl RequestEventRepository for SqliteRequestEventRepository {
         }
         if let Some(ref resource_id) = filter.resource_id {
             query = query.bind(resource_id);
+        }
+        if let Some(request_kind) = filter.request_kind {
+            query = query.bind(request_kind.as_str());
         }
         if let Some(ref tool_name) = filter.tool_name {
             query = query.bind(tool_name);

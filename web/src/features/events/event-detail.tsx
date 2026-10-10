@@ -10,7 +10,10 @@ export function EventDetail({ event }: { event: OutputRequestEventResponse }) {
       <pre>{event.request_args ?? "（未捕获）"}</pre>
       <p>响应预览</p>
       <pre>{event.response_preview ?? "（未捕获）"}</pre>
-      <SaveDefaultControl toolName={event.tool_name} requestArgs={event.request_args} />
+      {/* 默认调用参数只对工具有意义；prompt 与 resource 的名字不在工具目录里 */}
+      {event.request_kind === "tool" ? (
+        <SaveDefaultControl toolName={event.tool_name} requestArgs={event.request_args} />
+      ) : null}
     </div>
   );
 }

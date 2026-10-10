@@ -56,7 +56,8 @@ test("filters, cursor note, limit scope, and YAML export", async ({ page }) => {
 
   await page.getByRole("link", { name: "事件", exact: true }).click();
   await expect(page.getByText("不会改变这个游标")).toBeVisible();
-  await page.getByLabel("工具名").fill("lookup");
+  await page.getByLabel("类型").selectOption("tool");
+  await page.getByLabel("名称").fill("lookup");
   await page.getByRole("button", { name: "查询" }).click();
 
   await page.getByRole("link", { name: "安全事件", exact: true }).click();

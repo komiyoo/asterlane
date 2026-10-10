@@ -91,6 +91,14 @@ export type JsonValue =
  */
 export type OutputConfigIssueLevel = "error" | "warn";
 /**
+ * 事件对应的下游调用类型。`tool_name` 的含义随它变化：工具是 wire name，
+ * prompt 是下游名，resource 是判权名（都是 `domain__provider__<名>`）。
+ *
+ * This interface was referenced by `AsterlaneAdminApi`'s JSON-Schema
+ * via the `definition` "OutputRequestKind".
+ */
+export type OutputRequestKind = "tool" | "prompt" | "resource";
+/**
  * 上游请求的最终状态。
  *
  * `UpstreamError(0)` 与 `ConnectionFailed` 均表示传输层失败（未拿到有效响应），
@@ -272,6 +280,10 @@ export interface InputEventsListParams {
   from?: string | null;
   limit?: number | null;
   proxy_key_id?: string | null;
+  /**
+   * `tool`、`prompt` 或 `resource`；缺省不过滤。
+   */
+  request_kind?: string | null;
   resource_id?: string | null;
   to?: string | null;
   tool_name?: string | null;
@@ -688,6 +700,10 @@ export interface OutputRequestEventResponse {
   rate_limited: boolean;
   request_args: string | null;
   request_id: string;
+  /**
+   * 调用类型；`tool_name` 对 prompt 是下游名，对 resource 是判权名。
+   */
+  request_kind: OutputRequestKind;
   request_units: number;
   resource_id: string;
   response_preview: string | null;
@@ -1097,5 +1113,9 @@ export interface OutputUsageSummaryResponse {
   error_count: number;
   rate_limit_hits: number;
   request_count: number;
+  /**
+   * 只在 `group_by=tool` 时有值：同名的工具、prompt 与 resource 分成不同的行。
+   */
+  request_kind: OutputRequestKind | null;
   total_units: number;
 }

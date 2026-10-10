@@ -6,13 +6,15 @@ use crate::config::SecurityConfig;
 use crate::defense;
 use crate::mcp::model::{ToolCallResult, ToolContent};
 use crate::observability::{
-    BucketGranularity, RequestEvent, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
-    UsageBucket, bucket_start, capture_bytes, capture_text, record_request_event,
+    RequestEvent, RequestKind, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
+    capture_bytes, capture_text, record_request_event,
 };
 use crate::render::{self, ResponseFormat};
 use crate::secrets::SecretStore;
 use crate::shaping::{self, ShapingConfig, ShapingOutcome, budget_for};
-use crate::store::{RequestEventRepository, SecurityEventRepository, UsageBucketRepository};
+use crate::store::{
+    RequestEventRepository, SecurityEventRepository, UsageBucketRepository, persist_request_event,
+};
 use chrono::Utc;
 use tracing::warn;
 
@@ -80,6 +82,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             request_id: request_id.to_string(),
             proxy_key_id: draft.proxy_key_id.to_string(),
             resource_id: draft.resource_id.to_string(),
+            request_kind: RequestKind::Tool,
             tool_name: draft.tool_name.to_string(),
             upstream_key_ref: draft.upstream_key_ref.to_string(),
             status: draft.status,
@@ -103,20 +106,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             );
         }
         if let Some(repo) = &self.event_repo {
-            if let Err(e) = repo.insert_event(&event).await {
-                warn!(error = %e, request_id, "failed to persist request event");
-            }
-            // 预聚合桶（供 /admin/usage?group_by=bucket 趋势序列）。
-            // ponytail: 只写 hour 粒度，控制台需要 minute/day 缩放时再扩
-            let granularity = BucketGranularity::Hour;
-            let bucket = UsageBucket::from_event(
-                bucket_start(event.timestamp, granularity),
-                granularity,
-                &event,
-            );
-            if let Err(e) = repo.upsert_bucket(&(&bucket).into()).await {
-                warn!(error = %e, request_id, "failed to upsert usage bucket");
-            }
+            // 同时写预聚合桶（供 /admin/usage?group_by=bucket 趋势序列）
+            persist_request_event(repo.as_ref(), &event).await;
         }
     }
 

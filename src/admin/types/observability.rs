@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::keys::KeyStatusSnapshot;
 use crate::keys::strategy::LoadBalanceStrategy;
 use crate::observability::{
-    RequestEvent, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
+    RequestEvent, RequestKind, RequestStatus, SecurityEvent, SecurityEventKind, Severity,
 };
 use crate::store::{OverallStats, UsageSummary};
 
@@ -18,6 +18,8 @@ pub(crate) struct EventsListParams {
     pub limit: Option<u32>,
     pub proxy_key_id: Option<String>,
     pub resource_id: Option<String>,
+    /// `tool`、`prompt` 或 `resource`；缺省不过滤。
+    pub request_kind: Option<String>,
     pub tool_name: Option<String>,
     pub from: Option<String>,
     pub to: Option<String>,
@@ -49,6 +51,8 @@ pub(crate) struct RequestEventResponse {
     pub request_id: String,
     pub proxy_key_id: String,
     pub resource_id: String,
+    /// 调用类型；`tool_name` 对 prompt 是下游名，对 resource 是判权名。
+    pub request_kind: RequestKind,
     pub tool_name: String,
     pub upstream_key_ref: String,
     pub status: RequestStatus,
@@ -69,6 +73,7 @@ impl RequestEventResponse {
             request_id: event.request_id.clone(),
             proxy_key_id: event.proxy_key_id.clone(),
             resource_id: event.resource_id.clone(),
+            request_kind: event.request_kind,
             tool_name: event.tool_name.clone(),
             upstream_key_ref: event.upstream_key_ref.clone(),
             status: event.status.clone(),
@@ -112,6 +117,8 @@ impl SecurityEventResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub(crate) struct UsageSummaryResponse {
     pub dimension_value: String,
+    /// 只在 `group_by=tool` 时有值：同名的工具、prompt 与 resource 分成不同的行。
+    pub request_kind: Option<RequestKind>,
     pub request_count: i64,
     pub error_count: i64,
     pub total_units: i64,
@@ -123,6 +130,7 @@ impl UsageSummaryResponse {
     pub(crate) fn from_summary(summary: UsageSummary) -> Self {
         Self {
             dimension_value: summary.dimension_value,
+            request_kind: summary.request_kind,
             request_count: summary.request_count,
             error_count: summary.error_count,
             total_units: summary.total_units,
