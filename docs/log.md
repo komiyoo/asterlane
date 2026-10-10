@@ -1,5 +1,10 @@
 # Documentation Update Log
 
+## 2026-10-10（部署缺省值与 .env.schema）
+
+- **结论**：Compose 启动改为仓库根一条 `docker compose up -d --build`。`run.yaml` 已可启动；管理口令、本机端口和镜像提交号的缺省写在 `.env.schema`，`compose.yaml` 使用同一组 `${VAR:-缺省}`。`.env.example` 删除。二进制仍不加载 `.env` 或 schema。本机从源码启动时，管理口令用这份缺省值。
+- **依据**：[线上部署](admin/deployment.md)、[运行网关](admin/running.md)、[Worktree Workflow](engineering/worktree-workflow.md)。
+
 ## 2026-10-10（架构图）
 
 - **结论**：根 `README.md`、`README.zh-CN.md` 的架构一节，以及 [Architecture](architecture/architecture.md) 的数据流，直接嵌入渲染后的架构图。中文图是 `.github/assets/architecture.zh-CN.png`，英文图是 `.github/assets/architecture.png`。图里是管理员、控制台、代理、同一个网关进程、SQLite，以及上游 HTTP API 与远程 MCP。

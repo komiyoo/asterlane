@@ -4,12 +4,12 @@ title: 运行网关
 description: 用示例配置启动网关、预览某个 key 可见的工具，并签发 gateway token 调用一次上游。
 resource: docs/admin/running.md
 tags: [guide, quickstart, cli]
-timestamp: 2026-10-08T00:00:00Z
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 运行网关
 
-下面使用仓库里的 `examples/gateway.yaml`。把占位符换成你自己的值。`secret://exa/default` 对应环境变量 `EXA_DEFAULT`；没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。签发 token 的那一步需要 `jq`。
+下面使用仓库里的 `examples/gateway.yaml`。管理口令用 [`.env.schema`](../../.env.schema) 里的缺省值。`secret://exa/default` 对应环境变量 `EXA_DEFAULT`；把 `EXA_DEFAULT` 换成你自己的 key。没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。签发 token 的那一步需要 `jq`。
 
 从源码启动和安装后启动是两条等价入口。在线的 `admin` 与 `tools` 只连接已经运行的网关，不读取这份 YAML。
 
@@ -19,7 +19,7 @@ timestamp: 2026-10-08T00:00:00Z
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 export EXA_DEFAULT=replace-me-exa-api-key
 cargo run -- serve --database-url sqlite::memory:
 ```
@@ -28,7 +28,7 @@ cargo run -- serve --database-url sqlite::memory:
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 
 cargo run -- list-tools --key agent-search-research
 

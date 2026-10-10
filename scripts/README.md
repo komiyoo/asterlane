@@ -5,7 +5,7 @@
 ## 脚本
 
 - [check_okf_docs.py](check_okf_docs.py) - 校验 `docs/` OKF frontmatter、索引覆盖和子目录导航；`docs/plans/` 的日期目录由年份索引导航。
-- [setup_worktree.py](setup_worktree.py) - Worktree / 本机工具链检查、`cargo fetch`、冻结安装本树 `web/` 依赖、打印本树环境变量。约定见 [Worktree Workflow](../docs/engineering/worktree-workflow.md)。没有 `vp` 时跳过前端安装，纯 Cargo 构建不需要 Node。
+- [setup_worktree.py](setup_worktree.py) - Worktree / 本机工具链检查、`cargo fetch`、冻结安装本树 `web/` 依赖、打印本树环境变量，并核对 `.env.schema` 与 `compose.yaml` 的缺省值。约定见 [Worktree Workflow](../docs/engineering/worktree-workflow.md)。没有 `vp` 时跳过前端安装，纯 Cargo 构建不需要 Node。
 
 ## 用法
 
@@ -14,6 +14,7 @@ python3 scripts/check_okf_docs.py
 just docs check
 
 python3 scripts/setup_worktree.py --self-test
+python3 scripts/setup_worktree.py --check-env-schema
 python3 scripts/setup_worktree.py --doctor
 python3 scripts/setup_worktree.py
 just worktree init

@@ -20,6 +20,7 @@ feat / fix / refactor / docs / test / chore / ci / build / style，例如 `feat(
 | `cargo clippy --all-targets -- -D warnings` | |
 | `cargo test` | |
 | `python3 scripts/check_okf_docs.py` | |
+| `python3 scripts/setup_worktree.py --check-env-schema` | |
 
 未运行或未通过的项，写出**精确命令**与原因：
 

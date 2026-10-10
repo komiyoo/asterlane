@@ -24,6 +24,7 @@
 
 ### Changed
 
+- Docker Compose 在仓库根执行 `docker compose up -d --build` 即可启动。`run.yaml` 自带可运行配置；管理口令、本机端口和镜像提交号的缺省值在 `.env.schema`，与 `compose.yaml` 的 `${VAR:-缺省}` 相同。二进制仍不读取该文件。
 - `asl__batch` 的工具描述、参数说明和 `asterlane_tool_workflow` 写明既有批量契约：按输入顺序对齐结果；后一项不能使用前一项的返回值，也不能假定前一项的上游副作用已经可见；单项失败不中止其余项，也不回滚已成功的上游调用。执行行为不变。
 - **破坏性变更**：网关自身的 meta-tool 改名为 `asl__status`、`asl__search`、`asl__describe`、`asl__call`、`asl__batch`、`asl__fetch`，不保留旧名 alias。REST 路径 `/v1/tools/{name}/invoke` 中的 meta-tool 名与 CLI 同步变更。上游工具的暴露名不得以 `asl__` 开头。
 - **破坏性变更**：scope 已经覆盖某个上游 MCP server 的 key，升级后会在 `prompts/list`、`resources/list`、`resources/templates/list` 里看到该上游的 prompts、resources 与 templates（此前 `prompts/list` 只有网关自有的 `asterlane_tool_workflow`，网关没有开启 resources），并可调用 `prompts/get`、`resources/read`。没有新的配置字段；不想暴露时收窄 scope：用 `denied_tools` 匹配 `domain__provider__<名字>`，或把 server 移出 `allowed_servers`。`asterlane://{server_id}/{上游原 URI}` 是稳定的 URI 格式。

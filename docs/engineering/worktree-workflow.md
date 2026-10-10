@@ -4,7 +4,7 @@ title: Worktree 工作流
 description: Git / Cursor Worktree 的环境初始化、本目录验证，以及合回 main 后的残留清理。
 resource: docs/engineering/worktree-workflow.md
 tags: [worktree, development, validation, rust, cursor]
-timestamp: 2026-09-27T12:00:00Z
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 背景
@@ -60,7 +60,7 @@ just worktree env
 4. 在本树 `Cargo.toml` 上执行 `cargo fetch`（crate 仍进 `~/.cargo`）。
 5. 若 `vp` 是 `1.0.0-rc.0`，在本树 `web/` 执行 `vp install --frozen-lockfile`。依赖落在该树的 `web/node_modules`。
 
-不要做：拷贝主仓 `target/`、拷贝含密钥的 `.env`、共享 `CARGO_TARGET_DIR`、把 `web/node_modules` 指到别的树、在 init 里起网关。`.env.example` 只是变量清单。纯 `cargo build` 不要求 Node。
+不要做：拷贝主仓 `target/`、拷贝含密钥的 `.env`、共享 `CARGO_TARGET_DIR`、把 `web/node_modules` 指到别的树、在 init 里起网关。`.env.schema` 记录变量和缺省值，二进制不加载它；`just worktree doctor` 会核对它和 `compose.yaml` 的缺省一致。纯 `cargo build` 不要求 Node。
 
 本机 `just` / `python3` / `rustup` / `vp` 装一次即可，不是每棵树一份。每棵树自己的代价是一份 `target/` 和一份 `web/node_modules`；`/best-of-n` 会按模型数倍增。
 
@@ -92,7 +92,6 @@ PR 上的 Linux 形状由 GitHub Actions 把关。本机是 `aarch64-apple-darwi
 
 ```bash
 eval "$(python3 scripts/setup_worktree.py --print-env | grep '^export ')"
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
 just serve config="$ASTERLANE_CONFIG" bind="127.0.0.1:3100"
 export ASTERLANE_SERVER=http://127.0.0.1:3100
 ```

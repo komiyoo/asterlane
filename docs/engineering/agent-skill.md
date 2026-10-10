@@ -4,7 +4,7 @@ title: 项目内置 Agent Skill
 description: 说明用于操作与扩展 Asterlane 的项目本地 Codex skill。
 resource: docs/engineering/agent-skill.md
 tags: [skill, agents, workflow, cli]
-timestamp: 2026-07-23T00:00:00+08:00
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 背景
@@ -35,10 +35,10 @@ timestamp: 2026-07-23T00:00:00+08:00
 
 # Gateway Tools CLI
 
-项目 skill 提供可直接替换占位符后运行的在线工具工作流：
+项目 skill 提供可直接运行的在线工具工作流。管理口令用仓库根 `.env.schema` 的缺省值，须与已启动网关的 `ASTERLANE_ADMIN_TOKEN` 相同：
 
 ```bash
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 export ASTERLANE_KEY="$(
   cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
     jq -r '.token'

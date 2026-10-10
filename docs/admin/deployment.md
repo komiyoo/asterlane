@@ -4,7 +4,7 @@ title: 线上部署
 description: 网关留在自有机器，控制台可放到 Cloudflare 免费静态资源。同源是当前构建的做法，不是产品约束。
 resource: docs/admin/deployment.md
 tags: [deployment, cloudflare, tunnel, console, operations]
-timestamp: 2026-10-09T00:00:00Z
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 结论
@@ -67,14 +67,15 @@ Cloudflare Access（Zero Trust 免费档，最多 50 个用户）只套在 `cons
 
 控制台仍由本机 Nginx 提供，`/admin/*` 在控制台源内转发到网关。浏览器不配置后端地址。这一形态不需要改代码。
 
-在仓库根、准备好 `run.yaml` 和管理员 token 之后：
+在仓库根执行：
 
 ```bash
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
 docker compose up -d --build
 ```
 
-网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。端口可用 `ASTERLANE_GATEWAY_PORT` 和 `ASTERLANE_WEB_PORT` 覆盖。控制台容器只通过 Compose 网络访问 `gateway:3000`。
+`run.yaml` 会挂进网关，里面已经有一套可启动的配置。管理口令、本机端口和镜像提交号的缺省值在 [`.env.schema`](../../.env.schema)；Compose 在变量未设置时使用同一组缺省。要改口令或端口，先 `export` 再启动。二进制不读取 `.env` 或 `.env.schema`。
+
+网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。控制台登录使用 `ASTERLANE_ADMIN_TOKEN` 的缺省值。这枚口令写在仓库里，适合本机；入口暴露到公网时先换成自己的值。控制台容器只通过 Compose 网络访问 `gateway:3000`。
 
 `cloudflared` 的入口按顺序匹配。`path` 是正则。文件必须以一条兜底规则结束，未列出的请求由它拒绝：
 

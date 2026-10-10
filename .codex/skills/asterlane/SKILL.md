@@ -85,7 +85,7 @@ Do not print resolved secrets in CLI output, logs, errors, tests, or docs.
 `asterlane tools` 使用 gateway key 调用运行中网关的 `/v1/tools` REST API。gateway key 默认从 `ASTERLANE_KEY` 读取；它与只用于 `/admin/*` 的 `ASTERLANE_ADMIN_TOKEN` 是两套独立凭据，不得混用。
 
 ```bash
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 export ASTERLANE_KEY="$(
   cargo run --quiet -- admin proxy-keys issue agent-search-research --format json |
     jq -r '.token'
@@ -118,7 +118,7 @@ admin:
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 export EXA_DEFAULT=replace-me-exa-api-key
 cargo run -- serve --database-url sqlite://asterlane.db?mode=rwc
 ```

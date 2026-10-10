@@ -24,13 +24,13 @@ Once an agent connects to more than a few MCP servers and HTTP APIs, authenticat
 
 ## Quick start
 
-Requires Rust 1.94 or newer and `jq`. This uses the example config in [`examples/gateway.yaml`](examples/gateway.yaml); replace the placeholders with your own values. Without a valid Exa key the gateway still starts, but the real search call fails.
+Requires Rust 1.94 or newer and `jq`. This uses the example config in [`examples/gateway.yaml`](examples/gateway.yaml). The admin token is the default from [`.env.schema`](.env.schema). Replace `EXA_DEFAULT` with your own key. Without a valid Exa key the gateway still starts, but the real search call fails.
 
 Terminal 1, start the gateway on `127.0.0.1:3000` with an in-memory database:
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 export EXA_DEFAULT=replace-me-exa-api-key
 cargo run -- serve --database-url sqlite::memory:
 ```
@@ -39,7 +39,7 @@ Terminal 2, preview what the key `agent-search-research` can see, issue a gatewa
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 
 cargo run -- list-tools --key agent-search-research
 
@@ -65,14 +65,13 @@ asterlane --help
 
 **Docker Compose (gateway + admin console)**
 
-Edit `run.yaml`, then at the repository root:
+At the repository root:
 
 ```bash
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
 docker compose up -d --build
 ```
 
-The gateway listens on `127.0.0.1:3721` and the console on `127.0.0.1:3722`. Log in to the console with the admin token. Production setup is described in [Deployment](docs/admin/deployment.md).
+The gateway listens on `127.0.0.1:3721` and the console on `127.0.0.1:3722`. `run.yaml` is already a working config. Log in with the `ASTERLANE_ADMIN_TOKEN` default from [`.env.schema`](.env.schema). To change the token or the ports, export the same names before starting. Production setup is described in [Deployment](docs/admin/deployment.md).
 
 **Prebuilt binaries and images**
 

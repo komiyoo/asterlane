@@ -24,13 +24,13 @@
 
 ## 快速上手
 
-需要 Rust 1.94 及以上和 `jq`。下面使用 [`examples/gateway.yaml`](examples/gateway.yaml)，把占位符换成你自己的值。没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。
+需要 Rust 1.94 及以上和 `jq`。下面使用 [`examples/gateway.yaml`](examples/gateway.yaml)。管理口令用 [`.env.schema`](.env.schema) 里的缺省值。把 `EXA_DEFAULT` 换成你自己的 key。没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。
 
 终端 1：在 `127.0.0.1:3000` 启动网关，数据库只在内存里。
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 export EXA_DEFAULT=replace-me-exa-api-key
 cargo run -- serve --database-url sqlite::memory:
 ```
@@ -39,7 +39,7 @@ cargo run -- serve --database-url sqlite::memory:
 
 ```bash
 export ASTERLANE_CONFIG=examples/gateway.yaml
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
+export ASTERLANE_ADMIN_TOKEN=demo-admin-token-2026
 
 cargo run -- list-tools --key agent-search-research
 
@@ -65,14 +65,13 @@ asterlane --help
 
 **Docker Compose（网关 + 管理控制台）**
 
-先改好 `run.yaml`，然后在仓库根执行：
+在仓库根执行：
 
 ```bash
-export ASTERLANE_ADMIN_TOKEN=replace-me-admin-token
 docker compose up -d --build
 ```
 
-网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`，用管理员 token 登录控制台。线上部署见 [线上部署](docs/admin/deployment.md)。
+网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。`run.yaml` 已是一份可启动的配置。用 [`.env.schema`](.env.schema) 里 `ASTERLANE_ADMIN_TOKEN` 的缺省值登录。要改口令或端口，先 export 同名变量再启动。线上部署见 [线上部署](docs/admin/deployment.md)。
 
 **预编译二进制与镜像**
 

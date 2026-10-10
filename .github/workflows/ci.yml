@@ -48,6 +48,7 @@ jobs:
           python-version: '3.12'
       - run: pip install pyyaml
       - run: python3 scripts/check_okf_docs.py
+      - run: python3 scripts/setup_worktree.py --check-env-schema
 
   deny:
     runs-on: ubuntu-latest

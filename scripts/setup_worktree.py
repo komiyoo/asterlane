@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,13 @@ RUSTC_RE = re.compile(r"rustc\s+(\d+\.\d+(?:\.\d+)?)")
 VP_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+(?:-[\w.]+)?)")
 DEFAULT_MSRV = "1.94"
 REQUIRED_VP_VERSION = "1.0.0-rc.0"
+# 这些键在 .env.schema 里有缺省，compose.yaml 用 ${KEY:-缺省} 引用同一值。
+COMPOSE_SYNC_KEYS = (
+    "ASTERLANE_ADMIN_TOKEN",
+    "ASTERLANE_GATEWAY_PORT",
+    "ASTERLANE_WEB_PORT",
+    "ASTERLANE_GIT_COMMIT",
+)
 
 
 def version_tuple(raw: str) -> tuple[int, ...]:
@@ -98,6 +106,44 @@ def vp_version() -> str | None:
     if result.returncode != 0:
         return None
     return parse_vp_version(result.stdout)
+
+
+def parse_env_schema(text: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.isidentifier() and key.isupper():
+            values[key] = value
+    return values
+
+
+def compose_default_mismatches(schema: dict[str, str], compose: str) -> list[str]:
+    mismatches: list[str] = []
+    for key in COMPOSE_SYNC_KEYS:
+        value = schema.get(key)
+        if not value:
+            mismatches.append(f".env.schema 的 {key} 需要非空缺省，供 Compose 使用")
+            continue
+        needle = "${" + key + ":-" + value + "}"
+        if needle not in compose:
+            mismatches.append(f"compose.yaml 里 {key} 的缺省与 .env.schema 不一致")
+    return mismatches
+
+
+def check_env_schema(root: Path) -> list[str]:
+    schema_path = root / ".env.schema"
+    compose_path = root / "compose.yaml"
+    if not schema_path.is_file():
+        return ["缺少 .env.schema"]
+    if not compose_path.is_file():
+        return ["缺少 compose.yaml"]
+    return compose_default_mismatches(
+        parse_env_schema(schema_path.read_text()),
+        compose_path.read_text(),
+    )
 
 
 def warn_shared_target(root: Path) -> str | None:
@@ -198,6 +244,12 @@ def doctor(root: Path) -> tuple[list[str], list[str], list[str]]:
         notes.append(
             "ROOT_WORKTREE_PATH 已设置：只作 Cursor 主仓定位，禁止从那里拷 target/ 或 .env"
         )
+
+    schema_errors = check_env_schema(root)
+    if schema_errors:
+        errors.extend(schema_errors)
+    else:
+        notes.append("env-schema=matches-compose-defaults")
 
     example = root / "examples" / "gateway.yaml"
     if not example.is_file():
@@ -378,13 +430,21 @@ def install_web_deps(root: Path) -> None:
 
 
 def print_env(root: Path) -> None:
+    schema = parse_env_schema((root / ".env.schema").read_text())
+    token = schema.get("ASTERLANE_ADMIN_TOKEN")
+    if not token:
+        raise SystemExit(".env.schema 缺少 ASTERLANE_ADMIN_TOKEN 缺省值")
     config = root / "examples" / "gateway.yaml"
-    print("# Asterlane 二进制不自动加载 .env；在本树 shell 中执行下列 export。")
-    print(f"export ASTERLANE_CONFIG={config.as_posix()!r}")
+    dev_port = schema.get("ASTERLANE_DEV_GATEWAY_PORT") or "3000"
+    print("# 二进制不加载 .env 或 .env.schema。在本树 shell 中执行下列 export。")
+    print(f"export ASTERLANE_CONFIG={shlex.quote(config.as_posix())}")
+    print(f"export ASTERLANE_ADMIN_TOKEN={shlex.quote(token)}")
     print("# 并行起网关时改端口，并同步 ASTERLANE_SERVER，勿占用主仓 127.0.0.1:3000")
     print("# export ASTERLANE_SERVER='http://127.0.0.1:3100'")
-    print("# export ASTERLANE_DEV_GATEWAY_PORT=3100  # 只填端口，vp dev 把 /admin 代理到 127.0.0.1")
-    print("# export ASTERLANE_ADMIN_TOKEN='replace-me-admin-token'")
+    print(
+        f"# export ASTERLANE_DEV_GATEWAY_PORT={shlex.quote(dev_port)}"
+        "  # 只填端口，vp dev 把 /admin 代理到 127.0.0.1"
+    )
 
 
 def emit_report(errors: list[str], warnings: list[str], notes: list[str]) -> None:
@@ -412,6 +472,18 @@ def self_test() -> None:
     )
     assert [row["path"] for row in rows] == ["/tmp/main", "/tmp/feat"]
     assert rows[1]["branch"] == "feat/x"
+    parsed = parse_env_schema(
+        "# header\n# @defaultRequired=false\n# ---\n# @type=port\n"
+        "ASTERLANE_GATEWAY_PORT=3721\n# @sensitive\nEXA_DEFAULT=\n"
+    )
+    assert parsed["ASTERLANE_GATEWAY_PORT"] == "3721"
+    assert parsed["EXA_DEFAULT"] == ""
+    values = {key: f"v-{key}" for key in COMPOSE_SYNC_KEYS}
+    compose = "\n".join("${" + key + ":-" + values[key] + "}" for key in COMPOSE_SYNC_KEYS)
+    assert compose_default_mismatches(values, compose) == []
+    broken = dict(values)
+    broken["ASTERLANE_WEB_PORT"] = "1"
+    assert compose_default_mismatches(broken, compose)
     print("self-test ok")
 
 
@@ -428,6 +500,11 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--print-env",
         action="store_true",
         help="打印本树应 export 的变量（不执行检查）",
+    )
+    parser.add_argument(
+        "--check-env-schema",
+        action="store_true",
+        help="只核对 .env.schema 与 compose.yaml 的缺省值",
     )
     parser.add_argument("--self-test", action="store_true", help="运行脚本内断言")
     parser.add_argument(
@@ -450,6 +527,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     root = find_root(args.root or Path.cwd())
+    if args.check_env_schema:
+        errors = check_env_schema(root)
+        if errors:
+            for error in errors:
+                print(f"error {error}", file=sys.stderr)
+            return 1
+        print("ok    env-schema=matches-compose-defaults")
+        return 0
     if args.print_env:
         print_env(root)
         return 0

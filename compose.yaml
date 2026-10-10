@@ -8,6 +8,7 @@ services:
     volumes:
       - ./run.yaml:/etc/asterlane/config.yaml:ro
       - gateway-data:/data
+    # 未设置时的缺省与 .env.schema 相同。
     environment:
       - ASTERLANE_ADMIN_TOKEN=${ASTERLANE_ADMIN_TOKEN:-demo-admin-token-2026}
     command:
