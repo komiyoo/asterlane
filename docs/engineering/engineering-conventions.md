@@ -35,7 +35,8 @@ timestamp: 2026-10-09T00:00:00Z
 
 # 代码组织与硬预算
 
-- 单元测试内联在文件底部 `#[cfg(test)] mod tests`；跨模块端到端验证放 `tests/`（wiremock 模拟上游）。测试行数不计入预算。
+- 单元测试内联在文件底部 `#[cfg(test)] mod tests`；跨模块端到端验证放 `tests/it/`（wiremock 模拟上游）。测试行数不计入预算。
+- `tests/it/` 下的文件在 `tests/it/main.rs` 里各登记一个 `mod`，编译成一个测试二进制；不要在 `tests/` 顶层新建文件。Cargo 把每个顶层文件单独链接一遍，文件一多，改一行代码后的测试编译时间会成倍增加。共用辅助代码放 `tests/it/support/`。只跑一个文件：`cargo test --test it <模块名>::`。唯一例外是 `tests/proxy_events.rs`：它装自己的全局 tracing subscriber 收集 span，与 `support::log_capture` 不能共处一个进程。
 - **文件预算**：生产代码（不含 `#[cfg(test)]`）超过 500 行——先拆再改，或先在文件头注释写明拆分方向才允许继续增长。
 - **函数预算**：超过 80 行或嵌套超过 3 层——拆。
 - `#[allow(clippy::too_many_arguments)]` 是拆分信号而非常规工具：出现即说明该函数在聚合本应成为 struct 的状态。仓库内已无存量豁免（2026-10-01 清零），新增参数过多时先把总是一起传递的参数聚合为 struct。

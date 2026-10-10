@@ -101,7 +101,7 @@ fn install() {
                     .with_ansi(false),
             );
         tracing::subscriber::set_global_default(subscriber)
-            .expect("本测试文件内不应有其他全局 subscriber");
+            .expect("本测试二进制内不应有其他全局 subscriber");
         tracing::callsite::rebuild_interest_cache();
     });
 }

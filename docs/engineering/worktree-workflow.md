@@ -86,7 +86,7 @@ just check
 
 PR 上的 Linux 形状由 GitHub Actions 把关。本机是 `aarch64-apple-darwin` 时，本地全绿仍要等 CI。
 
-测试套件可并行：集成测试绑 `127.0.0.1:0`，库测用 `sqlite::memory:`。不要默认跑 `cargo test -- --ignored`（`tests/mcp_proxy_integration.rs` 依赖真实上游）。
+测试套件可并行：集成测试绑 `127.0.0.1:0`，库测用 `sqlite::memory:`。不要默认跑 `cargo test -- --ignored`（`tests/it/mcp_proxy_integration.rs` 依赖真实上游）。
 
 # 起网关（可选，非默认验证）
 

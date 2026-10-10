@@ -4,15 +4,14 @@
 //! MCP 端点），不连真实上游。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-#[path = "support/log_capture.rs"]
-mod log_capture;
-#[path = "support/oauth_upstream.rs"]
-mod oauth_upstream;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::support::log_capture::{self, LogCapture};
+use crate::support::oauth_upstream::{
+    AS_ERROR_DESCRIPTION, CLIENT_ID, CLIENT_SECRET, OAuthUpstream,
+};
 use asterlane::catalog::ToolCatalog;
 use asterlane::config::{
     GatewayConfig, McpFailureMode, McpServerConfig, OAuthGrant, ProxyKey, UpstreamAuth,
@@ -29,8 +28,6 @@ use asterlane::store::{
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use base64::Engine;
-use log_capture::LogCapture;
-use oauth_upstream::{AS_ERROR_DESCRIPTION, CLIENT_ID, CLIENT_SECRET, OAuthUpstream};
 use serde_json::json;
 use tower::ServiceExt;
 use tracing::Level;

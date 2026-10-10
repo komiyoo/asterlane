@@ -148,7 +148,7 @@ MCP 调用的数据流保持 `mcp/server.rs -> ProxyExecutor -> CallToolResult`�
 1. `output.rs`：flag/env/TTY 优先级、未知格式、JSON/YAML/markdown 回退。
 2. `input.rs`：inline、文件、非 JSON、非 object、空参数。
 3. `client.rs`：server 优先级、query/path 编码、完整纯文本成功响应、非 JSON 错误预览、退出码映射。
-4. `admin.rs`：既有命令解析不回归，`--format` 可位于子命令前后；`mcp-servers authorize|deauthorize` 的参数解析（`<id>` 必填）。端到端：`tests/mcp_oauth_authorize.rs` 用编译出的二进制对真实端口上的网关跑 `authorize`、`deauthorize` 与错误退出码，断言 stdout / stderr 的内容。
+4. `admin.rs`：既有命令解析不回归，`--format` 可位于子命令前后；`mcp-servers authorize|deauthorize` 的参数解析（`<id>` 必填）。端到端：`tests/it/mcp_oauth_authorize.rs` 用编译出的二进制对真实端口上的网关跑 `authorize`、`deauthorize` 与错误退出码，断言 stdout / stderr 的内容。
 5. `tools.rs`：五个子命令解析、list query、call 参数、meta-tool 响应归一化。
 6. `main.rs`：顶层 `tools` dispatch 解析。
 7. `mcp/server.rs`/`mcp/result.rs`：结果转换测试随职责移动；传入 `_meta["asterlane.dev/format"]` 或配置 response format 时，JSON 上游结果仍不被渲染为 YAML/markdown。

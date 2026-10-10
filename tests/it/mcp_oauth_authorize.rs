@@ -7,14 +7,13 @@
 //! 取出 state，自己「签发」code，再直接调用回调。
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-#[path = "support/log_capture.rs"]
-mod log_capture;
-#[path = "support/oauth_upstream.rs"]
-mod oauth_upstream;
-
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::support::log_capture::{self, LogCapture};
+use crate::support::oauth_upstream::{
+    AS_ERROR_DESCRIPTION, CLIENT_ID, CLIENT_SECRET, OAuthUpstream,
+};
 use asterlane::catalog::ToolCatalog;
 use asterlane::config::{
     AdminConfig, AdminKey, GatewayConfig, McpServerConfig, OAuthConfig, OAuthGrant, ProxyKey,
@@ -34,8 +33,6 @@ use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{HeaderMap, Request, StatusCode};
 use base64::Engine;
-use log_capture::LogCapture;
-use oauth_upstream::{AS_ERROR_DESCRIPTION, CLIENT_ID, CLIENT_SECRET, OAuthUpstream};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use tracing::Level;

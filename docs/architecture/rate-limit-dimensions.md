@@ -250,7 +250,7 @@ IP-2 在此基础上还要把地址一路传进 `ProxyExecutor`（新增 `with_c
 
 # 验收测试要点
 
-推荐接线的是 `UpstreamKey`（与 `RateLimits` 一起）。如果评审通过，验收要点如下，沿用 `tests/limits_enforcement.rs` 的进程内模拟上游写法。
+推荐接线的是 `UpstreamKey`（与 `RateLimits` 一起）。如果评审通过，验收要点如下，沿用 `tests/it/limits_enforcement.rs` 的进程内模拟上游写法。
 
 单元测试（`limits::registry`）：
 

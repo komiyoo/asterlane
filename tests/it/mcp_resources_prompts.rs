@@ -7,9 +7,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-#[path = "support/log_capture.rs"]
-mod log_capture;
-
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -857,7 +854,7 @@ async fn fail_closed_only_blocks_tools_list() {
 
 #[tokio::test]
 async fn key_rate_limit_applies_to_prompts_get_and_resources_read() {
-    let logs = log_capture::capture_logs(Level::INFO, false);
+    let logs = crate::support::log_capture::capture_logs(Level::INFO, false);
     let h = start(&config_yaml(
         &two_keys("limits: { rps: 1, rpm: 1 }"),
         "",
