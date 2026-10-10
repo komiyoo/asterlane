@@ -7,8 +7,8 @@
 
 ## 2026-10-10（缩短本地编译时间）
 
-- **结论**：不换语言，先改构建方式。本机 2 核、3 GB 内存，改一行代码后 `cargo test --no-run` 要 53 s，其中一大半花在 `tests/` 下 18 个顶层文件各自编译、链接成独立二进制上。现在 17 个文件移到 `tests/it/`，由 `tests/it/main.rs` 汇成一个二进制，共用代码移到 `tests/it/support/`；`tests/proxy_events.rs` 仍单独成二进制，因为它和 `support::log_capture` 各装一个全局 tracing subscriber，不能在同一进程。`[profile.dev]` 改为 `debug = "line-tables-only"`：panic 仍有行号，调试器看不到局部变量。只跑一个文件改用 `cargo test --test it <模块名>::`；归档计划与旧日志里的 `cargo test --test <文件名>` 不再适用。
-- **验证**：同一台机器、同样改动 `src/naming.rs` 一行：`cargo test --no-run` 53 s → 约 20 s，`cargo build` 16 s → 7 s。`cargo test` 1024 passed、2 ignored，本次没有改 `src/`，`tests/` 下测试函数数改前改后都是 173（与 2026-10-09 记录的 1034 的差额来自更早的提交，例如 9a10599 删除限流维度时删掉的单测）；`tests/it` 以 16 个测试线程连跑 6 轮无失败；`just check` 通过。
+- **结论**：`tests/` 下每个顶层文件各自编译、链接成独立二进制，是增量编译的主要开销。现在 17 个文件移到 `tests/it/`，由 `tests/it/main.rs` 汇成一个二进制，共用代码移到 `tests/it/support/`；`tests/proxy_events.rs` 仍单独成二进制，因为它和 `support::log_capture` 各装一个全局 tracing subscriber，不能在同一进程。`[profile.dev]` 改为 `debug = "line-tables-only"`：panic 仍有行号，调试器看不到局部变量。只跑一个文件改用 `cargo test --test it <模块名>::`；归档计划与旧日志里的 `cargo test --test <文件名>` 不再适用。
+- **验证**：本次没有改 `src/`，`tests/` 下测试函数数改前改后相同；`just check` 通过。
 - **依据**：[Engineering Conventions · 代码组织与硬预算](engineering/engineering-conventions.md#代码组织与硬预算)、`tests/it/main.rs`、`Cargo.toml` 的 `[profile.dev]`。
 
 ## 2026-10-09（请求事件区分调用类型；四项产品定调）
