@@ -117,208 +117,216 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         &self,
         request: UpstreamRequest<'_>,
     ) -> Result<UpstreamResponse, ExecutionError> {
-        let UpstreamRequest {
-            http_method,
-            upstream_path,
-            base_url,
-            auth,
-            args,
-            secret,
-            pool,
-            param_locations,
-        } = request;
-        let method = http_method.to_reqwest();
-        let url = build_url(base_url, upstream_path, args, param_locations);
-        let is_get = http_method == HttpMethod::Get;
-        let max_attempts = retry_attempt_limit(http_method, self.max_attempts);
-
-        let backoff_builder = backon::ExponentialBuilder::default()
-            .with_min_delay(Duration::from_millis(100))
-            .with_max_delay(Duration::from_secs(10))
-            .with_jitter()
-            .with_max_times((max_attempts.saturating_sub(1)) as usize);
-        let mut backoff = backoff_builder.build();
-
-        let mut retry_count: u8 = 0;
-        let mut upstream_key_ref = "<none>".to_string();
+        let pool = request.pool;
+        let url = build_url(
+            request.base_url,
+            request.upstream_path,
+            request.args,
+            request.param_locations,
+        );
+        let max_attempts = retry_attempt_limit(request.http_method, self.max_attempts);
+        let mut backoff = retry_backoff(max_attempts);
+        let mut progress = RetryProgress {
+            retry_count: 0,
+            upstream_key_ref: "<none>".to_string(),
+        };
 
         for attempt in 1..=max_attempts {
-            let (key_guard, pool_secret) = if let Some(pool) = pool {
-                match self.acquire_pool_key(pool).await {
+            let (key_guard, pool_secret) = match pool {
+                Some(pool) => match self.acquire_pool_key(pool).await {
                     Ok((guard, secret)) => {
-                        upstream_key_ref = guard.key_id().to_string();
+                        progress.upstream_key_ref = guard.key_id().to_string();
                         (Some(guard), Some(secret))
                     }
-                    Err(proxy_error) => {
-                        return Err(ExecutionError {
-                            proxy_error,
-                            retry_count,
-                            upstream_key_ref,
-                            upstream_latency_ms: None,
-                        });
-                    }
-                }
-            } else {
-                (None, None)
+                    Err(e) => return Err(progress.fail(e, None)),
+                },
+                None => (None, None),
             };
             // pool 存在时用选中 key 的凭据，否则用资源单 ref 凭据
-            let attempt_secret = pool_secret.as_ref().or(secret);
+            let secret = pool_secret.as_ref().or(request.secret);
+            // 非 GET 的 max_attempts 已钳为 1，永远不会重试
+            let can_retry = attempt < max_attempts;
 
-            let mut builder = self.http.request(method.clone(), &url);
-            builder = apply_auth(auth, attempt_secret, builder);
-            builder = apply_params(builder, args, param_locations, is_get);
-
-            // 发送（带超时包裹）
-            let attempt_start = Instant::now();
-            let send_future = builder.send();
-            let send_result = tokio::time::timeout(self.request_timeout, send_future).await;
-
-            let response_result = match send_result {
-                Ok(r) => r,
-                Err(_elapsed) => {
-                    // tokio::time::timeout 超时
+            match self.send_attempt(&request, &url, secret).await {
+                AttemptOutcome::Success {
+                    mut response,
+                    latency,
+                } => {
+                    // 记录该 key 的 EWMA 延迟（供 fastest_response 策略）
                     if let (Some(p), Some(guard)) = (pool, &key_guard) {
-                        p.pool().mark_cooling(guard.key_id(), None);
+                        p.pool().record_latency(guard.key_id(), latency);
                     }
-                    drop(key_guard);
-                    if attempt < max_attempts {
-                        if let Some(delay) = backoff.next() {
-                            tokio::time::sleep(delay).await;
-                        }
-                        retry_count += 1;
-                        continue;
-                    }
-                    return Err(ExecutionError {
-                        proxy_error: ProxyError::UpstreamTimeout {
-                            ms: self.request_timeout.as_millis() as u64,
-                        },
-                        retry_count,
-                        upstream_key_ref,
-                        upstream_latency_ms: None,
-                    });
+                    response.retry_count = progress.retry_count;
+                    response.upstream_key_ref = progress.upstream_key_ref;
+                    return Ok(response);
                 }
-            };
-
-            match response_result {
-                Ok(response) => {
-                    let status = response.status().as_u16();
-                    let content_type = response
-                        .headers()
-                        .get(reqwest::header::CONTENT_TYPE)
-                        .and_then(|v| v.to_str().ok())
-                        .map(|s| s.to_string());
-                    let content_length = response.content_length();
-                    let retry_after = parse_retry_after(response.headers());
-
-                    let body = match response.bytes().await {
-                        Ok(b) => b.to_vec(),
-                        Err(_) => Vec::new(),
-                    };
-                    // 本次尝试的服务端耗时（发出请求到响应体读取完成），
-                    // 同时供 EWMA 反馈与 RequestEvent 的 upstream_latency_ms。
-                    let attempt_elapsed = attempt_start.elapsed();
-
-                    // 日志用脱敏摘要（不记录响应体内容）
-                    let _summary = crate::observability::redact_body(status, content_length);
-
-                    if (200..300).contains(&status) {
-                        // 成功：记录该 key 的 EWMA 延迟（供 fastest_response 策略）
-                        if let (Some(p), Some(guard)) = (pool, &key_guard) {
-                            p.pool().record_latency(guard.key_id(), attempt_elapsed);
-                        }
-                        return Ok(UpstreamResponse {
-                            result: InvokeResult {
-                                request_id: String::new(),
-                                status,
-                                body,
-                                content_type,
-                                content_defense_flag: false,
-                                shaped: false,
-                                rendered_format: None,
-                            },
-                            retry_count,
-                            upstream_key_ref,
-                            upstream_latency_ms: duration_ms(attempt_elapsed),
-                        });
+                AttemptOutcome::Status {
+                    status,
+                    retry_after,
+                    latency,
+                } => {
+                    if !(can_retry && is_retryable_status(status)) {
+                        let error = final_status_error(status, progress.retry_count, attempt);
+                        return Err(progress.fail(error, Some(duration_ms(latency))));
                     }
-
-                    // 判定可重试（非 GET 的 max_attempts 已钳为 1，不会进入此分支）
-                    if attempt < max_attempts && is_retryable_status(status) {
-                        // failover: 冷却当前 key（上游 Retry-After 优先，缺省 60s）
-                        if let (Some(p), Some(guard)) = (pool, &key_guard) {
-                            p.pool().mark_cooling(guard.key_id(), retry_after);
-                        }
-                        drop(key_guard);
-                        if let Some(delay) = backoff.next() {
-                            tokio::time::sleep(delay).await;
-                        }
-                        retry_count += 1;
-                        continue;
-                    }
-
-                    // 不可重试或最后一次
-                    drop(key_guard);
-                    let proxy_error = if retry_count > 0 && is_retryable_status(status) {
-                        ProxyError::RetryExhausted { attempts: attempt }
-                    } else {
-                        ProxyError::UpstreamError(status)
-                    };
-                    return Err(ExecutionError {
-                        proxy_error,
-                        retry_count,
-                        upstream_key_ref,
-                        upstream_latency_ms: Some(duration_ms(attempt_elapsed)),
-                    });
+                    // failover: 冷却当前 key（上游 Retry-After 优先，缺省 60s）
+                    cool_key(pool, key_guard.as_ref(), retry_after);
                 }
-                Err(e) => {
-                    if let (Some(p), Some(guard)) = (pool, &key_guard) {
-                        p.pool().mark_cooling(guard.key_id(), None);
+                AttemptOutcome::Transport(proxy_error) => {
+                    // 超时与连接失败无论是否还能重试都冷却当前 key
+                    cool_key(pool, key_guard.as_ref(), None);
+                    if !can_retry {
+                        return Err(progress.fail(proxy_error, None));
                     }
-                    drop(key_guard);
-                    if e.is_timeout() {
-                        if attempt < max_attempts {
-                            if let Some(delay) = backoff.next() {
-                                tokio::time::sleep(delay).await;
-                            }
-                            retry_count += 1;
-                            continue;
-                        }
-                        return Err(ExecutionError {
-                            proxy_error: ProxyError::UpstreamTimeout {
-                                ms: self.request_timeout.as_millis() as u64,
-                            },
-                            retry_count,
-                            upstream_key_ref,
-                            upstream_latency_ms: None,
-                        });
-                    }
-                    // 连接失败（DNS/TCP/TLS）或其他请求错误
-                    if attempt < max_attempts {
-                        if let Some(delay) = backoff.next() {
-                            tokio::time::sleep(delay).await;
-                        }
-                        retry_count += 1;
-                        continue;
-                    }
-                    return Err(ExecutionError {
-                        proxy_error: ProxyError::ConnectionFailed,
-                        retry_count,
-                        upstream_key_ref,
-                        upstream_latency_ms: None,
-                    });
                 }
             }
+            drop(key_guard);
+            if let Some(delay) = backoff.next() {
+                tokio::time::sleep(delay).await;
+            }
+            progress.retry_count += 1;
         }
 
         // 循环结束仍未成功（重试耗尽）
-        Err(ExecutionError {
-            proxy_error: ProxyError::RetryExhausted {
-                attempts: max_attempts,
+        let exhausted = ProxyError::RetryExhausted {
+            attempts: max_attempts,
+        };
+        Err(progress.fail(exhausted, None))
+    }
+
+    /// 单次尝试：注入凭据与参数，带超时发送并读完响应体。
+    /// 不做冷却与重试判定，交给 [`Self::execute_with_retry`]。
+    async fn send_attempt(
+        &self,
+        request: &UpstreamRequest<'_>,
+        url: &str,
+        secret: Option<&SecretString>,
+    ) -> AttemptOutcome {
+        let is_get = request.http_method == HttpMethod::Get;
+        let mut builder = self.http.request(request.http_method.to_reqwest(), url);
+        builder = apply_auth(request.auth, secret, builder);
+        builder = apply_params(builder, request.args, request.param_locations, is_get);
+
+        let timeout = || {
+            AttemptOutcome::Transport(ProxyError::UpstreamTimeout {
+                ms: self.request_timeout.as_millis() as u64,
+            })
+        };
+        let attempt_start = Instant::now();
+        let response = match tokio::time::timeout(self.request_timeout, builder.send()).await {
+            Err(_elapsed) => return timeout(),
+            Ok(Err(e)) if e.is_timeout() => return timeout(),
+            // 连接失败（DNS/TCP/TLS）或其他请求错误
+            Ok(Err(_)) => return AttemptOutcome::Transport(ProxyError::ConnectionFailed),
+            Ok(Ok(response)) => response,
+        };
+
+        let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let content_length = response.content_length();
+        let retry_after = parse_retry_after(response.headers());
+        let body = match response.bytes().await {
+            Ok(b) => b.to_vec(),
+            Err(_) => Vec::new(),
+        };
+        // 本次尝试的服务端耗时（发出请求到响应体读取完成），
+        // 同时供 EWMA 反馈与 RequestEvent 的 upstream_latency_ms。
+        let latency = attempt_start.elapsed();
+
+        // 日志用脱敏摘要（不记录响应体内容）
+        let _summary = crate::observability::redact_body(status, content_length);
+
+        if !(200..300).contains(&status) {
+            return AttemptOutcome::Status {
+                status,
+                retry_after,
+                latency,
+            };
+        }
+        let response = UpstreamResponse {
+            result: InvokeResult {
+                request_id: String::new(),
+                status,
+                body,
+                content_type,
+                content_defense_flag: false,
+                shaped: false,
+                rendered_format: None,
             },
-            retry_count,
-            upstream_key_ref,
-            upstream_latency_ms: None,
-        })
+            retry_count: 0,
+            upstream_key_ref: String::new(),
+            upstream_latency_ms: duration_ms(latency),
+        };
+        AttemptOutcome::Success { response, latency }
+    }
+}
+
+/// 单次上游尝试的结果。
+enum AttemptOutcome {
+    /// 2xx。`retry_count` 与 `upstream_key_ref` 由重试循环补齐。
+    Success {
+        response: UpstreamResponse,
+        latency: Duration,
+    },
+    /// 上游返回非 2xx。
+    Status {
+        status: u16,
+        retry_after: Option<Duration>,
+        latency: Duration,
+    },
+    /// 超时或连接失败，没有拿到响应。
+    Transport(ProxyError),
+}
+
+/// 重试循环里随尝试推进的观测字段，失败时写进 [`ExecutionError`]。
+struct RetryProgress {
+    retry_count: u8,
+    /// 最近一次选中的 pool key；没有 pool 时为 `<none>`。
+    upstream_key_ref: String,
+}
+
+impl RetryProgress {
+    fn fail(self, proxy_error: ProxyError, upstream_latency_ms: Option<u32>) -> ExecutionError {
+        ExecutionError {
+            proxy_error,
+            retry_count: self.retry_count,
+            upstream_key_ref: self.upstream_key_ref,
+            upstream_latency_ms,
+        }
+    }
+}
+
+/// 指数退避：100ms 起、10s 封顶、带抖动，最多 `max_attempts - 1` 次。
+fn retry_backoff(max_attempts: u32) -> backon::ExponentialBackoff {
+    backon::ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(100))
+        .with_max_delay(Duration::from_secs(10))
+        .with_jitter()
+        .with_max_times((max_attempts.saturating_sub(1)) as usize)
+        .build()
+}
+
+/// 不再重试时非 2xx 的错误：重试过且仍是可重试状态码记为重试耗尽，否则原样上报。
+fn final_status_error(status: u16, retry_count: u8, attempt: u32) -> ProxyError {
+    if retry_count > 0 && is_retryable_status(status) {
+        ProxyError::RetryExhausted { attempts: attempt }
+    } else {
+        ProxyError::UpstreamError(status)
+    }
+}
+
+/// 冷却本次尝试使用的 pool key；没有 pool 时不做事。
+fn cool_key(
+    pool: Option<&ResourceKeyPool>,
+    guard: Option<&KeyGuard>,
+    retry_after: Option<Duration>,
+) {
+    if let (Some(p), Some(guard)) = (pool, guard) {
+        p.pool().mark_cooling(guard.key_id(), retry_after);
     }
 }
 

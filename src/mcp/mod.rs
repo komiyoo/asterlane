@@ -50,6 +50,7 @@ mod dedup;
 mod downstream;
 pub mod error;
 pub mod health;
+mod meta;
 pub mod model;
 pub mod notify;
 mod oauth;

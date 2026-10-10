@@ -61,6 +61,18 @@ struct MetaToolInvokeResult {
     rendered_format: Option<ResponseFormat>,
 }
 
+impl MetaToolInvokeResult {
+    /// 网关本地生成的结果：没有 content defense、shaping 与渲染。
+    fn plain(result: ToolCallResult) -> Self {
+        Self {
+            result,
+            content_defense_flag: false,
+            shaped: false,
+            rendered_format: None,
+        }
+    }
+}
+
 /// `GET /v1/tools` — 工具列表。
 ///
 /// 先经 gateway key 认证（Bearer 优先，legacy `?key=` 兼容）：
@@ -271,7 +283,7 @@ fn add_invoke_metadata_headers(
     }
 }
 
-/// 处理 meta-tool 调用，接入 proxy executor 和 result shaping。
+/// 处理 meta-tool 调用，接入 proxy executor 和 result shaping。入口只按名字分发。
 async fn handle_meta_tool_with_proxy(
     name: &str,
     args: serde_json::Value,
@@ -279,163 +291,156 @@ async fn handle_meta_tool_with_proxy(
     proxy_key: &ProxyKey,
     format: ResponseFormat,
 ) -> Result<MetaToolInvokeResult, AsterlaneError> {
-    let config = state.config_snapshot().await;
     match name {
         "asl__describe" => {
             let catalog = state.catalog.read().await;
             let response =
                 crate::mcp::call::get_tools(args, &catalog, proxy_key, &state.result_cache)
                     .map_err(|e| AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e))?;
-            let body = serde_json::to_string(&response).map_err(|e| {
-                AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e.to_string())
-            })?;
-            Ok(MetaToolInvokeResult {
-                result: ToolCallResult::text_ok(body),
-                content_defense_flag: false,
-                shaped: false,
-                rendered_format: None,
-            })
+            json_text_result(&response)
         }
         "asl__batch" => {
             let response = crate::mcp::call::call_tools(args, state, proxy_key, format)
                 .await
                 .map_err(|e| AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e))?;
-            let body = serde_json::to_string(&response).map_err(|e| {
-                AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e.to_string())
-            })?;
-            Ok(MetaToolInvokeResult {
-                result: ToolCallResult::text_ok(body),
-                content_defense_flag: false,
-                shaped: false,
-                rendered_format: None,
-            })
+            json_text_result(&response)
         }
-        "asl__call" => {
-            let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
-                AsterlaneError::internal(
-                    ErrorCode::McpInvalidToolCall,
-                    "missing 'name' in asl__call arguments",
-                )
-            })?;
-            let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
-            // 可选 domain/provider 限定字段，与 MCP server 层同口径
-            // （见 docs/runtime/api-discovery.md「asl__call 参数」）：
-            // 先解析出 canonical，remote MCP 判定与 invoke 都用 canonical。
-            let qualifiers = ToolQualifiers {
-                domain: args.get("domain").and_then(|v| v.as_str()),
-                provider: args.get("provider").and_then(|v| v.as_str()),
-            };
-            let canonical = match state
-                .catalog
-                .read()
-                .await
-                .resolve_for_key(tool_name, qualifiers, proxy_key)
-            {
-                Ok(Some(tool)) => tool.name.to_wire_name(),
-                // 带限定字段的未命中不回退 executor 解析（qualifiers 可能
-                // 滤掉无限定时可命中的候选），按既有 unknown tool 口径报错
-                Ok(None) => {
-                    return Err(ProxyError::UnknownTool(tool_name.to_string()).into());
-                }
-                // 歧义 → catalog.ambiguous_tool_name（HTTP 400，既有映射）
-                Err(e) => return Err(e.into()),
-            };
-            let inner_is_remote_mcp = state
-                .mcp_registry
-                .as_ref()
-                .is_some_and(|registry| registry.contains_tool(&canonical));
-
-            // Proxy to real upstream
-            let invoke_result = execute_invoke(
-                state,
-                config.clone(),
-                &canonical,
-                tool_args,
-                proxy_key,
-                format,
-            )
-            .await?;
-
-            if inner_is_remote_mcp
-                && let Ok(mut parsed) =
-                    serde_json::from_slice::<ToolCallResult>(&invoke_result.body)
-            {
-                prefix_content_defense(&mut parsed, invoke_result.content_defense_flag);
-                return Ok(MetaToolInvokeResult {
-                    result: parsed,
-                    content_defense_flag: invoke_result.content_defense_flag,
-                    shaped: invoke_result.shaped,
-                    rendered_format: invoke_result.rendered_format,
-                });
-            }
-
-            let mut body = String::from_utf8_lossy(&invoke_result.body).to_string();
-            if invoke_result.content_defense_flag {
-                body = format!("[Asterlane content_defense_flag=true]\n{body}");
-            }
-            Ok(MetaToolInvokeResult {
-                result: ToolCallResult::text_ok(body),
-                content_defense_flag: invoke_result.content_defense_flag,
-                shaped: invoke_result.shaped,
-                rendered_format: invoke_result.rendered_format,
-            })
-        }
-        "asl__fetch" => {
-            let cursor = args.get("cursor").and_then(|v| v.as_str()).ok_or_else(|| {
-                AsterlaneError::internal(
-                    ErrorCode::McpInvalidToolCall,
-                    "missing 'cursor' in asl__fetch arguments",
-                )
-            })?;
-            let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            let budget = ShapingConfig::default().budget_bytes;
-
-            match state
-                .result_cache
-                .fetch(cursor, &proxy_key.id, offset, budget)
-            {
-                Some(chunk) => {
-                    let mut text = chunk.text;
-                    if chunk.has_more {
-                        let next_offset = chunk.offset + text.len();
-                        text.push_str(&format!(
-                            "\n\n[More data available. Use cursor \"{cursor}\" with offset {next_offset} to continue.]"
-                        ));
-                    }
-                    Ok(MetaToolInvokeResult {
-                        result: ToolCallResult::text_ok(text),
-                        content_defense_flag: false,
-                        shaped: false,
-                        rendered_format: None,
-                    })
-                }
-                None => Ok(MetaToolInvokeResult {
-                    result: ToolCallResult::text_error("cursor not found or expired"),
-                    content_defense_flag: false,
-                    shaped: false,
-                    rendered_format: None,
-                }),
-            }
-        }
+        "asl__call" => meta_call(args, state, proxy_key, format).await,
+        "asl__fetch" => meta_fetch(&args, state, proxy_key),
         // asl__status / asl__search — delegate to existing handler
-        _ => {
-            let catalog = state.catalog.read().await.clone();
-            // 语义搜索：配置了 semantic_search 时 asl__search 走余弦排序，
-            // 端点故障在 handler 内回退关键词
-            let result = match &state.semantic {
-                Some(semantic) if name == "asl__search" => {
-                    discovery::handle_search_semantic(args, &catalog, proxy_key, semantic).await
-                }
-                _ => discovery::handle_meta_tool_call(name, args, &catalog, &config, proxy_key),
-            };
-            result.map(|result| MetaToolInvokeResult {
-                result,
-                content_defense_flag: false,
-                shaped: false,
-                rendered_format: None,
-            })
-        }
+        _ => meta_discovery(name, args, state, proxy_key).await,
     }
+}
+
+/// 把 meta-tool 的结构化响应序列化成一条文本结果。
+fn json_text_result(response: &impl Serialize) -> Result<MetaToolInvokeResult, AsterlaneError> {
+    let body = serde_json::to_string(response)
+        .map_err(|e| AsterlaneError::internal(ErrorCode::McpInvalidToolCall, e.to_string()))?;
+    Ok(MetaToolInvokeResult::plain(ToolCallResult::text_ok(body)))
+}
+
+/// `asl__call`：解析出 canonical 后走完整执行管线。
+async fn meta_call(
+    args: serde_json::Value,
+    state: &AppState,
+    proxy_key: &ProxyKey,
+    format: ResponseFormat,
+) -> Result<MetaToolInvokeResult, AsterlaneError> {
+    let tool_name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
+        AsterlaneError::internal(
+            ErrorCode::McpInvalidToolCall,
+            "missing 'name' in asl__call arguments",
+        )
+    })?;
+    let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
+    // 可选 domain/provider 限定字段，与 MCP server 层同口径
+    // （见 docs/runtime/api-discovery.md「asl__call 参数」）：
+    // 先解析出 canonical，remote MCP 判定与 invoke 都用 canonical。
+    let qualifiers = ToolQualifiers {
+        domain: args.get("domain").and_then(|v| v.as_str()),
+        provider: args.get("provider").and_then(|v| v.as_str()),
+    };
+    let canonical = match state
+        .catalog
+        .read()
+        .await
+        .resolve_for_key(tool_name, qualifiers, proxy_key)
+    {
+        Ok(Some(tool)) => tool.name.to_wire_name(),
+        // 带限定字段的未命中不回退 executor 解析（qualifiers 可能
+        // 滤掉无限定时可命中的候选），按既有 unknown tool 口径报错
+        Ok(None) => {
+            return Err(ProxyError::UnknownTool(tool_name.to_string()).into());
+        }
+        // 歧义 → catalog.ambiguous_tool_name（HTTP 400，既有映射）
+        Err(e) => return Err(e.into()),
+    };
+    let inner_is_remote_mcp = state
+        .mcp_registry
+        .as_ref()
+        .is_some_and(|registry| registry.contains_tool(&canonical));
+
+    // Proxy to real upstream
+    let config = state.config_snapshot().await;
+    let invoke_result =
+        execute_invoke(state, config, &canonical, tool_args, proxy_key, format).await?;
+
+    if inner_is_remote_mcp
+        && let Ok(mut parsed) = serde_json::from_slice::<ToolCallResult>(&invoke_result.body)
+    {
+        prefix_content_defense(&mut parsed, invoke_result.content_defense_flag);
+        return Ok(MetaToolInvokeResult {
+            result: parsed,
+            content_defense_flag: invoke_result.content_defense_flag,
+            shaped: invoke_result.shaped,
+            rendered_format: invoke_result.rendered_format,
+        });
+    }
+
+    let mut body = String::from_utf8_lossy(&invoke_result.body).to_string();
+    if invoke_result.content_defense_flag {
+        body = format!("[Asterlane content_defense_flag=true]\n{body}");
+    }
+    Ok(MetaToolInvokeResult {
+        result: ToolCallResult::text_ok(body),
+        content_defense_flag: invoke_result.content_defense_flag,
+        shaped: invoke_result.shaped,
+        rendered_format: invoke_result.rendered_format,
+    })
+}
+
+/// `asl__fetch`：按游标续取被裁剪的结果。
+fn meta_fetch(
+    args: &serde_json::Value,
+    state: &AppState,
+    proxy_key: &ProxyKey,
+) -> Result<MetaToolInvokeResult, AsterlaneError> {
+    let cursor = args.get("cursor").and_then(|v| v.as_str()).ok_or_else(|| {
+        AsterlaneError::internal(
+            ErrorCode::McpInvalidToolCall,
+            "missing 'cursor' in asl__fetch arguments",
+        )
+    })?;
+    let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let budget = ShapingConfig::default().budget_bytes;
+
+    let result = match state
+        .result_cache
+        .fetch(cursor, &proxy_key.id, offset, budget)
+    {
+        Some(chunk) => {
+            let mut text = chunk.text;
+            if chunk.has_more {
+                let next_offset = chunk.offset + text.len();
+                text.push_str(&format!(
+                    "\n\n[More data available. Use cursor \"{cursor}\" with offset {next_offset} to continue.]"
+                ));
+            }
+            ToolCallResult::text_ok(text)
+        }
+        None => ToolCallResult::text_error("cursor not found or expired"),
+    };
+    Ok(MetaToolInvokeResult::plain(result))
+}
+
+/// `asl__status` / `asl__search`：交给 discovery 处理。
+async fn meta_discovery(
+    name: &str,
+    args: serde_json::Value,
+    state: &AppState,
+    proxy_key: &ProxyKey,
+) -> Result<MetaToolInvokeResult, AsterlaneError> {
+    let config = state.config_snapshot().await;
+    let catalog = state.catalog.read().await.clone();
+    // 语义搜索：配置了 semantic_search 时 asl__search 走余弦排序，
+    // 端点故障在 handler 内回退关键词
+    let result = match &state.semantic {
+        Some(semantic) if name == "asl__search" => {
+            discovery::handle_search_semantic(args, &catalog, proxy_key, semantic).await
+        }
+        _ => discovery::handle_meta_tool_call(name, args, &catalog, &config, proxy_key),
+    };
+    result.map(MetaToolInvokeResult::plain)
 }
 
 fn prefix_content_defense(result: &mut ToolCallResult, content_defense_flag: bool) {

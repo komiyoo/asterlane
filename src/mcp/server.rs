@@ -13,16 +13,14 @@ use rmcp::service::{RequestContext, SubscriptionContext};
 use rmcp::{RoleServer, ServerHandler};
 use tracing::instrument;
 
-use super::result::{invoke_result_to_mcp, tool_call_result_to_mcp};
+use super::meta::MetaCall;
+use super::result::invoke_result_to_mcp;
 use crate::catalog::{CatalogError, ToolListQuery, ToolQualifiers};
 use crate::config::{GatewayConfig, ProxyKey};
 use crate::discovery::DiscoveryMode;
 use crate::gateway_auth::GatewayKeyId;
 use crate::http::AppState;
-use crate::mcp::call::{
-    call_tools, descriptor_to_mcp_tool, fetch_result_meta_tool, get_tools, invoke_meta_call_tool,
-    wrapped_to_mcp_tool,
-};
+use crate::mcp::call::{descriptor_to_mcp_tool, wrapped_to_mcp_tool};
 use crate::mcp::model::ToolCallExtras;
 use crate::mcp::notify::{
     accepted_tools_list_changed_filter, is_legacy_protocol, listen_tools_list_changed,
@@ -30,7 +28,6 @@ use crate::mcp::notify::{
 };
 use crate::proxy::ProxyExecutor;
 use crate::render::ResponseFormat;
-use crate::shaping::ShapingConfig;
 
 /// 默认分页大小。
 const DEFAULT_PAGE_SIZE: usize = 50;
@@ -365,83 +362,14 @@ impl ServerHandler for AsterlaneToolServer {
         // MCP 只传输工具结果；终端展示由客户端边界处理。
         let format = ResponseFormat::Json;
 
-        // Meta-tool 路径
         if crate::discovery::is_meta_tool(wire_name) {
-            if wire_name == "asl__describe" {
-                let catalog = self.state.catalog.read().await;
-                return Ok(
-                    match get_tools(arguments, &catalog, &key, &self.state.result_cache) {
-                        Ok(response) => {
-                            let text = serde_json::to_string(&response)
-                                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                            tool_call_result_to_mcp(crate::mcp::ToolCallResult::text_ok(text))
-                                .into()
-                        }
-                        Err(e) => CallToolResult::error(vec![ContentBlock::text(e)]).into(),
-                    },
-                );
-            }
-            if wire_name == "asl__batch" {
-                return Ok(
-                    match call_tools(arguments, &self.state, &key, format).await {
-                        Ok(response) => {
-                            let text = serde_json::to_string(&response)
-                                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                            tool_call_result_to_mcp(crate::mcp::ToolCallResult::text_ok(text))
-                                .into()
-                        }
-                        Err(e) => CallToolResult::error(vec![ContentBlock::text(e)]).into(),
-                    },
-                );
-            }
-            if wire_name == "asl__call" {
-                return match invoke_meta_call_tool(arguments, extras, &self.state, &key, format)
-                    .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(e) => {
-                        Ok(CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into())
-                    }
-                };
-            }
-            if wire_name == "asl__fetch" {
-                let budget = ShapingConfig::default().budget_bytes;
-                return Ok(fetch_result_meta_tool(
-                    &self.state.result_cache,
-                    &key,
-                    arguments,
-                    budget,
-                )
-                .into());
-            }
-            // 语义搜索：配置了 semantic_search 时 asl__search 走余弦排序，
-            // 端点故障在 handler 内回退关键词。用 catalog 快照，
-            // 不持读锁跨 embedding await。
-            if let Some(semantic) = &self.state.semantic
-                && wire_name == "asl__search"
-            {
-                let catalog_snapshot = self.state.catalog.read().await.clone();
-                return match crate::discovery::handle_search_semantic(
-                    arguments,
-                    &catalog_snapshot,
-                    &key,
-                    semantic,
-                )
-                .await
-                {
-                    Ok(result) => Ok(tool_call_result_to_mcp(result).into()),
-                    Err(e) => {
-                        Ok(CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into())
-                    }
-                };
-            }
-            let catalog = self.state.catalog.read().await;
-            return match crate::discovery::handle_meta_tool_call(
-                wire_name, arguments, &catalog, &config, &key,
-            ) {
-                Ok(result) => Ok(tool_call_result_to_mcp(result).into()),
-                Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e.to_string())]).into()),
+            let call = MetaCall {
+                arguments,
+                extras,
+                key: &key,
+                format,
             };
+            return self.call_meta_tool(wire_name, call, &config).await;
         }
 
         // 普通工具调用路径（HTTP API 与 remote MCP 统一经 ProxyExecutor）。

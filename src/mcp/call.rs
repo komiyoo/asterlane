@@ -10,12 +10,13 @@ use crate::config::ProxyKey;
 use crate::http::AppState;
 use crate::mcp::model::{
     BatchCallResult, BatchCallToolsRequest, BatchCallToolsResponse, BatchGetToolsRequest,
-    BatchGetToolsResponse, BatchToolDetail, ToolCallExtras, ToolDescriptor,
+    BatchGetToolsResponse, BatchToolCall, BatchToolDetail, ToolCallExtras, ToolDescriptor,
 };
 use crate::mcp::result::invoke_result_to_mcp;
 use crate::policy::key_can_use_tool;
 use crate::proxy::ProxyExecutor;
 use crate::render::ResponseFormat;
+use crate::secrets::DefaultSecretStore;
 use crate::shaping::{DEFAULT_BUDGET_BYTES, ResultCache};
 
 pub(super) fn descriptor_to_mcp_tool(descriptor: crate::mcp::model::ToolDescriptor) -> Tool {
@@ -211,75 +212,94 @@ pub(crate) async fn call_tools(
     let mut response = BatchCallToolsResponse {
         results: Vec::with_capacity(request.calls.len()),
     };
+    // 按输入顺序逐个执行；单项失败只写进该项，不中止其余项
     for call in request.calls {
-        let mut item = BatchCallResult {
-            name: call.name.clone(),
-            request_id: None,
-            result: None,
-            input_required: None,
-            error: None,
-            cursor: None,
-        };
-        let qualifiers = ToolQualifiers {
-            domain: call.domain.as_deref(),
-            provider: call.provider.as_deref(),
-        };
-        match catalog.resolve_for_key(&call.name, qualifiers, key) {
-            Ok(Some(tool)) => {
-                match key_can_use_tool(key, &tool.name, &tool.resource_id) {
-                    Ok(true) => {}
-                    Ok(false) => {
-                        item.error = Some(format!("tool {} not permitted for this key", call.name));
-                        response.results.push(item);
-                        continue;
-                    }
-                    Err(error) => {
-                        item.error = Some(error.to_string());
-                        response.results.push(item);
-                        continue;
-                    }
-                }
-                let canonical = tool.name.to_wire_name();
-                let is_remote_mcp = state
-                    .mcp_registry
-                    .as_ref()
-                    .is_some_and(|registry| registry.contains_tool(&canonical));
-                let extras = ToolCallExtras {
-                    input_responses: call.input_responses,
-                    request_state: call.request_state,
-                };
-                let invocation = if let Some(repo) = &state.event_repo {
-                    make_executor()
-                        .with_event_repository(repo.clone())
-                        .invoke_call(&canonical, call.arguments.into(), key, extras)
-                        .await
-                } else {
-                    make_executor()
-                        .invoke_call(&canonical, call.arguments.into(), key, extras)
-                        .await
-                };
-                match invocation {
-                    Ok(result) => {
-                        item.request_id = Some(result.request_id.clone());
-                        match invoke_result_to_mcp(result, is_remote_mcp) {
-                            CallToolResponse::Complete(value) => {
-                                item.result = serde_json::to_value(value).ok();
-                            }
-                            CallToolResponse::InputRequired(value) => {
-                                item.input_required = serde_json::to_value(value).ok();
-                            }
-                            _ => item.error = Some("unsupported upstream response".to_string()),
-                        }
-                    }
-                    Err(error) => item.error = Some(error.to_string()),
-                }
-            }
-            Ok(None) => item.error = Some("unknown tool".to_string()),
-            Err(error) => item.error = Some(error.to_string()),
-        }
+        let item = call_one(call, &catalog, state, key, &make_executor).await;
         response.results.push(item);
     }
-    while serde_json::to_vec(&response)
+    fit_batch_budget(&mut response, &state.result_cache, key)?;
+    Ok(response)
+}
+
+/// 批量中的单次调用：解析与判权、执行、打包成结果项。错误都写进 `error`。
+async fn call_one(
+    call: BatchToolCall,
+    catalog: &ToolCatalog,
+    state: &AppState,
+    key: &ProxyKey,
+    make_executor: &impl Fn() -> ProxyExecutor<DefaultSecretStore>,
+) -> BatchCallResult {
+    let mut item = BatchCallResult {
+        name: call.name.clone(),
+        request_id: None,
+        result: None,
+        input_required: None,
+        error: None,
+        cursor: None,
+    };
+    let qualifiers = ToolQualifiers {
+        domain: call.domain.as_deref(),
+        provider: call.provider.as_deref(),
+    };
+    let tool = match catalog.resolve_for_key(&call.name, qualifiers, key) {
+        Ok(Some(tool)) => tool,
+        Ok(None) => return with_error(item, "unknown tool".to_string()),
+        Err(error) => return with_error(item, error.to_string()),
+    };
+    match key_can_use_tool(key, &tool.name, &tool.resource_id) {
+        Ok(true) => {}
+        Ok(false) => {
+            let error = format!("tool {} not permitted for this key", call.name);
+            return with_error(item, error);
+        }
+        Err(error) => return with_error(item, error.to_string()),
+    }
+    let canonical = tool.name.to_wire_name();
+    let is_remote_mcp = state
+        .mcp_registry
+        .as_ref()
+        .is_some_and(|registry| registry.contains_tool(&canonical));
+    let extras = ToolCallExtras {
+        input_responses: call.input_responses,
+        request_state: call.request_state,
+    };
+    let invocation = if let Some(repo) = &state.event_repo {
+        make_executor()
+            .with_event_repository(repo.clone())
+            .invoke_call(&canonical, call.arguments.into(), key, extras)
+            .await
+    } else {
+        make_executor()
+            .invoke_call(&canonical, call.arguments.into(), key, extras)
+            .await
+    };
+    let result = match invocation {
+        Ok(result) => result,
+        Err(error) => return with_error(item, error.to_string()),
+    };
+    item.request_id = Some(result.request_id.clone());
+    match invoke_result_to_mcp(result, is_remote_mcp) {
+        CallToolResponse::Complete(value) => item.result = serde_json::to_value(value).ok(),
+        CallToolResponse::InputRequired(value) => {
+            item.input_required = serde_json::to_value(value).ok();
+        }
+        _ => item.error = Some("unsupported upstream response".to_string()),
+    }
+    item
+}
+
+fn with_error(mut item: BatchCallResult, error: String) -> BatchCallResult {
+    item.error = Some(error);
+    item
+}
+
+/// 整个批量响应超过字节预算时，反复把最大的一项移进结果缓存，只留游标。
+fn fit_batch_budget(
+    response: &mut BatchCallToolsResponse,
+    cache: &ResultCache,
+    key: &ProxyKey,
+) -> Result<(), String> {
+    while serde_json::to_vec(&*response)
         .map_err(|e| e.to_string())?
         .len()
         > DEFAULT_BUDGET_BYTES
@@ -308,9 +328,9 @@ pub(crate) async fn call_tools(
         } else {
             return Err("batch response exceeds byte budget".to_string());
         };
-        item.cursor = Some(state.result_cache.store(full, &key.id));
+        item.cursor = Some(cache.store(full, &key.id));
     }
-    Ok(response)
+    Ok(())
 }
 
 pub(super) fn fetch_result_meta_tool(

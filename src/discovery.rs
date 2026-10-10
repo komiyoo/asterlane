@@ -66,95 +66,117 @@ pub fn is_meta_tool(wire_name: &str) -> bool {
 /// 返回所有 meta-tool 的 `ToolDescriptor`。
 pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
     vec![
-        ToolDescriptor {
-            name: STATUS.to_string(),
-            description: "Report gateway status: number of configured providers, \
+        status_descriptor(),
+        search_descriptor(),
+        describe_descriptor(),
+        call_descriptor(),
+        batch_descriptor(),
+        fetch_descriptor(),
+    ]
+}
+
+fn status_descriptor() -> ToolDescriptor {
+    ToolDescriptor {
+        name: STATUS.to_string(),
+        description: "Report gateway status: number of configured providers, \
                           total tools, and how many tools are visible to your current key."
-                .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-        },
-        ToolDescriptor {
-            name: SEARCH_TOOLS.to_string(),
-            description: "Search tools available to this key by name or description. \
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn search_descriptor() -> ToolDescriptor {
+    ToolDescriptor {
+        name: SEARCH_TOOLS.to_string(),
+        description: "Search tools available to this key by name or description. \
                           Returns a capped description and a compact parameter signature \
                           in pages; pass next_cursor to continue. Use asl__describe with \
                           returned canonical names to read callable input schemas before calling."
-                .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Keyword to match against tool names and descriptions."
-                    },
-                    "include_schema": {
-                        "type": "boolean",
-                        "description": "Include the same compact input schema that asl__describe returns. Default false."
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 50,
-                        "description": "Results per page. Default 10."
-                    },
-                    "cursor": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "description": "Offset returned as next_cursor by the previous page."
-                    }
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Keyword to match against tool names and descriptions."
                 },
-                "required": ["query"],
-                "additionalProperties": false
-            }),
-        },
-        ToolDescriptor {
-            name: GET_TOOLS.to_string(),
-            description: "Get descriptions and callable input schemas for up to 10 canonical \
+                "include_schema": {
+                    "type": "boolean",
+                    "description": "Include the same compact input schema that asl__describe returns. Default false."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "Results per page. Default 10."
+                },
+                "cursor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Offset returned as next_cursor by the previous page."
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn describe_descriptor() -> ToolDescriptor {
+    ToolDescriptor {
+        name: GET_TOOLS.to_string(),
+        description: "Get descriptions and callable input schemas for up to 10 canonical \
                           tool names returned by asl__search. Schemas keep types, required \
                           fields, enums, and constraints, and omit JSON Schema boilerplate. \
                           Results follow input order; unavailable names return not_found."
-                .to_string(),
-            input_schema: BatchGetToolsRequest::input_schema(),
-        },
-        ToolDescriptor {
-            name: CALL_TOOL.to_string(),
-            description: "Call one tool after reading its input schema with asl__describe. \
+            .to_string(),
+        input_schema: BatchGetToolsRequest::input_schema(),
+    }
+}
+
+fn call_descriptor() -> ToolDescriptor {
+    ToolDescriptor {
+        name: CALL_TOOL.to_string(),
+        description: "Call one tool after reading its input schema with asl__describe. \
                           The name accepts \
                           the canonical wire name (domain__provider__tool), a \
                           provider__tool pair, or a bare tool name when unambiguous. \
                           Pass the tool name and its arguments as JSON."
-                .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Tool name: canonical wire name (e.g. search__tavily__web_search), provider__tool, or bare tool name when unambiguous."
-                    },
-                    "arguments": {
-                        "type": "object",
-                        "description": "Arguments to pass to the tool, matching its input schema."
-                    },
-                    "domain": {
-                        "type": "string",
-                        "description": "Optional: disambiguate short tool names by domain"
-                    },
-                    "provider": {
-                        "type": "string",
-                        "description": "Optional: disambiguate short tool names by provider"
-                    }
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Tool name: canonical wire name (e.g. search__tavily__web_search), provider__tool, or bare tool name when unambiguous."
                 },
-                "required": ["name", "arguments"],
-                "additionalProperties": false
-            }),
-        },
-        ToolDescriptor {
-            name: CALL_TOOLS.to_string(),
-            description: "Call up to 10 independent tools in one request after reading their \
+                "arguments": {
+                    "type": "object",
+                    "description": "Arguments to pass to the tool, matching its input schema."
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Optional: disambiguate short tool names by domain"
+                },
+                "provider": {
+                    "type": "string",
+                    "description": "Optional: disambiguate short tool names by provider"
+                }
+            },
+            "required": ["name", "arguments"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+fn batch_descriptor() -> ToolDescriptor {
+    ToolDescriptor {
+        name: CALL_TOOLS.to_string(),
+        description: "Call up to 10 independent tools in one request after reading their \
                           input schemas with asl__describe. Calls run in input order and each \
                           result is returned separately. That order only aligns results: a later \
                           call cannot use an earlier result, and must not assume an earlier \
@@ -162,31 +184,33 @@ pub fn meta_tool_descriptors() -> Vec<ToolDescriptor> {
                           roll back the others. Successful upstream side effects remain; there is \
                           no transaction. Retry failed items individually. When the next arguments \
                           depend on a previous result, use asl__call."
-                .to_string(),
-            input_schema: BatchCallToolsRequest::input_schema(),
-        },
-        ToolDescriptor {
-            name: FETCH_RESULT.to_string(),
-            description: "Fetch subsequent chunks of a large tool result using a cursor \
+            .to_string(),
+        input_schema: BatchCallToolsRequest::input_schema(),
+    }
+}
+
+fn fetch_descriptor() -> ToolDescriptor {
+    ToolDescriptor {
+        name: FETCH_RESULT.to_string(),
+        description: "Fetch subsequent chunks of a large tool result using a cursor \
                           returned from a previous call."
-                .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "cursor": {
-                        "type": "string",
-                        "description": "Opaque cursor string from a previous tool call result."
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Byte offset into the cached result. Default 0."
-                    }
+            .to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "cursor": {
+                    "type": "string",
+                    "description": "Opaque cursor string from a previous tool call result."
                 },
-                "required": ["cursor"],
-                "additionalProperties": false
-            }),
-        },
-    ]
+                "offset": {
+                    "type": "integer",
+                    "description": "Byte offset into the cached result. Default 0."
+                }
+            },
+            "required": ["cursor"],
+            "additionalProperties": false
+        }),
+    }
 }
 
 /// 处理 `asl__status` / `asl__search`。

@@ -4,7 +4,7 @@ title: 工程约定
 description: 分层依赖方向、代码组织硬预算、类型系统、错误、日志与防臃肿的纲领性约定与已知债务台账。
 resource: docs/engineering/engineering-conventions.md
 tags: [conventions, architecture, errors, observability, code-quality]
-timestamp: 2026-10-02T00:00:00Z
+timestamp: 2026-10-09T00:00:00Z
 ---
 
 # 背景
@@ -87,13 +87,13 @@ timestamp: 2026-10-02T00:00:00Z
 
 # 已知债务台账
 
-行数是生产代码（不含 `#[cfg(test)]`），截至 2026-10-02。改到对应位置时优先偿还。超过 500 行的文件要么已经拆开，要么在文件头写了拆分方向并记在这里。超过 80 行的函数记在这里，不另开豁免。
+行数是生产代码（不含 `#[cfg(test)]`），截至 2026-10-09。改到对应位置时优先偿还。超过 500 行的文件要么已经拆开，要么在文件头写了拆分方向并记在这里。超过 80 行的函数记在这里，不另开豁免。
 
 ## 已清
 
 | 债务 | 位置 | 状态 |
 | --- | --- | --- |
-| invoke 编排拆分 | `src/proxy/executor.rs` | executor 268 行；`invoke/mod.rs` 434 行、`admission.rs` 134 行；`retry.rs` 451 行；`post.rs` 335 行。`invoke_call` 按阶段拆成私有步骤 |
+| invoke 编排拆分 | `src/proxy/executor.rs` | executor 269 行；`invoke/mod.rs` 434 行、`admission.rs` 116 行；`retry.rs` 460 行；`post.rs` 303 行。`invoke_call` 按阶段拆成私有步骤 |
 | `too_many_arguments` 豁免 | `proxy/post.rs`、`proxy/retry.rs`、`main.rs` | 已无存量豁免。`record_event` 收 `EventDraft`，`execute_with_retry` 收 `UpstreamRequest`，main 的 refresh 收 `AppState` |
 | integrity drift 编排住在 main | `src/integrity.rs` | 迁入 `integrity`，`main.rs` 只调用 |
 | 热路径无 tracing span | `proxy::executor::invoke`、`mcp::server` | 已补 `#[instrument]` |
@@ -103,25 +103,17 @@ timestamp: 2026-10-02T00:00:00Z
 | `http/routes.rs` 超 500 行 | `src/http/tools.rs` | 健康检查与 `/config` 留在 `routes.rs`（146 行）；`/v1/tools` 列表与 invoke 在 `tools.rs`（454 行） |
 | `admin/mod.rs` 超 500 行 | `src/admin/read.rs` | 路由留在 `mod.rs`；事件、用量、安全事件、统计与 key pool 在类型化的 `read.rs`。2026-10-08 合并时没有再引入 `observe.rs` |
 | `mcp/peer.rs` 超 500 行 | `src/mcp/peer/methods.rs` | trait、建连与 connector 在 `mod.rs`（400 行）；rmcp 协议方法在 `methods.rs`（180 行） |
+| `admin/crud.rs` 超 500 行 | `src/admin/crud.rs` | 2026-10-08 合并后降到 481 行，没有再拆 |
+| `store/repository.rs` 超 500 行 | `src/store/repository/` | 请求事件、安全事件、资源与 key、用量聚合各一个文件；`mod.rs` 再导出，调用方路径仍是 `store::repository` |
+| `execute_with_retry` 207 行 | `src/proxy/retry.rs` | 单次尝试在 `send_attempt`，返回成功、非 2xx、传输失败三种结果；本函数只留循环、冷却与退避 |
+| `handle_meta_tool_with_proxy` 165 行 | `src/http/tools.rs` | 入口只按名字分发；`asl__call`、`asl__fetch`、`asl__status` / `asl__search` 各一个函数 |
+| `call_tools` 134 行 | `src/mcp/call.rs` | 单次调用在 `call_one`，预算裁剪在 `fit_batch_budget`；本函数只留批次循环 |
+| `meta_tool_descriptors` 124 行 | `src/discovery.rs` | 每个 meta-tool 的描述符各一个函数，这里只组装 |
+| `call_tool` 114 行 | `src/mcp/server.rs` | meta-tool 分发移到 `src/mcp/meta.rs`；`call_tool` 只做认证和分发 |
+| `shape_remote_mcp_result` 111 行 | `src/proxy/post.rs` | content defense、渲染、裁剪各成一步；defense 与裁剪和 HTTP 路径共用，去掉了两份重复实现 |
+| `build_input_schema` 86 行 | `src/openapi/mod.rs` | properties、required 与参数位置由 `SchemaParts` 累积 |
+| `discover_endpoints` 85 行 | `src/openapi/mod.rs` | 解析在 `parse_spec`，过滤在 `is_operation_selected` |
 
 ## 仍超预算
 
-### 文件（生产代码 > 500 行）
-
-| 文件 | 行数 | 拆分方向 |
-| --- | --- | --- |
-| `src/admin/crud.rs` | 520 | resource 写路径与 proxy key 写路径分开，`swap_config_and_catalog` 两边共用 |
-| `src/store/repository.rs` | 510 | 请求事件、安全事件、资源与 key、用量聚合四组 trait 各成文件，本模块再导出 |
-
-### 函数（生产代码 > 80 行）
-
-| 函数 | 位置 | 行数 | 拆分方向 |
-| --- | --- | --- | --- |
-| `execute_with_retry` | `src/proxy/retry.rs` | 207 | 单次尝试、是否重试、退避等待拆成私有函数，本函数只留循环 |
-| `handle_meta_tool_with_proxy` | `src/http/tools.rs` | 165 | 按 meta-tool 分支拆开，入口只做名字分发 |
-| `call_tools` | `src/mcp/call.rs` | 134 | 单次调用的解析、执行和打包拆出去，这里只留批次循环与预算 |
-| `meta_tool_descriptors` | `src/discovery.rs` | 119 | 每个 meta-tool 的描述符各自一个函数，这里只组装 |
-| `call_tool` | `src/mcp/server.rs` | 114 | 各 meta-tool 分支收成独立函数，`call_tool` 只做认证和分发 |
-| `shape_remote_mcp_result` | `src/proxy/post.rs` | 111 | 文本裁剪、续取游标、content defense 各成一步 |
-| `build_input_schema` | `src/openapi/mod.rs` | 86 | properties、required 与参数位置分开 |
-| `discover_endpoints` | `src/openapi/mod.rs` | 85 | 按 path item 的 HTTP 方法拆开 |
+截至 2026-10-09：生产代码超过 500 行的文件、超过 80 行的函数都没有。

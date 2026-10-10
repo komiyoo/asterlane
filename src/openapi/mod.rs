@@ -75,19 +75,7 @@ pub fn discover_endpoints(
     spec_bytes: &[u8],
     config: &OpenApiDiscoveryConfig,
 ) -> Result<Vec<DiscoveredEndpoint>, OpenApiError> {
-    let spec_str =
-        std::str::from_utf8(spec_bytes).map_err(|e| OpenApiError::ParseError(e.to_string()))?;
-
-    let spec: OpenAPI = serde_json::from_str(spec_str)
-        .map_err(|e| OpenApiError::ParseError(e.to_string()))
-        .or_else(|_| {
-            serde_norway::from_str(spec_str).map_err(|e| OpenApiError::ParseError(e.to_string()))
-        })?;
-
-    if !spec.openapi.starts_with("3.") {
-        return Err(OpenApiError::UnsupportedVersion);
-    }
-
+    let spec = parse_spec(spec_bytes)?;
     let mut endpoints = Vec::new();
     let mut seen_segments: HashMap<String, usize> = HashMap::new();
 
@@ -107,24 +95,7 @@ pub fn discover_endpoints(
 
         for &(method, op_opt) in methods {
             let Some(op) = op_opt else { continue };
-
-            if !is_method_allowed(method, config) {
-                continue;
-            }
-
-            if !config.include_tags.is_empty()
-                && !op.tags.iter().any(|t| config.include_tags.contains(t))
-            {
-                continue;
-            }
-
-            let op_key = format!("{} {}", method.to_uppercase(), path);
-            if config.exclude_operations.contains(&op_key) {
-                continue;
-            }
-            if let Some(ref id) = op.operation_id
-                && config.exclude_operations.contains(id)
-            {
+            if !is_operation_selected(method, path, op, config) {
                 continue;
             }
 
@@ -155,6 +126,46 @@ pub fn discover_endpoints(
     }
 
     Ok(endpoints)
+}
+
+/// 先按 JSON、再按 YAML 解析，只接受 OpenAPI 3.x。
+fn parse_spec(spec_bytes: &[u8]) -> Result<OpenAPI, OpenApiError> {
+    let spec_str =
+        std::str::from_utf8(spec_bytes).map_err(|e| OpenApiError::ParseError(e.to_string()))?;
+
+    let spec: OpenAPI = serde_json::from_str(spec_str)
+        .map_err(|e| OpenApiError::ParseError(e.to_string()))
+        .or_else(|_| {
+            serde_norway::from_str(spec_str).map_err(|e| OpenApiError::ParseError(e.to_string()))
+        })?;
+
+    if !spec.openapi.starts_with("3.") {
+        return Err(OpenApiError::UnsupportedVersion);
+    }
+    Ok(spec)
+}
+
+/// 方法放行、`include_tags` 命中，且不在 `exclude_operations`
+/// （按 `METHOD /path` 或 operationId）里。
+fn is_operation_selected(
+    method: &str,
+    path: &str,
+    op: &Operation,
+    config: &OpenApiDiscoveryConfig,
+) -> bool {
+    if !is_method_allowed(method, config) {
+        return false;
+    }
+    if !config.include_tags.is_empty() && !op.tags.iter().any(|t| config.include_tags.contains(t)) {
+        return false;
+    }
+    let op_key = format!("{} {}", method.to_uppercase(), path);
+    if config.exclude_operations.contains(&op_key) {
+        return false;
+    }
+    !op.operation_id
+        .as_ref()
+        .is_some_and(|id| config.exclude_operations.contains(id))
 }
 
 fn is_method_allowed(method: &str, config: &OpenApiDiscoveryConfig) -> bool {
@@ -234,18 +245,66 @@ enum ParamKind {
     Header,
 }
 
+/// 构造中的 input schema：properties、required 与参数位置一起累积。
+struct SchemaParts {
+    properties: Map<String, Value>,
+    required: Vec<Value>,
+    locs: ParamLocations,
+}
+
+impl SchemaParts {
+    fn add(&mut self, field: String, schema: Value, required: bool) {
+        if required {
+            self.required.push(Value::String(field.clone()));
+        }
+        self.properties.insert(field, schema);
+    }
+
+    /// path 参数一律必填；header 参数以 `_<name>` 暴露，认证类 header 不暴露。
+    fn add_parameter(&mut self, kind: ParamKind, name: &str, required: bool, schema: Value) {
+        match kind {
+            ParamKind::Path => {
+                self.add(name.to_string(), schema, true);
+                self.locs.path_params.push(name.to_string());
+            }
+            ParamKind::Query => {
+                self.add(name.to_string(), schema, required);
+                self.locs.query_params.push(name.to_string());
+            }
+            ParamKind::Header => {
+                if AUTH_HEADERS.contains(&name.to_lowercase().as_str()) {
+                    return;
+                }
+                let field = format!("_{name}");
+                self.add(field.clone(), schema, required);
+                self.locs.header_params.push((field, name.to_string()));
+            }
+        }
+    }
+
+    fn into_schema(self) -> (Value, ParamLocations) {
+        let mut schema = serde_json::json!({"type": "object", "properties": self.properties});
+        if !self.required.is_empty() {
+            schema["required"] = Value::Array(self.required);
+        }
+        (schema, self.locs)
+    }
+}
+
 fn build_input_schema(
     op: &Operation,
     path_level_params: &[ReferenceOr<Parameter>],
     spec: &OpenAPI,
 ) -> Result<(Value, ParamLocations), OpenApiError> {
-    let mut properties = Map::new();
-    let mut required = Vec::new();
-    let mut locs = ParamLocations {
-        path_params: Vec::new(),
-        query_params: Vec::new(),
-        header_params: Vec::new(),
-        has_body: false,
+    let mut parts = SchemaParts {
+        properties: Map::new(),
+        required: Vec::new(),
+        locs: ParamLocations {
+            path_params: Vec::new(),
+            query_params: Vec::new(),
+            header_params: Vec::new(),
+            has_body: false,
+        },
     };
     let mut seen: HashSet<String> = HashSet::new();
 
@@ -267,32 +326,7 @@ fn build_input_schema(
             ParameterSchemaOrContent::Schema(s) => resolve_schema_to_value(s, spec, 0)?,
             ParameterSchemaOrContent::Content(_) => serde_json::json!({}),
         };
-
-        match kind {
-            ParamKind::Path => {
-                properties.insert(data.name.clone(), schema_val);
-                required.push(Value::String(data.name.clone()));
-                locs.path_params.push(data.name.clone());
-            }
-            ParamKind::Query => {
-                properties.insert(data.name.clone(), schema_val);
-                if data.required {
-                    required.push(Value::String(data.name.clone()));
-                }
-                locs.query_params.push(data.name.clone());
-            }
-            ParamKind::Header => {
-                if AUTH_HEADERS.contains(&data.name.to_lowercase().as_str()) {
-                    continue;
-                }
-                let field = format!("_{}", data.name);
-                properties.insert(field.clone(), schema_val);
-                if data.required {
-                    required.push(Value::String(field.clone()));
-                }
-                locs.header_params.push((field, data.name.clone()));
-            }
-        }
+        parts.add_parameter(kind, &data.name, data.required, schema_val);
     }
 
     if let Some(body_ref) = &op.request_body {
@@ -305,20 +339,13 @@ fn build_input_schema(
             .and_then(|(_, mt)| mt.schema.as_ref());
 
         if let Some(s) = schema_ref {
-            properties.insert("body".into(), resolve_schema_to_value(s, spec, 0)?);
-            if body.required {
-                required.push(Value::String("body".into()));
-            }
-            locs.has_body = true;
+            let schema = resolve_schema_to_value(s, spec, 0)?;
+            parts.add("body".into(), schema, body.required);
+            parts.locs.has_body = true;
         }
     }
 
-    let mut schema = serde_json::json!({"type": "object", "properties": properties});
-    if !required.is_empty() {
-        schema["required"] = Value::Array(required);
-    }
-
-    Ok((schema, locs))
+    Ok(parts.into_schema())
 }
 
 // -- $ref resolution --

@@ -133,97 +133,16 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         proxy_key_id: &str,
         security: &SecurityConfig,
     ) -> InvokeResult {
-        let text_body = tool_result
-            .content
-            .iter()
-            .map(|content| match content {
-                ToolContent::Text(text) => text.as_str(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let mut content_defense_flag = false;
-        if security.defense.enabled {
-            let defense_result = defense::scan_content(&text_body);
-            if defense_result.flagged {
-                content_defense_flag = true;
-                if let Some(repo) = &self.event_repo {
-                    let event = SecurityEvent {
-                        timestamp: Utc::now(),
-                        resource_id: resource_id.to_string(),
-                        tool_name: Some(wire_name.to_string()),
-                        kind: SecurityEventKind::ContentDefenseFlag,
-                        severity: Severity::Warn,
-                        details: serde_json::json!({
-                            "matched_rules": defense_result.matched_rules,
-                        }),
-                    };
-                    if let Err(e) = repo.insert_security_event(&event).await {
-                        warn!(error = %e, wire_name, "failed to persist security event");
-                    }
-                }
-            }
-        }
-
-        // Render：非 error 结果的 JSON 文本内容重呈现（defense 之后、shaping 之前）。
-        // is_error 结果与非 JSON 文本原样保留（docs/runtime/response-rendering.md 转换边界）。
-        let mut rendered_format = None;
-        if self.response_format != ResponseFormat::Json && !tool_result.is_error {
-            let mut any_rendered = false;
-            tool_result.content = tool_result
-                .content
-                .into_iter()
-                .map(|content| match content {
-                    ToolContent::Text(text) => {
-                        match serde_json::from_str::<serde_json::Value>(&text)
-                            .ok()
-                            .and_then(|v| render::render(&v, self.response_format))
-                        {
-                            Some(rendered) => {
-                                any_rendered = true;
-                                ToolContent::Text(rendered)
-                            }
-                            None => ToolContent::Text(text),
-                        }
-                    }
-                })
-                .collect();
-            if any_rendered {
-                rendered_format = Some(self.response_format);
-            }
-        }
+        let content_defense_flag = self
+            .scan_defense(&joined_text(&tool_result), resource_id, wire_name, security)
+            .await;
+        let rendered_format = self.render_tool_content(&mut tool_result);
 
         // shaping 按渲染后的文本计算 budget（缓存存最终字节，分页片段格式一致）
-        let text_body = tool_result
-            .content
-            .iter()
-            .map(|content| match content {
-                ToolContent::Text(text) => text.as_str(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let mut shaped = false;
-        if let Some(cache) = &self.result_cache {
-            let budget = budget_for(security.result_budget_bytes);
-            let config = ShapingConfig {
-                budget_bytes: budget,
-            };
-            match shaping::shape_result(&text_body, &config, cache, proxy_key_id) {
-                ShapingOutcome::Unchanged => {}
-                ShapingOutcome::Shaped {
-                    head,
-                    cursor,
-                    total_len,
-                } => {
-                    let shaped_text = format!(
-                        "{head}\n\n[Result truncated. Total {total_len} bytes. \
-                         Use asl__fetch with cursor \"{cursor}\" to get more.]"
-                    );
-                    tool_result.content = vec![ToolContent::Text(shaped_text)];
-                    shaped = true;
-                }
-            }
+        let shaped_text = self.shape_text(&joined_text(&tool_result), security, proxy_key_id);
+        let shaped = shaped_text.is_some();
+        if let Some(text) = shaped_text {
+            tool_result.content = vec![ToolContent::Text(text)];
         }
 
         InvokeResult {
@@ -258,26 +177,11 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         let mut body_str = String::from_utf8_lossy(&result.body).to_string();
 
         // 1. Defense 扫描（在 shaping 截断之前，扫描完整 body）
-        if security.defense.enabled {
-            let defense_result = defense::scan_content(&body_str);
-            if defense_result.flagged {
-                result.content_defense_flag = true;
-                if let Some(repo) = &self.event_repo {
-                    let event = SecurityEvent {
-                        timestamp: Utc::now(),
-                        resource_id: resource_id.to_string(),
-                        tool_name: Some(wire_name.to_string()),
-                        kind: SecurityEventKind::ContentDefenseFlag,
-                        severity: Severity::Warn,
-                        details: serde_json::json!({
-                            "matched_rules": defense_result.matched_rules,
-                        }),
-                    };
-                    if let Err(e) = repo.insert_security_event(&event).await {
-                        warn!(error = %e, wire_name, "failed to persist security event");
-                    }
-                }
-            }
+        if self
+            .scan_defense(&body_str, resource_id, wire_name, security)
+            .await
+        {
+            result.content_defense_flag = true;
         }
 
         // 2. Render：JSON body 重呈现为目标格式（defense 之后、shaping 之前，
@@ -294,31 +198,105 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         }
 
         // 3. Shaping（per-resource budget 覆盖默认值）
-        if let Some(cache) = &self.result_cache {
-            let budget = budget_for(security.result_budget_bytes);
-            let config = ShapingConfig {
-                budget_bytes: budget,
-            };
-            match shaping::shape_result(&body_str, &config, cache, proxy_key_id) {
-                ShapingOutcome::Unchanged => {}
-                ShapingOutcome::Shaped {
-                    head,
-                    cursor,
-                    total_len,
-                } => {
-                    let shaped_body = format!(
-                        "{head}\n\n[Result truncated. Total {total_len} bytes. \
-                         Use asl__fetch with cursor \"{cursor}\" to get more.]"
-                    );
-                    result.body = shaped_body.into_bytes();
-                    result.content_type = Some("text/plain; charset=utf-8".to_string());
-                    result.shaped = true;
-                }
-            }
+        if let Some(shaped_body) = self.shape_text(&body_str, security, proxy_key_id) {
+            result.body = shaped_body.into_bytes();
+            result.content_type = Some("text/plain; charset=utf-8".to_string());
+            result.shaped = true;
         }
 
         result
     }
+
+    /// Content defense 扫描。命中时写安全事件（`details` 只含规则名，不含原文），
+    /// 返回是否命中；未启用时返回 false。不阻断调用。
+    async fn scan_defense(
+        &self,
+        text: &str,
+        resource_id: &str,
+        wire_name: &str,
+        security: &SecurityConfig,
+    ) -> bool {
+        if !security.defense.enabled {
+            return false;
+        }
+        let defense_result = defense::scan_content(text);
+        if !defense_result.flagged {
+            return false;
+        }
+        if let Some(repo) = &self.event_repo {
+            let event = SecurityEvent {
+                timestamp: Utc::now(),
+                resource_id: resource_id.to_string(),
+                tool_name: Some(wire_name.to_string()),
+                kind: SecurityEventKind::ContentDefenseFlag,
+                severity: Severity::Warn,
+                details: serde_json::json!({
+                    "matched_rules": defense_result.matched_rules,
+                }),
+            };
+            if let Err(e) = repo.insert_security_event(&event).await {
+                warn!(error = %e, wire_name, "failed to persist security event");
+            }
+        }
+        true
+    }
+
+    /// Render：非 error 结果的 JSON 文本内容重呈现（defense 之后、shaping 之前）。
+    /// is_error 结果与非 JSON 文本原样保留（docs/runtime/response-rendering.md 转换边界）。
+    /// 至少一段被重呈现时返回目标格式。
+    fn render_tool_content(&self, tool_result: &mut ToolCallResult) -> Option<ResponseFormat> {
+        if self.response_format == ResponseFormat::Json || tool_result.is_error {
+            return None;
+        }
+        let mut any_rendered = false;
+        for content in &mut tool_result.content {
+            let ToolContent::Text(text) = content;
+            if let Some(rendered) = serde_json::from_str::<serde_json::Value>(text)
+                .ok()
+                .and_then(|v| render::render(&v, self.response_format))
+            {
+                *text = rendered;
+                any_rendered = true;
+            }
+        }
+        any_rendered.then_some(self.response_format)
+    }
+
+    /// 超出 budget 时把全文存进结果缓存，返回带续取提示的头部；未超出或没有缓存时为 `None`。
+    fn shape_text(
+        &self,
+        text: &str,
+        security: &SecurityConfig,
+        proxy_key_id: &str,
+    ) -> Option<String> {
+        let cache = self.result_cache.as_ref()?;
+        let config = ShapingConfig {
+            budget_bytes: budget_for(security.result_budget_bytes),
+        };
+        match shaping::shape_result(text, &config, cache, proxy_key_id) {
+            ShapingOutcome::Unchanged => None,
+            ShapingOutcome::Shaped {
+                head,
+                cursor,
+                total_len,
+            } => Some(format!(
+                "{head}\n\n[Result truncated. Total {total_len} bytes. \
+                 Use asl__fetch with cursor \"{cursor}\" to get more.]"
+            )),
+        }
+    }
+}
+
+/// remote MCP 结果的全部文本内容，按换行拼接。
+fn joined_text(tool_result: &ToolCallResult) -> String {
+    tool_result
+        .content
+        .iter()
+        .map(|content| match content {
+            ToolContent::Text(text) => text.as_str(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// 从 `ProxyError` 推导 `RequestStatus`（用于记录 `RequestEvent`）。

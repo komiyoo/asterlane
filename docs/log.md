@@ -1,5 +1,11 @@
 # Documentation Update Log
 
+## 2026-10-09（超长函数清零）
+
+- **结论**：债务台账里 8 个超过 80 行的函数按各自登记的拆分方向拆完，行为不变。`execute_with_retry` 的单次尝试拆到 `send_attempt`，冷却时机保持原样：超时与连接失败总是冷却，可重试状态码只在确实重试时冷却。MCP 的 meta-tool 分发移到新文件 `src/mcp/meta.rs`，避免 `server.rs` 超过 500 行。content defense 与结果裁剪原先在 HTTP 与 remote MCP 两条路径各写一份，现在共用。生产代码超 500 行的文件与超 80 行的函数都已清零。
+- **验证**：`just check` 通过，`cargo test` 1034 passed、2 ignored，与拆分前相同。
+- **依据**：[Engineering Conventions · 已知债务台账](engineering/engineering-conventions.md#已知债务台账)。
+
 ## 2026-10-09（债务台账与根目录旧计划）
 
 - **结论**：`src/store/repository.rs` 按台账方向拆成 `src/store/repository/` 下四个文件（请求事件、安全事件、资源与 key、用量聚合），纯移动，调用方路径不变。`src/admin/crud.rs` 在 2026-10-08 合并后已降到 481 行。生产代码超过 500 行的文件清零，台账行数更新到 2026-10-09。根目录 `plans/` 下两份 7 月计划（统一 CLI 客户端、CLI 配置发现）对应功能早已实现，设计事实在 [CLI Client Architecture](admin/cli-client-architecture.md) 与 [CLI Config Discovery](admin/cli-config-discovery.md)，计划文件不在 OKF 树内、无引用，已删除。
