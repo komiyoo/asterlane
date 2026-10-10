@@ -1,5 +1,10 @@
 # Documentation Update Log
 
+## 2026-10-09（债务台账与根目录旧计划）
+
+- **结论**：`src/store/repository.rs` 按台账方向拆成 `src/store/repository/` 下四个文件（请求事件、安全事件、资源与 key、用量聚合），纯移动，调用方路径不变。`src/admin/crud.rs` 在 2026-10-08 合并后已降到 481 行。生产代码超过 500 行的文件清零，台账行数更新到 2026-10-09。根目录 `plans/` 下两份 7 月计划（统一 CLI 客户端、CLI 配置发现）对应功能早已实现，设计事实在 [CLI Client Architecture](admin/cli-client-architecture.md) 与 [CLI Config Discovery](admin/cli-config-discovery.md)，计划文件不在 OKF 树内、无引用，已删除。
+- **依据**：[Engineering Conventions · 已知债务台账](engineering/engineering-conventions.md#已知债务台账)。
+
 ## 2026-10-09（线上部署：同源不是产品约束）
 
 - **结论**：管理认证是 Bearer，token 在控制台源的 `sessionStorage`，不写 cookie。控制台和网关可以不同源。当前构建仍请求同源相对路径 `/admin/*`，网关没有 CORS。线上目标是网关留在自有机器，控制台放到 Cloudflare Workers Static Assets；拆源前要先固定构建期 API 源、只为这一个源对 `/admin/*` 打开 CORS，并放宽 CSP 的 `connect-src`。在那之前用同一台机器上的 Nginx 与 Tunnel 上线。

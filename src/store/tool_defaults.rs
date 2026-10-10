@@ -2,7 +2,7 @@
 //!
 //! 平台级、按工具维度的调试辅助：只在控制台/CLI 调试调用显式选择时合并，
 //! 不参与 agent 正常调用路径。trait + SQLite 实现独立成文件，
-//! 避免继续膨胀 `repository.rs` / `sqlite.rs`（两者已近单文件预算）。
+//! 不放进 `repository/` 与 `sqlite.rs`。
 
 use crate::store::error::StoreError;
 use crate::store::sqlite::SqliteRequestEventRepository;

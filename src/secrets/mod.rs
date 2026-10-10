@@ -70,7 +70,7 @@ impl Display for SecretString {
 /// Secret store trait：异步解析 secret ref 为 [`SecretString`]。
 ///
 /// 实现方负责按 backend 分发，明文不进日志/错误。
-/// trait 风格参考 `src/store/repository.rs`（`impl Future + Send`）。
+/// trait 风格参考 `src/store/repository/`（`impl Future + Send`）。
 pub trait SecretStore: Send + Sync {
     /// 解析 secret ref，返回包装后的明文。
     fn resolve(
