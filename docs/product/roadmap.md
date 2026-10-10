@@ -58,7 +58,7 @@ timestamp: 2026-10-09T00:00:00Z
 
 **基本完整**，是完成度最高的支柱。allow/deny 正则、请求级只收窄不扩权、canonical/alias 三级解析、影子保护都已落地（`policy`、`catalog::resolve_for_key`、`naming`）。
 
-剩余仅两项轻量项：wire name 变更时的 deprecated alias 转发（[Compatibility Policy](../architecture/compatibility-policy.md) 承诺，无实现）；连接级视图（[Naming Convention](../architecture/naming-convention.md) 明确标为未来方向）。均不阻塞。
+剩余仅一项轻量项：连接级视图（[Naming Convention](../architecture/naming-convention.md) 明确标为未来方向），不阻塞。wire name 变更时的 deprecated alias 转发 2026-10-09 定为不做：agent 实时加载工具，改名直接切换，只同步网关自己的 prompt 与文档（见 [Compatibility Policy](../architecture/compatibility-policy.md#mcp-工具名兼容性)）。
 
 ## 支柱三：渐进式工具发现
 
@@ -78,9 +78,9 @@ timestamp: 2026-10-09T00:00:00Z
 | **已交付：删除请求变换**（2026-10-01） | 兑现差（已清） | 原 `transform` 模块无生产调用方，按「删除优先」移除 `src/transform` 与 `transform.*` 错误码（CLI 退出码 8 退役，不复用）；[Product Requirements](product-requirements.md)、[Architecture](../architecture/architecture.md)、根 `README.md` 等现行文档同步撤回承诺 |
 | **已交付：代理上游 resources 与 prompts**（2026-10-02） | 定位缺口（已清） | 远程上游的 prompts、resources、resource templates 与 tools 同一周期刷新；可见范围沿用工具 scope；下游 URI 为 `asterlane://{server_id}/{上游原 URI}`。见 [MCP Protocol](../architecture/mcp-protocol.md#prompts-与-resources) |
 | 无 stdio / 本地进程 MCP server | 非目标 | 2026-10-01 定为不做。`mcp::peer` 仅用 `StreamableHttpClientTransport` |
-| 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口 | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建 |
+| 上游仅整包 JSON HTTP：无 multipart / form / 流式响应 | 定位缺口（2026-10-09：暂不做） | `proxy::retry` 整包 `response.bytes()`；无 multipart 构建。出现具体上游需求时再排期 |
 | **已交付：多上游 MCP FailOpen / FailClosed**（2026-08-20） | 定位缺口（已清） | `mcp.failure_mode` 缺省 `fail_open`（刷新失败留 stale）。`fail_closed` 时任一 `Unreachable` 使 MCP/REST `tools/list` 返回 `mcp.upstream_unavailable`（503）；`tools/call` 与 `/healthz` 不株连 |
-| 无 circuit breaker、无跨 provider failover | 生产就绪 | 仅同 resource 内 key 轮换（`proxy::retry` + `keys::pool`） |
+| 无 circuit breaker、无跨 provider failover | 生产就绪（2026-10-09：不做） | 仅同 resource 内 key 轮换（`proxy::retry` + `keys::pool`），冷却与重试已够用 |
 | **已交付：非幂等方法不重试**（2026-08-20） | 生产就绪（已清） | `proxy::retry` 的 `is_idempotent_method`：仅 GET 参与状态码/超时/连接失败重试；POST/PUT/PATCH/DELETE 一次失败即返回 |
 | 每 endpoint 覆盖负载均衡策略 | 定位缺口（轻） | 策略只配在 resource 级 `key_pool.strategy`；[Product Requirements](product-requirements.md) 承诺可按 endpoint 覆盖 |
 
@@ -95,7 +95,7 @@ timestamp: 2026-10-09T00:00:00Z
 | **成本 / 额度统计未实现** | 定位缺口 | `request_units` 在 `proxy::post` 恒为 1。[Product Requirements](product-requirements.md) 明确列入观测要求 |
 | **已交付：admin CLI 写操作**（2026-08-19） | 兑现差（已清） | `asterlane admin resources|proxy-keys|mcp-servers` 的 create / update / rm，body 为 `--json` 或 `--from-file`（JSON/YAML object），转发已有 admin HTTP CRUD |
 | **已交付：key pool 热更新与 upstream_keys 同步**（2026-08-20） | 定位缺口（已清） | resource CRUD 接受 `auth`/`key_pool`；`swap_config_and_catalog` 重建 `KeyPoolRegistry` 并按 secret_ref 携带冷却/EWMA；`upstream_keys` 按 resource 替换写入。无独立 `/admin/upstream-keys` REST |
-| IP / UpstreamKey / GatewayPrincipal 限流维度未接线 | 兑现差 | `limits::key` 的 `LimiterKey` 定义了这些变体，`limits::limiter` 的 `RateLimits` 生产零引用；HTTP 层无 client IP 提取，无 `X-Forwarded-For` 解析 |
+| **已清：IP / UpstreamKey / GatewayPrincipal 限流维度**（2026-10-09） | 兑现差（已清） | 定为不做，删除 `RateLimits` 与这三个 `LimiterKey` 变体；见 [Rate Limit Dimensions](../architecture/rate-limit-dimensions.md) |
 | **已交付：`prompts/get` 与 `resources/read` 写 `request_events` 并计入调用配额**（2026-10-09） | 已知缺口（已清） | 与 `tools/call` 共用 `LimitRegistry::admit`，上游失败退还；`tool_name` 记 `domain__provider__<上游名>`。见 [Observability](../architecture/observability.md#请求事件模型) |
 | usage 只有小时桶；无上游耗时聚合 | 生产就绪 | [Observability](../architecture/observability.md) 已标注为延后项 |
 | **已交付：HTTP 错误 `request_id`**（2026-08-20） | 生产就绪（已清） | 入站中间件生成或接纳 `X-Request-Id`；`AsterlaneError` JSON 的 `error.request_id` 非空；invoke 成功路径仍用 executor 自己的 id |
@@ -140,7 +140,7 @@ timestamp: 2026-10-09T00:00:00Z
 - **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
 - **已交付（2026-08-20）**：订阅上游 `tools/list_changed`（`subscriptions/listen` + session 回调）；周期 refresh 保留为兜底，不再是唯一失效路径
 - **已交付（2026-10-02）**：resources / prompts 代理（仅远程上游）。`RemoteMcpPeer` 增加列 prompts、取 prompt、列 resources、列 templates、读 resource；下游开启 resources capability。key 范围沿用工具 scope。2026-10-09 起计入调用配额并写 `request_events`（见支柱五）。不做 resource 订阅，也不向下游推送这两类 list changed
-- 上游形态扩展：multipart / form-urlencoded 请求，流式响应
+- 上游形态扩展：multipart / form-urlencoded 请求，流式响应（2026-10-09：暂不做）
 
 **准出**：至少一个真实 OAuth 类上游 MCP server 端到端可用，且代理侧只见 gateway key；上游工具变更在一次心跳内反映到下游 `tools/list_changed`。
 
@@ -164,15 +164,15 @@ timestamp: 2026-10-09T00:00:00Z
 
 - 成本核算（2026-10-01：暂缓）：`request_units` 按 resource / tool 可配置计量，聚合到 usage 与控制台。MCP 路径优先用 rmcp 已校验的 `Mcp-Method` / `Mcp-Name` 作为方法与工具身份，避免为计数再拆 JSON-RPC body；旧会话客户端无这些头时再回退 body
 - usage 分钟/日桶、上游耗时维度
-- IP 维度限流 + `X-Forwarded-For` 解析，接线 `RateLimits` 的既有维度（2026-10-01：先出模块设计，评审后再定接线或保留；设计与推荐见 [Rate Limit Dimensions](../architecture/rate-limit-dimensions.md)）
+- IP 维度限流 + `X-Forwarded-For` 解析（2026-10-09：不做，原型已删除，见 [Rate Limit Dimensions](../architecture/rate-limit-dimensions.md)）
 - **已交付（2026-08-20）**：key pool 热更新；upstream keys 经 resource CRUD 同步进 `upstream_keys`（不新开 `/admin/upstream-keys` REST）
-- circuit breaker、跨 provider failover
+- circuit breaker、跨 provider failover（2026-10-09：不做）
 - 告警规则与 Grafana dashboard 示例
 - 覆盖率、基准与负载测试基线
 
 # 产品决策
 
-2026-10-01 已对下表前七项定调，执行顺序与验收见 [2026-10 实施计划](../plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md)。未定项仍须先定方向再排期，否则会做出方向性错误的实现。
+2026-10-01 已对下表前七项定调，执行顺序与验收见 [2026-10 实施计划](../plans/Archive/2026/10-01/00-上游-oauth-资源代理与工程债.md)；2026-10-09 又定调了限流维度、改名 alias、上游请求形态与 circuit breaker 四项。未定项仍须先定方向再排期，否则会做出方向性错误的实现。
 
 | 决策 | 结论 | 影响 |
 | --- | --- | --- |
@@ -182,7 +182,10 @@ timestamp: 2026-10-09T00:00:00Z
 | **上游 OAuth 是否另开用户委托模式** | 2026-10-01：只做网关持有 | 支持 client-credentials，以及管理员发起一次授权码（PKCE，必要时 DCR）后由网关保存并刷新 token。整个网关共用一个上游身份；按用户委托仍不做，下游仍只用 gateway key |
 | **成本核算的计量口径** | 2026-10-01：暂缓 | `request_units` 维持恒为 1，不写代码、不做迁移 |
 | **Postgres 与共享状态** | 2026-10-01：本轮不做 | 存储维持 SQLite；多副本与共享状态不在本轮范围 |
-| **未接线的限流维度（IP / UpstreamKey / GatewayPrincipal）** | 2026-10-01：先出设计，暂不删除 | 设计评审后再决定接线或保留；`X-Forwarded-For` 信任边界列为设计内待决项 |
+| **未接线的限流维度（IP / UpstreamKey / GatewayPrincipal）** | 2026-10-01：先出设计，暂不删除；2026-10-09：不做，已删除 | `X-Forwarded-For` 信任边界不再需要决定 |
+| **工具改名是否保留旧名 alias** | 2026-10-09：不保留 | agent 实时加载工具，改名直接切换，同步网关自己的 prompt 与文档即可，见 [Compatibility Policy](../architecture/compatibility-policy.md#mcp-工具名兼容性) |
+| **上游 multipart / form / 流式响应** | 2026-10-09：暂不做 | 出现具体上游需求时再排期 |
+| **circuit breaker、跨 provider failover** | 2026-10-09：不做 | 同 resource 内 key 冷却与重试已够用 |
 | **版本策略** | 2026-10-01：每次发布默认 patch +0.0.1 | 0.x 期间 breaking 仍按 [Compatibility Policy](../architecture/compatibility-policy.md) 在 CHANGELOG 显著标注；流程见 [Release Process](../engineering/release-process.md) |
 | **多租户与 RBAC 是否进入产品** | 未定 | 现有文档列为非目标；Postgres 与共享状态落地前须定调。进入也不采用 agentgateway 式 `jwt.sub && mcp.tool.name` CEL 作为默认模型；授权主体仍是 gateway key |
 

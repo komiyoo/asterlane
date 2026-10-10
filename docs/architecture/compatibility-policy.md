@@ -4,7 +4,7 @@ title: 后向兼容策略
 description: 定义配置、MCP 工具名、错误码与公共 API 的后向兼容边界与演进准则。
 resource: docs/architecture/compatibility-policy.md
 tags: [compatibility, architecture, api, versioning]
-timestamp: 2026-10-02T00:00:00Z
+timestamp: 2026-10-09T00:00:00Z
 ---
 
 # 背景
@@ -54,13 +54,14 @@ proxy_keys: []
 
 # MCP 工具名兼容性
 
-wire name 是 agent 调用的稳定标识。变更 wire name 会导致 agent 已学习的工具名失效，属于 breaking。
+wire name 是 agent 调用工具用的标识。agent 在会话里实时加载工具：lazy 模式经 `asl__search` / `asl__describe` 查找，full 模式读 `tools/list`，上游变化时还会收到 `tools/list_changed`。因此改名后 agent 下次查找就能拿到新名字，不靠记住旧名。
 
-## 规则
+## 规则（2026-10-09 起）
 
-- wire name 一旦对外暴露，不得变更（包括段值和分隔符）。
-- 需要变更时（如 provider 改名），提供 alias 机制：旧 wire name 保留为 alias，转发到同一上游工具；alias 标记 `deprecated`，在 `docs/log.md` 记录，未来版本移除。
-- 分隔符从 `:` → `__` 的变更发生在 MVP 阶段（尚未有外部消费者），直接切换，不保留冒号 alias。
+- 尽量不改 wire name（包括段值和分隔符）。必须改时直接切换，不保留旧名，也不做转发到新名的 alias。调用旧名返回 `catalog.unknown_tool`，与工具被删除时一样。
+- 改名要在同一次改动里同步网关自己写的、提到该名字的文字：`asterlane_tool_workflow` prompt（`src/mcp/workflow_prompt.rs`）、meta-tool 描述（`src/discovery.rs`）、根 `README.md`、agent skill（`.codex/skills/asterlane/SKILL.md`）和相关文档。
+- 改名是 breaking，在 `CHANGELOG.md` 以「**破坏性变更**」标注。按名字写的 key scope（`allowed_tool_names`、`allowed_tools` / `denied_tools` 正则）不会自动跟着改，需要管理员同步更新。
+- 先例：分隔符从 `:` → `__`、meta-tool 改名为 `asl__*`，都是直接切换，没有保留旧名。
 ## 上游工具变更
 
 上游 MCP server 工具增删时：

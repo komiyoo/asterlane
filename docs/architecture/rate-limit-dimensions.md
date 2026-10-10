@@ -4,8 +4,12 @@ title: 限流维度设计
 description: 梳理限流模块里生产在用与未接线的维度，逐项给出接线、保留不接、删除三种选择与推荐，并把 X-Forwarded-For 信任边界列为待决项。
 resource: docs/architecture/rate-limit-dimensions.md
 tags: [limits, rate-limit, design, ip, x-forwarded-for, key-pool]
-timestamp: 2026-10-01T00:00:00Z
+timestamp: 2026-10-09T00:00:00Z
 ---
+
+# 决定（2026-10-09）
+
+不接线，删除原型。按上游 key、客户端 IP、网关 key × 上游限流都不需要，`X-Forwarded-For` 信任边界因此不再是待决项。已删除 `src/limits/limiter.rs` 的 `RateLimits`，以及 `LimiterKey` 的 `UpstreamKey`、`Ip`、`GatewayPrincipal` 三个变体；`LimiterKey` 只剩生产在用的 `Endpoint` 与 `Principal`。下文是当时的评审材料，保留作记录，其中「接线」方案不再执行。
 
 # 背景与范围
 

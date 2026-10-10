@@ -6,14 +6,12 @@
 
 mod error;
 mod key;
-mod limiter;
 mod queue;
 mod registry;
 mod seed;
 
 pub use error::LimitError;
 pub use key::{ApiId, LimiterKey, PrincipalId};
-pub use limiter::RateLimits;
 pub use queue::{Priority, QueuePermit, RequestQueue};
 pub use registry::{CallQuotaGuard, KeyUsage, LimitRegistry};
 pub use seed::seed_from_store;

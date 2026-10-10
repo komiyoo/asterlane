@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-10-09（请求事件区分调用类型；四项产品定调）
+
+- **调用类型**：`request_events` 新增 `request_kind`（`tool` | `prompt` | `resource`，迁移 `20261009000001_request_kind.sql`，旧行为 `tool`）。按 tool 聚合时按 `(request_kind, tool_name)` 分组并返回类型，同名的工具、prompt 与 resource 不再合并；`unique_tools` 只数工具；`/admin/events` 支持 `request_kind=` 过滤。`usage_buckets` 只供时间序列求总数，不带类型。控制台事件页加「类型」筛选与列，原「工具名」筛选改名「名称」，非工具行不显示「存为默认参数」；用量页按工具聚合时显示类型。这解决了上一条记录里的「按 tool 聚合时三类名字混在一起」。
+- **工具改名不保留 alias**：agent 实时加载工具，改名直接切换，旧名返回 `catalog.unknown_tool`；同一次改动同步网关自己的 workflow prompt、meta-tool 描述、README 与 agent skill。核对过这些文字当前都已是 `asl__*` 名字。
+- **不做**：按上游 key / 客户端 IP / 网关 key × 上游限流（删除 `RateLimits` 与三个未接线的 `LimiterKey` 变体），circuit breaker 与跨 provider failover。**暂不做**：上游 multipart / form / 流式响应。
+- **依据**：[Observability · 请求事件模型](architecture/observability.md#请求事件模型)、[Compatibility Policy · MCP 工具名兼容性](architecture/compatibility-policy.md#mcp-工具名兼容性)、[Rate Limit Dimensions · 决定](architecture/rate-limit-dimensions.md)、[Roadmap · 产品决策](product/roadmap.md#产品决策)。
+
 ## 2026-10-09（超长函数清零）
 
 - **结论**：债务台账里 8 个超过 80 行的函数按各自登记的拆分方向拆完，行为不变。`execute_with_retry` 的单次尝试拆到 `send_attempt`，冷却时机保持原样：超时与连接失败总是冷却，可重试状态码只在确实重试时冷却。MCP 的 meta-tool 分发移到新文件 `src/mcp/meta.rs`，避免 `server.rs` 超过 500 行。content defense 与结果裁剪原先在 HTTP 与 remote MCP 两条路径各写一份，现在共用。生产代码超 500 行的文件与超 80 行的函数都已清零。
