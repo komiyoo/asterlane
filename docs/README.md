@@ -4,7 +4,7 @@
 
 ## 使用与运维
 
-- [README](../README.md) — 要解决的问题：各自鉴权、客户端只配网关、按 key 管权限。工具用 `domain__provider__tool` 命名，默认可搜索后按全名调用；目录和大结果不进入整份上下文。
+- [README](../README.zh-CN.md)（[English](../README.md)）— 要解决的问题：各自鉴权、客户端只配网关、按 key 管权限。工具用 `domain__provider__tool` 命名，默认可搜索后按全名调用；目录和大结果不进入整份上下文。
 - [运行网关](admin/running.md) — 启动示例配置，并完成一次调用。
 - [控制台与部署](../web/README.md) — 静态控制台、Compose 与镜像。
 - [线上部署](admin/deployment.md) — 网关留在自有机器，控制台可以放到 Cloudflare 免费静态资源。

@@ -59,7 +59,7 @@ wire name 是 agent 调用工具用的标识。agent 在会话里实时加载工
 ## 规则（2026-10-09 起）
 
 - 尽量不改 wire name（包括段值和分隔符）。必须改时直接切换，不保留旧名，也不做转发到新名的 alias。调用旧名返回 `catalog.unknown_tool`，与工具被删除时一样。
-- 改名要在同一次改动里同步网关自己写的、提到该名字的文字：`asterlane_tool_workflow` prompt（`src/mcp/workflow_prompt.rs`）、meta-tool 描述（`src/discovery.rs`）、根 `README.md`、agent skill（`.codex/skills/asterlane/SKILL.md`）和相关文档。
+- 改名要在同一次改动里同步网关自己写的、提到该名字的文字：`asterlane_tool_workflow` prompt（`src/mcp/workflow_prompt.rs`）、meta-tool 描述（`src/discovery.rs`）、根 `README.md` 与 `README.zh-CN.md`、agent skill（`.codex/skills/asterlane/SKILL.md`）和相关文档。
 - 改名是 breaking，在 `CHANGELOG.md` 以「**破坏性变更**」标注。按名字写的 key scope（`allowed_tool_names`、`allowed_tools` / `denied_tools` 正则）不会自动跟着改，需要管理员同步更新。
 - 先例：分隔符从 `:` → `__`、meta-tool 改名为 `asl__*`，都是直接切换，没有保留旧名。
 ## 上游工具变更

@@ -1,5 +1,10 @@
 # Documentation Update Log
 
+## 2026-10-10（根 README 改为英文）
+
+- **结论**：根 `README.md` 改为英文版，中文原文移到 `README.zh-CN.md`，两份标题下互相给出语言切换链接。`docs/` 仍是中文；[文档地图](README.md) 的 README 链接指向中文版，并附英文版链接。改工具名等对外文字时，两份 README 要同步。
+- **依据**：[Compatibility Policy · MCP 工具名兼容性](architecture/compatibility-policy.md#mcp-工具名兼容性)。
+
 ## 2026-10-10（缩短本地编译时间）
 
 - **结论**：不换语言，先改构建方式。本机 2 核、3 GB 内存，改一行代码后 `cargo test --no-run` 要 53 s，其中一大半花在 `tests/` 下 18 个顶层文件各自编译、链接成独立二进制上。现在 17 个文件移到 `tests/it/`，由 `tests/it/main.rs` 汇成一个二进制，共用代码移到 `tests/it/support/`；`tests/proxy_events.rs` 仍单独成二进制，因为它和 `support::log_capture` 各装一个全局 tracing subscriber，不能在同一进程。`[profile.dev]` 改为 `debug = "line-tables-only"`：panic 仍有行号，调试器看不到局部变量。只跑一个文件改用 `cargo test --test it <模块名>::`；归档计划与旧日志里的 `cargo test --test <文件名>` 不再适用。

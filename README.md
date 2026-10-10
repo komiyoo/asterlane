@@ -1,78 +1,82 @@
-# Asterlane / 星径
+# Asterlane
+
+English | [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml/badge.svg)](https://github.com/komiyoo/asterlane/actions/workflows/ci.yml)
 
-代理要接的 MCP 和 HTTP API 一多，鉴权、客户端配置、权限和上下文会一起散掉。Asterlane 把这些收进一个网关。模型调用不经过这里。
+Once an agent connects to more than a few MCP servers and HTTP APIs, authentication, client configuration, permissions, and context all start to sprawl. Asterlane pulls them into one gateway. Model calls do not go through it.
 
-## 要解决的问题
+## The problems
 
-### 各自鉴权
+### Separate authentication for every upstream
 
-每个上游自带一套密钥：API key、请求头，或要由网关去换、去刷新的 OAuth token。写进每个代理的配置里，轮换一次就要改遍所有客户端，密钥也会离开管理员的控制。
+Each upstream brings its own secret: an API key, a request header, or an OAuth token that the gateway has to exchange and refresh. If those secrets live in every agent's configuration, one rotation means editing every client, and the secrets leave the administrator's control.
 
 ```text
-以前，每个客户端自己保存：
+Before, each client stores its own:
   exa    ← API key
   tavily ← API key
   github ← OAuth token
 
-现在，客户端只保存一枚 gateway key。
-网关保存上游凭据，调用时再注入；代理看不到这些密钥。
+Now, a client stores one gateway key.
+The gateway keeps the upstream credentials and injects them at call time;
+the agent never sees them.
 ```
 
-HTTP API 也走同一条路：网关按配置包成工具，代理仍只连接网关。
+HTTP APIs take the same path: the gateway wraps them as tools according to its configuration, and the agent still connects only to the gateway.
 
-### 客户端要各配一遍
+### Every client is configured separately
 
-每增加一个上游，每个客户端都要再填地址和凭据。客户端应当只知道网关这一处入口。
+Each new upstream means entering its address and credentials in every client again. A client should only need to know one entry point: the gateway.
 
 ```text
-以前：
-  客户端 A → Exa、Tavily、内部 API、远程 MCP
-  客户端 B → 同样再配一遍
+Before:
+  Client A → Exa, Tavily, internal API, remote MCP
+  Client B → the same setup, again
 
-现在：
-  客户端 A → 网关
-  客户端 B → 网关
-  上游地址和凭据只写在网关的配置里
+Now:
+  Client A → gateway
+  Client B → gateway
+  Upstream addresses and credentials live only in the gateway config
 ```
 
-### 权限分散
+### Permissions are scattered
 
-谁能用哪个工具若写在客户端里，就看不清，也收不回。网关按 gateway key 划定范围：允许规则放行，拒绝规则优先。一次请求里的过滤只能在这个范围里再缩小，不能看到范围外的工具。
+If which agent may use which tool is written into the clients, nobody can see it clearly or revoke it. The gateway scopes access per gateway key: allow rules grant, and deny rules take precedence. A filter inside a single request can only narrow that scope further; it can never reveal tools outside it.
 
 ```text
 key "research":
-  允许 ^search__ 和 ^reader__
-  拒绝 ^search__internal__
+  allow ^search__ and ^reader__
+  deny  ^search__internal__
 
-research 调用 search__exa__neural_search  → 放行
-research 调用 search__internal__lookup    → 拒绝
-research 再要求「只要 exa」                → 只能少，不能多
+research calls search__exa__neural_search  → allowed
+research calls search__internal__lookup    → denied
+research asks for "only exa"               → can narrow, never widen
 ```
 
-换掉或吊销这枚 key，这个代理的范围就随之消失。调用记录留在网关：哪个 key、哪个工具、是否成功、花了多久。
+Replace or revoke the key and that agent's scope goes with it. Call records stay in the gateway: which key, which tool, whether it succeeded, and how long it took.
 
-### 大量工具撑满上下文
+### Large tool catalogs fill the context
 
-客户端一连接，通常会把 `tools/list` 的全部工具连同参数 schema 放进模型上下文。上游和 HTTP API 一多，任务还没开始，上下文就被目录占满。单次调用的结果过长，也会把后续回合撑满。
+When a client connects, it usually puts every tool from `tools/list`, parameter schemas included, into the model context. With enough upstreams and HTTP APIs, the catalog fills the context before the task even starts. A single oversized result can also crowd out later turns.
 
-Asterlane 默认不把目录放进列表。`tools/list` 只返回六个固定的网关工具，目录有多大都不出现：
+By default, Asterlane keeps the catalog out of the list. `tools/list` returns only six fixed gateway tools, no matter how large the catalog is:
 
 ```text
 tools/list
-→ asl__status    这个 key 能看见多少工具
-→ asl__search    按任务搜索，先给短摘要
-→ asl__describe  只为选中的名字取完整参数
-→ asl__call      调用一个
-→ asl__batch     一次最多 10 个独立调用；顺序只对齐结果，失败不回滚
-→ asl__fetch     续取被截断的长结果
+→ asl__status    how many tools this key can see
+→ asl__search    search by task; short summaries first
+→ asl__describe  full parameters for the chosen names only
+→ asl__call      call one tool
+→ asl__batch     up to 10 independent calls; results follow input order,
+                 failures do not roll back
+→ asl__fetch     continue a truncated long result
 ```
 
-一次任务只把用到的工具定义拿进来。搜索默认不含完整 schema；每条带封顶描述和顶层参数签名。一次最多取 10 个工具的详情，详情里的 schema 去掉样板，类型、必填项和约束还在。
+A task only pulls in the tool definitions it uses. Search omits full schemas by default; each hit carries a capped description and a top-level parameter signature. Details can be fetched for up to 10 tools at a time. Their schemas are stripped of boilerplate, while types, required fields, and constraints remain.
 
 ```text
-asl__search { query: "网页搜索", limit: 5 }
+asl__search { query: "web search", limit: 5 }
 → {
     tools: [
       { name: "search__exa__neural_search",
@@ -90,69 +94,69 @@ asl__call {
     name: "search__exa__neural_search",
     arguments: { query: "rust mcp" }
   }
-→ 上游结果
+→ upstream result
 ```
 
-范围外的名字搜不到，直接调用也会被拒绝。列表变短并不扩大权限。
+Names outside the scope cannot be found by search, and calling them directly is rejected. A shorter list does not widen permissions.
 
-工具的稳定全名是 `domain__provider__tool`，三段用 `__` 连接。`search__exa__neural_search` 表示 search 域、exa 这个 provider、工具 `neural_search`。配置、权限和调用记录都使用这个全名。已经知道全名时，把它交给 `asl__call` 或 `tools/call`，搜索可以跳过。
+A tool's stable full name is `domain__provider__tool`, three segments joined by `__`. `search__exa__neural_search` means the search domain, the exa provider, and the tool `neural_search`. Configuration, permissions, and call records all use this full name. If you already know the full name, pass it to `asl__call` or `tools/call` and skip the search.
 
-provider 写在中间一段。要列出 exa 的全部工具，用正则对准这一段，或对准整条全名：
+The provider is the middle segment. To list every exa tool, match that segment with a regex, or match the whole full name:
 
 ```text
 provider_regex: ^exa$
 include: ^[a-z0-9_]+__exa__
 ```
 
-`^search__` 列出整个 search 域。这些过滤按名字匹配，结果按全名顺序返回。客户端把它们放进 `tools/list` 的过滤参数，只在该 key 配置了 `discovery_mode: full` 时作用到目录。默认 lazy 下，`tools/list` 仍只返回上面六个网关工具。
+`^search__` lists the whole search domain. These filters match on names, and results come back in full-name order. Clients pass them as `tools/list` filter parameters, and they apply to the catalog only when the key is configured with `discovery_mode: full`. Under the default lazy mode, `tools/list` still returns only the six gateway tools above.
 
-还不知道名字时，用 `asl__search` 的 `query`。它在全名和描述上打分：全名完全相同优先，其次是全名以这段文字开头，然后是名字中包含，最后是描述中包含。以前缀开头的工具排在前面；名字其余部分或描述里出现同一段文字的工具也会进入结果，排在后面。网关另外配置了语义搜索时，非空查询改为按相似度排序。空查询仍按全名顺序列出这个 key 能看见的工具。
+When you don't know the name yet, use the `query` of `asl__search`. It scores against full names and descriptions: an exact full-name match ranks first, then full names starting with the text, then names containing it, then descriptions containing it. Tools matching the prefix come first; tools where the same text appears elsewhere in the name or in the description are also included, ranked lower. When the gateway also has semantic search configured, non-empty queries are ranked by similarity instead. An empty query still lists the tools visible to this key in full-name order.
 
-搜索结果里的 `name` 始终是三段全名。`discovery_mode: full` 的 `tools/list` 返回当前 key 下最短、且只会解析回这一个工具的名字，有时是 `neural_search` 或 `exa__neural_search`。调用时用搜索返回的全名。
+The `name` in search results is always the three-segment full name. With `discovery_mode: full`, `tools/list` returns the shortest name under the current key that still resolves to exactly this tool, sometimes `neural_search` or `exa__neural_search`. Use the full name from search when calling.
 
-全名一旦暴露就保持不变。分段、别名和过滤字段见 [命名约定](docs/architecture/naming-convention.md)。
+Once a full name is exposed, it does not change. Segments, aliases, and filter fields are described in [Naming Convention](docs/architecture/naming-convention.md) (Chinese).
 
-结果超过该上游的字节预算时，网关先交回开头一段和 cursor，完整内容留在网关，用 `asl__fetch` 按段续取：
+When a result exceeds that upstream's byte budget, the gateway returns the first chunk and a cursor, keeps the full content, and lets you page through the rest with `asl__fetch`:
 
 ```text
-call → 前一段文本
+call → first chunk of text
        [Result truncated. Total 200000 bytes.
         Use asl__fetch with cursor "…" to get more.]
 
-asl__fetch { cursor: "…", offset: <已经交给模型的字节数> }
-→ 下一段；后面还有时，响应里写出下一次的 offset
+asl__fetch { cursor: "…", offset: <bytes already given to the model> }
+→ next chunk; if more remains, the response gives the next offset
 ```
 
-## 架构
+## Architecture
 
-管理员通过控制台配置上游和每个 key 的范围。代理只带着 gateway key 进入网关。网关再拿自己保存的凭据去访问上游。
+Administrators configure upstreams and each key's scope through the console. Agents enter the gateway carrying only a gateway key. The gateway then reaches upstreams with the credentials it stores.
 
 ```mermaid
 flowchart LR
-  Agent[AI 代理] -->|gateway key| GW[网关]
-  Admin[管理员] --> Console[控制台]
+  Agent[AI agent] -->|gateway key| GW[Gateway]
+  Admin[Administrator] --> Console[Console]
   Console --> GW
   GW --> API[HTTP API]
-  GW --> MCP[远程 MCP]
+  GW --> MCP[Remote MCP]
 ```
 
-## 运行机制
+## How it works
 
-1. 管理员在网关里登记上游，以及每个 gateway key 能使用的范围。上游密钥留在网关。
-2. 代理用这一枚 key 连接网关，按当前任务看到一部分工具。
-3. 调用时，网关在这个范围内选定上游凭据，经过限额后访问对应的 MCP 或 HTTP API，再把结果交回代理。
-4. 调用记录留在网关，供管理员查看和收回权限。
+1. The administrator registers upstreams in the gateway, along with the scope each gateway key may use. Upstream secrets stay in the gateway.
+2. An agent connects to the gateway with its one key and sees a subset of tools for the current task.
+3. On a call, the gateway picks upstream credentials within that scope, applies limits, calls the matching MCP server or HTTP API, and returns the result to the agent.
+4. Call records stay in the gateway, so administrators can review them and revoke access.
 
-跑起来的命令见 [运行网关](docs/admin/running.md)。配置、权限和部署见 [文档](docs/README.md)。
+Commands to run it are in [Running the Gateway](docs/admin/running.md). Configuration, permissions, and deployment are in the [docs](docs/README.md). The docs are currently written in Chinese.
 
-## 文档
+## Documentation
 
-- [文档地图](docs/README.md)
-- [运行网关](docs/admin/running.md)
-- [贡献指南](CONTRIBUTING.md)
-- [安全政策](SECURITY.md)
-- [行为准则](CODE_OF_CONDUCT.md)
-- [更新日志](CHANGELOG.md)
+- [Docs map](docs/README.md)
+- [Running the gateway](docs/admin/running.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
