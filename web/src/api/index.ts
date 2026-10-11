@@ -13,7 +13,9 @@ export { listSecurityEvents } from "./security.ts";
 export { getUsage } from "./usage.ts";
 export type * from "./generated/admin.d.ts";
 export {
+  authorizeMcpServer,
   createMcpServer,
+  deauthorizeMcpServer,
   deleteMcpServer,
   getMcpServer,
   listMcpPresets,

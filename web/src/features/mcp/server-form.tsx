@@ -6,6 +6,7 @@ import {
   isStaleOrAborted,
   updateMcpServer,
   type InputIntegrityPolicy,
+  type InputOAuthGrant,
   type OutputMcpPresetResponse,
   type OutputMcpServerResponse,
 } from "../../api/index.ts";
@@ -25,6 +26,12 @@ const authItems: { value: AuthChoice; label: string }[] = [
   { value: "none", label: "无凭据" },
   { value: "bearer", label: "Bearer" },
   { value: "header", label: "Header" },
+  { value: "oauth", label: "OAuth" },
+];
+
+const grantItems: { value: InputOAuthGrant; label: string }[] = [
+  { value: "authorization_code", label: "authorization_code" },
+  { value: "client_credentials", label: "client_credentials" },
 ];
 
 const integrityItems: { value: InputIntegrityPolicy; label: string }[] = [
@@ -170,6 +177,41 @@ export function ServerForm({
             onChange={(event) => patch({ secret: event.target.value })}
           />
         ) : null}
+        {values.auth === "oauth" ? (
+          <>
+            <Select
+              label="授权方式"
+              value={values.grant}
+              items={grantItems}
+              onValueChange={(grant) => {
+                if (grant === "authorization_code" || grant === "client_credentials") {
+                  patch({ grant });
+                }
+              }}
+            />
+            <Input
+              label="Client ID"
+              value={values.clientId}
+              autoComplete="off"
+              onChange={(event) => patch({ clientId: event.target.value })}
+            />
+            <Input
+              label="Client secret 引用"
+              value={values.clientSecretRef}
+              autoComplete="off"
+              passwordManagerIgnore
+              placeholder="secret://env/NAME"
+              onChange={(event) => patch({ clientSecretRef: event.target.value })}
+            />
+            <Input
+              label="Scopes"
+              value={values.scopes}
+              autoComplete="off"
+              placeholder="空格分隔，可留空"
+              onChange={(event) => patch({ scopes: event.target.value })}
+            />
+          </>
+        ) : null}
         <Checkbox
           label="测活"
           checked={values.healthCheck}
@@ -212,9 +254,12 @@ export function ServerForm({
         />
       </div>
       <p className="hint">
-        只接受 secret:// 引用，不回填、不展示已有凭据。
-        {editing ? "认证保持不变且引用留空时，不会提交 auth。" : ""}
+        只接受 secret:// 引用，不回填明文密钥。
+        {editing ? "认证选择保持不变时不会提交 auth，已有认证配置和凭据保持不变。" : ""}
         {editing && values.auth === "none" ? "选择无凭据会清除已有引用。" : ""}
+        {values.auth === "oauth"
+          ? "authorization_code 可以不填 client_id。改 client_id 或 secret 引用不会作废已存凭据，要换客户端须先撤销再重新授权。"
+          : ""}
       </p>
       {error === null ? null : <FormMessage tone="error">{error}</FormMessage>}
       <div className="toolbar">

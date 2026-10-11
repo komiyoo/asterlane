@@ -219,7 +219,7 @@ mcp_servers:
 ```
 
 - `grant: client_credentials`：全自动。连接时做元数据发现（RFC 9728 / RFC 8414）再换 token，token 临近过期或被上游 401 拒绝时在请求路径上自动重新换取，token 只放内存。
-- `grant: authorization_code`：管理员一次性授权后，网关保存并刷新 token。没有已存凭据、凭据无法解密或刷新被拒时，server 显示 `auth_required`。授权由管理员发起（`asterlane admin mcp-servers authorize <id>` 或 `POST /admin/mcp-servers/{id}/oauth/authorize`；独立控制台还没有「授权」按钮，排在 [Roadmap](../product/roadmap.md#phase-11开源就绪) Phase 11），在浏览器里完成；见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)。没有 `client_id` 时向授权服务器动态注册客户端（redirect URI 即 `{oauth.redirect_base_url}/oauth/callback`；授权服务器不支持动态注册时发起授权返回 409，需配置 `client_id`）；`client_id` 是在授权服务器预先注册的客户端，且该客户端的 redirect URI 要登记为上面的回调地址；`client_secret_ref` 给预注册的机密客户端，有 `client_secret_ref` 必须同时有 `client_id`。`scopes` 留空时由授权服务器的元数据决定。
+- `grant: authorization_code`：管理员一次性授权后，网关保存并刷新 token。没有已存凭据、凭据无法解密或刷新被拒时，server 显示 `auth_required`。授权由管理员发起（控制台该服务行上的「授权」，或 `asterlane admin mcp-servers authorize <id>`，或 `POST /admin/mcp-servers/{id}/oauth/authorize`），在浏览器里完成；见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)。没有 `client_id` 时向授权服务器动态注册客户端（redirect URI 即 `{oauth.redirect_base_url}/oauth/callback`；授权服务器不支持动态注册时发起授权返回 409，需配置 `client_id`）；`client_id` 是在授权服务器预先注册的客户端，且该客户端的 redirect URI 要登记为上面的回调地址；`client_secret_ref` 给预注册的机密客户端，有 `client_secret_ref` 必须同时有 `client_id`。`scopes` 留空时由授权服务器的元数据决定。
 - `client_secret_ref` 只接受 `secret://` 引用，不接受明文；`scopes` 的每一项非空且不含空白。
 - `url` 必须是 https（`localhost` / `127.0.0.1` 联调除外），避免 token 与 client secret 走明文链路。
 - 所有新字段都有默认值，旧配置照常加载；校验失败时启动直接报错。完整语义见 [MCP Protocol – 上游认证](../architecture/mcp-protocol.md#上游认证)。

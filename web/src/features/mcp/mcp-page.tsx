@@ -2,6 +2,7 @@ import { Button } from "@cloudflare/kumo";
 import { useEffect, useRef, useState } from "react";
 import {
   createMcpServer,
+  deauthorizeMcpServer,
   deleteMcpServer,
   formatApiError,
   getMcpServer,
@@ -46,6 +47,7 @@ export function McpPage() {
   const enabling = useRef(new Set<string>());
   const probing = useRef(new Set<string>());
   const deleting = useRef(new Set<string>());
+  const deauthorizing = useRef(new Set<string>());
   const detailSerial = useRef(new Map<string, number>());
   const data = load.data;
   const healthOverlay = probeState.source === data ? probeState.health : {};
@@ -135,6 +137,25 @@ export function McpPage() {
     }
   }
 
+  async function deauthorize(id: string) {
+    if (deauthorizing.current.has(id)) {
+      return;
+    }
+    deauthorizing.current.add(id);
+    try {
+      await deauthorizeMcpServer(id);
+      setActionError(null);
+      load.reload();
+      setDetailEpoch((current) => current + 1);
+    } catch (error) {
+      if (!isStaleOrAborted(error)) {
+        setActionError(`撤销 ${id} 的授权失败：${formatApiError(error)}`);
+      }
+    } finally {
+      deauthorizing.current.delete(id);
+    }
+  }
+
   async function probe(id: string) {
     if (probing.current.has(id)) {
       return;
@@ -217,6 +238,7 @@ export function McpPage() {
           onProbe={(id) => void probe(id)}
           onEdit={(server) => setForm({ kind: "edit", server })}
           onDelete={(id) => void removeServer(id)}
+          onDeauthorize={(id) => void deauthorize(id)}
           onRefreshDetail={() => setDetailEpoch((current) => current + 1)}
         />
       )}

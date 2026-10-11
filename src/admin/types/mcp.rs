@@ -126,6 +126,16 @@ pub(crate) struct McpOAuthResponse {
     pub expires_at: Option<String>,
 }
 
+/// `POST /admin/mcp-servers/{id}/oauth/authorize` 的响应。
+///
+/// `authorization_url` 含一次性 state，只给管理员在浏览器里打开，不写日志与审计。
+/// `expires_in` 是该授权请求还剩多少秒有效。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub(crate) struct McpOAuthAuthorizeResponse {
+    pub authorization_url: String,
+    pub expires_in: u64,
+}
+
 /// `GET /admin/mcp-servers` 与创建/更新响应。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub(crate) struct McpServerResponse {

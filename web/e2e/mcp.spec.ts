@@ -31,7 +31,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async ({ request }) => {
-  for (const id of ["exa", "rollinggo-hotel", "e2e-live", "e2e-down"]) {
+  for (const id of ["exa", "rollinggo-hotel", "e2e-live", "e2e-down", "e2e-oauth"]) {
     await request.delete(`/admin/mcp-servers/${encodeURIComponent(id)}`, {
       headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },
     });
@@ -207,4 +207,47 @@ test("manage presets and servers against the local stand-in", async ({ page }) =
   await expect(clash.getByLabel("ID")).toHaveValue("e2e-live");
   await clash.getByRole("button", { name: "取消" }).click();
   await expect(page.getByRole("form", { name: "MCP 服务" })).toHaveCount(0);
+});
+
+test("unreachable authorization_code server shows authorize and a discovery error", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const created = await page.request.post("/admin/mcp-servers", {
+    headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },
+    data: {
+      id: "e2e-oauth",
+      domain: "lab",
+      provider: "oauth",
+      url: "http://127.0.0.1:9/mcp",
+      auth: { type: "oauth", grant: "authorization_code" },
+    },
+  });
+  expect(created.status()).toBe(201);
+  await login(page);
+  const row = serverRow(page, "e2e-oauth");
+  await expect(row).toContainText("需要授权");
+  await expect(row.getByRole("button", { name: "授权", exact: true })).toBeVisible();
+  await row.getByRole("button", { name: "详情", exact: true }).click();
+  await expect(page.getByText("授权：需要授权（authorization_required）")).toBeVisible();
+
+  await row.getByRole("button", { name: "授权", exact: true }).click();
+  await expect(row.getByRole("alert")).toContainText("OAuth metadata discovery failed");
+  await expect(row.getByRole("link", { name: "打开授权页" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/mcp-servers$/);
+  expect(page.url()).not.toContain("state=");
+
+  await row.getByRole("button", { name: "编辑", exact: true }).click();
+  const edit = page.getByRole("form", { name: "MCP 服务" });
+  await expect(edit.getByRole("combobox", { name: "认证" })).toHaveText("保持不变");
+  await expect(edit.getByLabel("Client secret 引用")).toHaveCount(0);
+  const put = page.waitForRequest(
+    (request) =>
+      request.method() === "PUT" && request.url().includes("/admin/mcp-servers/e2e-oauth"),
+  );
+  await edit.getByRole("button", { name: "保存" }).click();
+  const body = (await put).postDataJSON() as { auth?: unknown };
+  expect(body.auth).toBeUndefined();
+  expect(JSON.stringify(body)).not.toContain("secret://");
+  expect(JSON.stringify(body)).not.toContain("authorization_url");
 });
