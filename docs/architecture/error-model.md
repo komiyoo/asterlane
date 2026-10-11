@@ -4,7 +4,7 @@ title: 错误模型
 description: 定义 Asterlane 的错误分类、错误码、边界转换、脱敏与可观测字段映射。
 resource: docs/architecture/error-model.md
 tags: [errors, architecture, observability, security]
-timestamp: 2026-07-03T00:00:00Z
+timestamp: 2026-10-11T00:00:00Z
 ---
 
 # 背景
@@ -43,6 +43,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `proxy.*` | `proxy.retry_exhausted` | 重试耗尽 | "upstream retry exhausted after {n} attempts" |
 | `proxy.*` | `proxy.upstream_error` | 上游 4xx/5xx | "upstream returned status {status}" |
 | `proxy.*` | `proxy.connection_failed` | 上游连接失败 | "upstream connection failed" |
+| `proxy.*` | `proxy.egress_blocked` | 出站地址校验拒绝（回环、私网、云元数据等）；消息不含解析出的地址 | "upstream address is not allowed" |
 | `limit.*` | `limit.quota_exceeded` | 配额耗尽 | "quota exceeded for {dimension}" |
 | `limit.*` | `limit.queue_full` | 队列满 | "request queue full" |
 | `limit.*` | `limit.queue_timeout` | 排队超时 | "request exceeded queue wait limit" |
@@ -85,6 +86,7 @@ timestamp: 2026-07-03T00:00:00Z
 | `config.*` | 500（服务端配置错误） |
 | `auth.missing_gateway_key` / `auth.invalid_gateway_key` / `auth.expired_gateway_key` | 401 |
 | `auth.forbidden_tool` | 403 |
+| `proxy.egress_blocked` | 403（与 `auth.forbidden_tool` 状态码相同，错误码不同） |
 | `auth.missing_upstream_secret` | 503 |
 | `catalog.*` / `mcp.invalid_tool_call` | 400 |
 | `catalog.unknown_tool` | 404 |
@@ -123,6 +125,7 @@ MCP 错误分两种承载方式，遵循社区共识：
 | 错误类别 | 承载方式 | 理由 |
 | --- | --- | --- |
 | 上游 4xx/5xx/超时、重试耗尽、上游需要管理员授权（`mcp.upstream_auth_required`） | tool result `isError: true` | 给 LLM 看，让它调整策略 |
+| 出站地址被拒绝（`proxy.egress_blocked`） | tool result `isError: true` | 给 LLM 看；消息不含内部地址 |
 | 未知工具、参数错误 | JSON-RPC error `-32602`（Invalid params）/ `-32601`（Method not found） | 给基础设施看 |
 | 网关自身故障 | JSON-RPC error `-32603`（Internal error） | 仅限网关内部错误 |
 | 配额/限流 | tool result `isError: true` + 文本说明 | 让 LLM 知道应等待 |
@@ -138,6 +141,7 @@ MCP 错误分两种承载方式，遵循社区共识：
 - secret ref 的完整 URI（只暴露 `secret://provider/` 前缀，不暴露具体路径段）。
 - upstream key 明文（只暴露 `upstream_key_ref` 的脱敏标识，如 `key:abcd…wxyz`）。
 - 上游 OAuth 的 access token、refresh token、client secret、授权 code 与 state，以及 rmcp `AuthError` 与授权服务器返回的内容（错误描述、响应体）：只进 tracing 详情（写入前抹掉 code 与 state），用户可见错误只说哪一步失败（如 "OAuth token exchange failed"）。
+- 出站地址校验解析到的内部 IP、云元数据地址和被拒绝的主机名。用户可见文案固定为 "upstream address is not allowed"。
 - 管理员授权的浏览器回调 `GET /oauth/callback` 失败时返回的是固定文案的 HTML 错误页（不是上面的 JSON 形态），带 `request_id`；页面不反射 query 参数或授权服务器返回的内容。发起授权的失败仍是 JSON：不是授权码授权方式 `admin.invalid_query`、server 不存在 `admin.not_found`、没配 `client_id` 且授权服务器不支持动态注册 `admin.conflict`、元数据发现等步骤失败 `mcp.upstream_mcp_failure`；没有新增错误码。
 
 脱敏由 `src/observability` 模块的 redaction helper 统一处理（见 [Observability](observability.md)）。模块错误在构造时只携带引用类型（`KeyId`、`SecretRef`），不携带明文；边界转换时引用类型 `Display` 实现输出脱敏形式。

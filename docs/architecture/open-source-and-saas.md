@@ -4,7 +4,7 @@ title: 开源版与 SaaS 双形态
 description: 2026-10-10 定下开源自托管与托管 SaaS 两种形态：共享多租户网关、Better Auth 独立身份服务、下游 MCP OAuth、核心 MIT 与私有控制面的边界，以及随之修订的非目标和落地前置条件。
 resource: docs/architecture/open-source-and-saas.md
 tags: [architecture, saas, open-source, multi-tenancy, identity, oauth, license]
-timestamp: 2026-10-10T00:00:00Z
+timestamp: 2026-10-11T00:00:00Z
 ---
 
 # 决定（2026-10-10）
@@ -81,7 +81,11 @@ Asterlane 同时做开源自托管版和托管 SaaS。维护者对四个问题�
 
 ## 出站请求
 
-租户可以填写任意上游 URL，SaaS 必须防 SSRF：拒绝回环、私网、链路本地和云元数据地址（如 `169.254.169.254`）；DNS 解析后校验并固定使用该 IP，防止 DNS rebinding；重定向逐跳校验。开源版默认不限制（自托管经常要访问内网），提供开关。
+租户可以填写任意上游 URL。开关是顶层 `egress.block_private_addresses`（见 [配置 Schema](../runtime/config-schema.md#egress)），缺省 `false`。开源版默认不限制，自托管访问内网的行为与未启用时相同。托管部署应把它设为 `true`；没有单独的 SaaS 模式会自动打开。
+
+打开后，HTTP 上游、MCP 上游连接和上游 OAuth（元数据发现与 token 请求）共用 `src/egress.rs`：拒绝回环、私网、ULA、链路本地、CGNAT、未指定地址、组播、保留地址和云元数据地址；DNS 解析后过滤，连接使用校验过的 IP；重定向逐跳校验。用户可见错误是 `proxy.egress_blocked`（HTTP 403，MCP tool `isError`），文案固定为 "upstream address is not allowed"，不回显解析出的内部地址。
+
+rmcp 自己仍对 OAuth 元数据 URL 做字面量检查，不替代这里的 DNS 固定。开关关闭时不注入受控 client，那套检查保持原样。Vault、Infisical、语义搜索与 CLI 的出站请求尚未经过这套校验。MCP 与 OAuth 的 client 在进程启动时创建，运行期改开关需要重启；HTTP invoke 按当前配置在每次调用时决定。
 
 # 下游 MCP OAuth
 

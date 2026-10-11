@@ -4,7 +4,7 @@ title: Gateway Configuration Schema
 description: Documents the YAML configuration for upstream API resources, OpenAPI discovery, proxy key scopes, and tool discovery queries.
 resource: docs/runtime/config-schema.md
 tags: [configuration, schema, credentials, discovery]
-timestamp: 2026-10-10T00:00:00Z
+timestamp: 2026-10-11T00:00:00Z
 ---
 
 # Context
@@ -23,6 +23,7 @@ http: {}              # 可选；请求体上限与 REST/admin 超时
 observability: {}     # 可选；负载捕获与 request_events 保留
 mcp: {}               # 可选；多上游失败模式、刷新间隔、tools/list TTL
 oauth: {}             # 可选；上游 MCP OAuth 的回调地址与 token 加密密钥
+egress: {}            # 可选；出站私网地址校验，缺省关闭
 api_resources: []
 mcp_servers: []
 proxy_keys: []
@@ -138,6 +139,33 @@ oauth:
 - `redirect_base_url`：管理员授权的回调地址前缀。回调 URI 固定为 `{redirect_base_url}/oauth/callback`，**要在授权服务器上登记（或经动态客户端注册声明）的 redirect URI 就是这个值**，例如 `https://gateway.example.com/oauth/callback`。网关在 `GET /oauth/callback` 接收浏览器回调（顶层路由，不经 admin 认证，只靠一次性 state；配置了 admin key 才挂载）。必须是 http(s) URL，除 `localhost` / `127.0.0.1` 外必须是 https，不得带 query 或 fragment；网关在反向代理的子路径下时把前缀写进来（如 `https://example.com/asterlane`），代理需把 `/oauth/callback` 转发到网关。
 - `token_encryption_key_ref`：secret ref，解析结果必须是 base64 编码的 32 字节（例如 `openssl rand -base64 32`）。启动时解析，无效则启动失败。用于加密落库的授权码 token，见 [Key Credentials & Persistence](key-credentials-and-persistence.md#上游-oauth-凭据)。
 - 任一 `mcp_servers[]` 使用 `grant: authorization_code` 时两项都必填，缺任何一项启动失败。
+
+## Egress
+
+可选。控制网关访问上游时是否拒绝内网和云元数据地址。缺省关闭：开源版与未写这一节时相同，自托管仍可访问内网。托管部署应显式设为 `true`。仓库里没有单独的 SaaS 模式会自动打开它。
+
+```yaml
+egress:
+  block_private_addresses: false   # 缺省 false
+```
+
+`block_private_addresses: true` 时，HTTP 上游调用、MCP 上游连接、上游 OAuth 的元数据发现和 token 请求共用 `src/egress.rs`：
+
+- 拒绝回环、RFC1918 私网、IPv6 ULA（`fc00::/7`，含 `fec0::/10`）、链路本地（含 `169.254.169.254` 与 `169.254.170.2`）、CGNAT `100.64.0.0/10`、未指定地址（`0.0.0.0/8` 与 `::`）、组播、`240.0.0.0/4`，以及 Azure 实例元数据 `168.63.129.16`。
+- IPv4 映射的 IPv6（`::ffff:0:0/96`）按内嵌的 IPv4 分类。只有内嵌 IPv4 会被拒绝时，才拒绝 IPv4 兼容地址（`::/96`，不含 `::` 与 `::1`）、NAT64 `64:ff9b::/96` 和 6to4 `2002::/16`。公网的映射地址允许连接。
+- 发请求前拒绝主机名 `localhost`、`*.localhost`、`metadata`、`metadata.google.internal`、`metadata.azure.internal`（忽略大小写，去掉末尾的点）。
+- 主机名用 reqwest 的自定义 DNS 解析，解析后再过滤，连接使用校验过的地址。URL 里的字面量 IP 在发请求前单独校验。
+- 跟随重定向时逐跳校验，最多 10 跳，并拒绝回到已经访问过的 URL。MCP 传输和不跟随重定向的 OAuth client 不走这条策略。
+- 非 http(s) URL 在开关打开时拒绝。
+- 用户可见错误是 `proxy.egress_blocked`，文案固定为 "upstream address is not allowed"（HTTP 403；MCP 为 tool result `isError`）。消息不包含解析出的内部地址。请求事件里没有单独的拒绝状态，记为连接失败。
+
+开关打开后的生效范围：
+
+- 每次 HTTP invoke 按当前配置新建带校验的 reqwest client，不再复用进程级连接池。admin 热更新对下一次 HTTP invoke 生效。
+- MCP 传输和上游 OAuth 的 client 在进程启动时创建。运行期改这个开关不会重建它们，需要重启。
+- 受控 client 构建失败时，OAuth / MCP 装配直接失败；单次 HTTP 调用则拒绝全部 URL，不退回未校验的 client。
+
+尚未经过这套校验的出站调用：Vault、Infisical、语义搜索的 embeddings 请求、CLI 的 HTTP client。不经 `UpstreamOAuth` 的 `McpServerRegistry::connect_all` 同样不校验；`serve` 使用 `connect_all_with_oauth`。rmcp 自己仍对 OAuth 元数据 URL 做字面量检查，它不替代这里的 DNS 固定。开关关闭时不注入受控 client，rmcp 的原有检查保持原样（包括允许回环上的元数据 URL）。
 
 ## Observability
 
