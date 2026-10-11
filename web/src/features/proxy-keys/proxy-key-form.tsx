@@ -1,4 +1,4 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Button, Input, Select } from "@cloudflare/kumo";
 import { useState, type FormEvent } from "react";
 import { FormMessage } from "../../components/form-message.tsx";
 import type { ProxyKeyDraft } from "./draft.ts";
@@ -133,21 +133,16 @@ export function ProxyKeyForm({
             disabled={busy}
             onChange={(event) => setToolFilter(event.target.value)}
           />
-          <label className="field">
-            <span>按服务过滤</span>
-            <select
-              value={toolServer}
-              disabled={busy}
-              onChange={(event) => setToolServer(event.target.value)}
-            >
-              <option value="">全部服务</option>
-              {serverOptions.map((server) => (
-                <option key={server.id} value={server.id}>
-                  {server.id}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label="按服务过滤"
+            value={toolServer}
+            disabled={busy}
+            items={[
+              { value: "", label: "全部服务" },
+              ...serverOptions.map((server) => ({ value: server.id, label: server.id })),
+            ]}
+            onValueChange={(server) => setToolServer(server ?? "")}
+          />
           <label className="field">
             <span>允许的工具</span>
             <select

@@ -1,4 +1,4 @@
-import { Button } from "@cloudflare/kumo";
+import { Button, Textarea } from "@cloudflare/kumo";
 import { useEffect, useRef, useState } from "react";
 import {
   commitIfCurrent,
@@ -118,16 +118,14 @@ export function ToolDebugPanel({ toolName }: { toolName: string }) {
     <section aria-label={`调试 ${toolName}`} className="detail">
       <p className="hint">调试调用 {toolName}。参数必须是 JSON object，不会自动重放。</p>
       <FormMessage tone={loadError ? "error" : "info"}>{loadMessage}</FormMessage>
-      <label className="field">
-        <span>调用参数</span>
-        <textarea
-          rows={6}
-          spellCheck={false}
-          value={argsText}
-          onChange={(event) => setArgsText(event.target.value)}
-          style={{ width: "100%", fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}
-        />
-      </label>
+      <Textarea
+        label="调用参数"
+        className="code-input"
+        rows={6}
+        spellCheck={false}
+        value={argsText}
+        onChange={(event) => setArgsText(event.target.value)}
+      />
       <div className="toolbar">
         <Button
           type="button"

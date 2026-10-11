@@ -1,99 +1,64 @@
-/* 密度、亮暗和状态色对齐现有控制台，不复用它的 DOM。 */
-:root {
-  color-scheme: light;
-  --bg: #f6f7f9;
-  --fg: #1c2128;
-  --muted: #6a737d;
-  --card: #ffffff;
-  --border: #d8dde3;
-  --accent: #3b5bdb;
-  --ok: #2b8a3e;
-  --err: #c92a2a;
-  --warn: #d9480f;
-  --ok-weak: rgba(43, 138, 62, 0.13);
-  --danger-weak: rgba(201, 42, 42, 0.09);
-  --warn-weak: rgba(217, 72, 15, 0.12);
-  --accent-weak: rgba(59, 91, 219, 0.08);
-}
+/*
+ * 颜色、字体和亮暗取值都来自 Kumo 的 token，亮暗随 <html data-mode> 切换。
+ * 不在 cascade layer 里的规则会盖过 Kumo 组件自己的样式，所以这里只写控制台自己的类名；
+ * 元素级默认样式放进 Kumo 的 base 层，让组件的 utility 类仍然优先。
+ */
 
-:root[data-mode="dark"] {
-  color-scheme: dark;
-  --bg: #14171b;
-  --fg: #dbe1e8;
-  --muted: #8b949e;
-  --card: #1d2126;
-  --border: #30363d;
-  --accent: #748ffc;
-  --ok: #69b979;
-  --err: #f08080;
-  --warn: #ffa94d;
-  --ok-weak: rgba(105, 185, 121, 0.16);
-  --danger-weak: rgba(240, 128, 128, 0.15);
-  --warn-weak: rgba(255, 169, 77, 0.16);
-  --accent-weak: rgba(116, 143, 252, 0.16);
-}
-
-* {
-  box-sizing: border-box;
+@layer base {
+  pre {
+    margin: 4px 0 8px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
 }
 
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font:
-    13px/1.45 system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
+  background: var(--color-kumo-canvas);
+  color: var(--text-color-kumo-default);
+  font: 13px/1.45 var(--font-sans);
 }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+/* 外壳：左侧 Kumo Sidebar，右侧顶栏加页面。 */
 
-h1,
-h2,
-h3,
-p {
-  margin: 0;
-}
-
-h1 {
+.brand {
   font-size: 15px;
   font-weight: 650;
+  white-space: nowrap;
 }
 
-h1 span,
-.hint {
-  color: var(--accent);
+.brand span {
+  color: var(--text-color-kumo-brand);
 }
 
-.hint {
-  color: var(--muted);
-  font-size: 12px;
+@media (min-width: 768px) {
+  /* 页面滚动时侧栏留在视口里。窄屏上侧栏是 Kumo 的抽屉，不受这条影响。 */
+  .console-nav {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+  }
 }
 
-h2 {
-  margin: 0 0 8px;
-  padding-left: 8px;
-  border-left: 3px solid var(--accent);
-  font-size: 14px;
-}
-
-.app-shell {
-  min-height: 100vh;
+.console-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
+  /* 与 Sidebar.Header 等高，两条分隔线对齐。 */
+  min-height: 58px;
   padding: 8px 16px;
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
+  background: var(--color-kumo-base);
+  border-bottom: 1px solid var(--color-kumo-line);
 }
 
 .topbar-actions {
@@ -103,139 +68,190 @@ h2 {
   margin-left: auto;
 }
 
-.shell-body {
-  display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  min-height: calc(100vh - 45px);
-}
-
-nav[aria-label="控制台页面"] {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px;
-  background: var(--card);
-  border-right: 1px solid var(--border);
-}
-
-nav[aria-label="控制台页面"] a {
-  padding: 6px 8px;
-  border-radius: 6px;
-  color: inherit;
-  text-decoration: none;
-}
-
-nav[aria-label="控制台页面"] a[aria-current="page"] {
-  color: var(--accent);
-  background: var(--accent-weak);
-}
-
-.view,
-.login,
-.page {
-  min-width: 0;
-  padding: 12px 16px 24px;
+.view {
+  padding: 16px 20px 32px;
 }
 
 .login {
-  max-width: 420px;
-  margin: 32px auto;
+  display: grid;
+  gap: 12px;
+  /* 窄屏左右各留 12px，不贴边。 */
+  width: min(400px, 100% - 24px);
+  margin: 12vh auto 32px;
+  padding: 24px;
+  background: var(--color-kumo-base);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-lg);
+}
+
+.login form {
   display: grid;
   gap: 12px;
 }
 
-.login form,
-.toolbar,
-.cards,
+/* 页面内容 */
+
+/* 单列宽度锁在容器内：子项再宽也只在自己的 .tablewrap 里横向滚动，不撑宽整页。 */
 .page {
   display: grid;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
 }
 
-.toolbar {
-  grid-auto-flow: column;
-  justify-content: start;
-  align-items: end;
+.page > h2 {
+  color: var(--text-color-kumo-strong);
+  font-size: 18px;
+  font-weight: 600;
 }
 
-.cards {
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+.section-title {
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.card {
-  padding: 10px 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.num {
-  font-size: 16px;
-  font-weight: 650;
-}
-
-.lbl,
-.field span {
-  color: var(--muted);
+.hint,
+.lbl {
+  color: var(--text-color-kumo-subtle);
   font-size: 12px;
 }
 
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  padding: 12px 16px;
+  background: var(--color-kumo-base);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-lg);
+}
+
+.num {
+  color: var(--text-color-kumo-strong);
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 表格行内的操作按钮。放不下时换行，按钮都留在可见区域里，不被挤到横向滚动区外。 */
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Kumo 分页条默认一行排开；窄屏时让页码按钮整体换到下一行，说明文字不拆开。 */
+.pager {
+  flex-wrap: wrap;
+  white-space: nowrap;
+}
+
+/* 代理密钥表单的服务与工具多选仍用原生 select：它要和过滤框配合，并保留被筛掉的已选项。
+   换成 Kumo Combobox（支持 multiple）需要重做这套交互，暂未做。这里只让标签和边框接近 Kumo 表单控件。 */
 .field {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+}
+
+.field > span {
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .field select {
-  min-height: 32px;
-  padding: 4px 8px;
-  color: var(--fg);
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  min-width: 220px;
+  padding: 4px;
+  color: inherit;
+  background: var(--color-kumo-control);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-lg);
+  font: inherit;
 }
 
 .tablewrap {
   overflow-x: auto;
+  background: var(--color-kumo-base);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-lg);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: top;
+.tablewrap th,
+.tablewrap td {
   white-space: nowrap;
 }
 
-td.ok {
-  color: var(--ok);
+.tablewrap .wrap {
+  min-width: 240px;
+  white-space: normal;
 }
 
-td.err,
-.err {
-  color: var(--err);
+.mono {
+  font-family: var(--font-mono);
+}
+
+.code-input {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+
+.col-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 拖动或用左右方向键调整列宽。 */
+.col-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-resize:hover,
+.col-resize:focus-visible {
+  background: var(--color-kumo-hairline);
 }
 
 .ok {
-  color: var(--ok);
+  color: var(--text-color-kumo-success);
 }
 
-pre {
-  margin: 4px 0 8px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: 12px;
+.err,
+.form-error {
+  color: var(--text-color-kumo-danger);
 }
+
+.issues {
+  padding-left: 1.25em;
+  list-style: disc;
+}
+
+/* 用量条形图 */
 
 .bars {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  padding: 12px 16px;
+  background: var(--color-kumo-base);
+  border: 1px solid var(--color-kumo-line);
+  border-radius: var(--radius-lg);
 }
 
 .bar-row {
@@ -252,6 +268,10 @@ pre {
   white-space: nowrap;
 }
 
+.bar-num {
+  font-variant-numeric: tabular-nums;
+}
+
 .bar-track,
 .bar-fill {
   height: 8px;
@@ -259,16 +279,16 @@ pre {
 }
 
 .bar-track {
-  background: var(--accent-weak);
+  background: var(--color-kumo-fill);
 }
 
 .bar-fill {
-  background: var(--accent);
+  background: var(--color-kumo-brand);
 }
 
 .bar-err {
   height: 100%;
-  background: var(--err);
+  background: var(--color-kumo-danger);
   border-radius: inherit;
 }
 
@@ -278,15 +298,16 @@ pre {
   gap: 8px;
 }
 
-.form-error {
-  color: var(--err);
-}
-
 .confirm-dialog,
 .detail {
   display: grid;
   gap: 8px;
   padding: 16px;
+}
+
+/* 展开行放在不换行的表格单元格里，正文要能换行。 */
+.detail {
+  white-space: normal;
 }
 
 .confirm-actions {
@@ -295,33 +316,17 @@ pre {
   gap: 8px;
 }
 
-@media (max-width: 720px) {
-  .shell-body {
-    grid-template-columns: 1fr;
+@media (max-width: 767px) {
+  .view {
+    padding: 12px;
   }
 
-  nav[aria-label="控制台页面"] {
-    flex-direction: row;
-    overflow-x: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-
-  nav[aria-label="控制台页面"] a {
-    flex: 0 0 auto;
-  }
-
-  .toolbar {
-    grid-auto-flow: row;
-  }
-
-  .topbar {
-    flex-wrap: wrap;
+  .login {
+    margin-top: 32px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bar-fill,
   .confirm-dialog {
     transition: none;
   }

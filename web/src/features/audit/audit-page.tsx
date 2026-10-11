@@ -1,4 +1,4 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Button, Input, Select, Table } from "@cloudflare/kumo";
 import { useState, type FormEvent } from "react";
 import { listAuditEvents, type OutputSecurityEventResponse } from "../../api/index.ts";
 import { usePageLoad } from "../../app/use-page-load.ts";
@@ -16,6 +16,12 @@ interface AuditQuery {
 }
 
 const initialQuery: AuditQuery = { kind: "admin_audit", limit: 100 };
+
+/** 空串表示全部类型。 */
+const kindItems = [
+  { value: "admin_audit", label: "admin_audit" },
+  { value: "", label: "全部类型" },
+];
 
 export function AuditPage() {
   const [draft, setDraft] = useState({ kind: "admin_audit", limitText: "100" });
@@ -48,16 +54,12 @@ export function AuditPage() {
     <section className="page">
       <h2>审计</h2>
       <form className="toolbar" onSubmit={onSubmit}>
-        <label className="field">
-          <span>类型</span>
-          <select
-            value={draft.kind}
-            onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
-          >
-            <option value="admin_audit">admin_audit</option>
-            <option value="">全部类型</option>
-          </select>
-        </label>
+        <Select
+          label="类型"
+          value={draft.kind}
+          items={kindItems}
+          onValueChange={(kind) => setDraft({ ...draft, kind: kind ?? "" })}
+        />
         <Input
           label="limit"
           value={draft.limitText}
@@ -97,32 +99,32 @@ function AuditResults({
 function AuditTable({ rows }: { rows: OutputSecurityEventResponse[] }) {
   return (
     <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>类型</th>
-            <th>管理员</th>
-            <th>操作</th>
-            <th>目标</th>
-            <th>详情</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <Table.Header variant="compact">
+          <Table.Row>
+            <Table.Head>时间</Table.Head>
+            <Table.Head>类型</Table.Head>
+            <Table.Head>管理员</Table.Head>
+            <Table.Head>操作</Table.Head>
+            <Table.Head>目标</Table.Head>
+            <Table.Head>详情</Table.Head>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {rows.map((row, index) => (
-            <tr key={`${row.timestamp}-${index}`}>
-              <td>{row.timestamp}</td>
-              <td>{row.kind}</td>
-              <td>{detailText(row.details, "admin_key_id")}</td>
-              <td>{detailText(row.details, "action")}</td>
-              <td>{targetText(row)}</td>
-              <td>
+            <Table.Row key={`${row.timestamp}-${index}`}>
+              <Table.Cell>{row.timestamp}</Table.Cell>
+              <Table.Cell>{row.kind}</Table.Cell>
+              <Table.Cell>{detailText(row.details, "admin_key_id")}</Table.Cell>
+              <Table.Cell>{detailText(row.details, "action")}</Table.Cell>
+              <Table.Cell>{targetText(row)}</Table.Cell>
+              <Table.Cell>
                 <pre>{jsonText(row.details)}</pre>
-              </td>
-            </tr>
+              </Table.Cell>
+            </Table.Row>
           ))}
-        </tbody>
-      </table>
+        </Table.Body>
+      </Table>
     </div>
   );
 }

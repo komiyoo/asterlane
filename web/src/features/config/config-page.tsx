@@ -106,10 +106,10 @@ function IssueList({
   }
   return (
     <section>
-      <h3>
+      <h3 className="section-title">
         {title}（{issues.length}）
       </h3>
-      <ul>
+      <ul className="issues">
         {issues.map((issue, index) => (
           <li key={`${issue.level}-${issue.target}-${index}`}>
             [{issue.level}] {issue.target}: {issue.message}

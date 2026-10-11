@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { consoleRoutes } from "../src/app/routes.ts";
-import { E2E_ADMIN_TOKEN } from "./fixture.ts";
+import { choose, E2E_ADMIN_TOKEN } from "./fixture.ts";
 
 async function login(page: Page, token = E2E_ADMIN_TOKEN) {
   await page.goto("/");
@@ -123,7 +123,7 @@ test("a resource write is audited and logout clears the admin token", async ({ p
   await page.getByLabel("ID").fill("e2e-nginx-audit");
   await page.getByLabel("领域").fill("search");
   await page.getByLabel("基础 URL").fill("https://example.test/nginx-audit");
-  await page.getByLabel("认证").selectOption("none");
+  await choose(page, "认证", "none");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("row").filter({ hasText: "e2e-nginx-audit" })).toBeVisible();
 

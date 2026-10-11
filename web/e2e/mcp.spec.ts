@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { E2E_ADMIN_TOKEN } from "./fixture.ts";
+import { choose, E2E_ADMIN_TOKEN } from "./fixture.ts";
 import { startMcpStandIn, type McpStandIn } from "./mcp-stand-in.ts";
 
 const missingRef = "secret://env/ASTERLANE_E2E_MISSING_MCP_KEY";
@@ -23,7 +23,7 @@ async function login(page: Page) {
   await page.getByLabel("管理员 token").fill(E2E_ADMIN_TOKEN);
   await page.getByRole("button", { name: "连接" }).click();
   await health;
-  await expect(page.getByRole("heading", { name: "MCP 服务" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "MCP 服务", exact: true })).toBeVisible();
 }
 
 test.beforeAll(async () => {
@@ -89,7 +89,7 @@ test("manage presets and servers against the local stand-in", async ({ page }) =
   const form = page.getByRole("form", { name: "MCP 服务" });
   await expect(form.getByLabel("ID")).toHaveValue("rollinggo-hotel");
   await expect(form.getByLabel("URL")).toHaveValue("https://mcp.rollinggo.cn/mcp");
-  await expect(form.getByLabel("认证")).toHaveValue("bearer");
+  await expect(form.getByRole("combobox", { name: "认证" })).toHaveText("Bearer");
   await expect(form.getByLabel("Secret 引用")).toHaveValue("");
   await form.getByLabel("Secret 引用").fill("sk-live");
   await form.getByRole("button", { name: "创建" }).click();
@@ -105,9 +105,9 @@ test("manage presets and servers against the local stand-in", async ({ page }) =
 
   await keyed.getByRole("button", { name: "编辑" }).click();
   const edit = page.getByRole("form", { name: "MCP 服务" });
-  await expect(edit.getByLabel("认证")).toHaveValue("keep");
+  await expect(edit.getByRole("combobox", { name: "认证" })).toHaveText("保持不变");
   await expect(edit.getByLabel("Secret 引用")).toHaveCount(0);
-  await edit.getByLabel("完整性策略").selectOption("block");
+  await choose(page, "完整性策略", "block", edit);
   await edit.getByRole("checkbox", { name: "防御" }).check();
   const put = page.waitForRequest(
     (request) =>

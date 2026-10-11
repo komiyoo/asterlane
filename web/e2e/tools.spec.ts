@@ -247,7 +247,7 @@ test("invoke reaches the gateway pipeline, event, and audit", async ({ page }) =
 
   await page.getByRole("link", { name: "事件", exact: true }).click();
   await expect(page.getByText("不会改变这个游标")).toBeVisible();
-  await page.getByLabel("工具名").fill(echoName);
+  await page.getByLabel("名称").fill(echoName);
   await page.getByRole("button", { name: "查询" }).click();
   const eventRow = page.getByRole("row", { name: new RegExp(echoName) }).first();
   await eventRow.getByRole("button", { name: "详情" }).click();

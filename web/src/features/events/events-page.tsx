@@ -1,4 +1,4 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Badge, Button, Input, Select, Table } from "@cloudflare/kumo";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   commitIfCurrent,
@@ -12,12 +12,7 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
-import {
-  formatRequestKind,
-  formatRequestStatus,
-  requestKindLabels,
-  statusClass,
-} from "../format.ts";
+import { formatRequestKind, formatRequestStatus, requestKindLabels } from "../format.ts";
 import { parseLimit, toRfc3339 } from "../time.ts";
 import { cursorFromResponse } from "./cursor.ts";
 import { EventDetail } from "./event-detail.tsx";
@@ -44,6 +39,11 @@ const initialFilters: EventFilters = {
   to: "",
   limit: 50,
 };
+
+const kindItems = [
+  { value: "", label: "全部" },
+  ...Object.entries(requestKindLabels).map(([value, label]) => ({ value, label })),
+];
 
 export function EventsPage() {
   const { nonce } = useRefresh();
@@ -141,20 +141,12 @@ export function EventsPage() {
           value={draft.resource}
           onChange={(event) => setDraft({ ...draft, resource: event.target.value })}
         />
-        <label className="field">
-          <span>类型</span>
-          <select
-            value={draft.kind}
-            onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
-          >
-            <option value="">全部</option>
-            {Object.entries(requestKindLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="类型"
+          value={draft.kind}
+          items={kindItems}
+          onValueChange={(kind) => setDraft({ ...draft, kind: kind ?? "" })}
+        />
         <Input
           label="名称"
           value={draft.tool}
@@ -213,33 +205,33 @@ function EventTable({
 }) {
   return (
     <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>代理密钥</th>
-            <th>资源</th>
-            <th>类型</th>
-            <th>名称</th>
-            <th>状态</th>
-            <th>延迟(ms)</th>
-            <th>重试</th>
-            <th>限流</th>
-            <th>排队(ms)</th>
-            <th>上游密钥</th>
-            <th>请求 ID</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <Table.Header variant="compact">
+          <Table.Row>
+            <Table.Head>时间</Table.Head>
+            <Table.Head>代理密钥</Table.Head>
+            <Table.Head>资源</Table.Head>
+            <Table.Head>类型</Table.Head>
+            <Table.Head>名称</Table.Head>
+            <Table.Head>状态</Table.Head>
+            <Table.Head>延迟(ms)</Table.Head>
+            <Table.Head>重试</Table.Head>
+            <Table.Head>限流</Table.Head>
+            <Table.Head>排队(ms)</Table.Head>
+            <Table.Head>上游密钥</Table.Head>
+            <Table.Head>请求 ID</Table.Head>
+            <Table.Head></Table.Head>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {rows.map((row, index) => {
             const id = `${row.request_id}-${index}`;
             return (
               <EventRows key={id} row={row} id={id} open={openId === id} onToggle={onToggle} />
             );
           })}
-        </tbody>
-      </table>
+        </Table.Body>
+      </Table>
     </div>
   );
 }
@@ -257,31 +249,35 @@ function EventRows({
 }) {
   return (
     <>
-      <tr>
-        <td>{row.timestamp}</td>
-        <td>{row.proxy_key_id}</td>
-        <td>{row.resource_id}</td>
-        <td>{formatRequestKind(row.request_kind)}</td>
-        <td>{row.tool_name}</td>
-        <td className={statusClass(row.status)}>{formatRequestStatus(row.status)}</td>
-        <td>{row.latency_ms}</td>
-        <td>{row.retry_count}</td>
-        <td>{row.rate_limited ? "true" : "false"}</td>
-        <td>{row.queued_ms}</td>
-        <td>{row.upstream_key_ref}</td>
-        <td>{row.request_id}</td>
-        <td>
-          <Button type="button" onClick={() => onToggle(id)}>
+      <Table.Row>
+        <Table.Cell>{row.timestamp}</Table.Cell>
+        <Table.Cell>{row.proxy_key_id}</Table.Cell>
+        <Table.Cell>{row.resource_id}</Table.Cell>
+        <Table.Cell>{formatRequestKind(row.request_kind)}</Table.Cell>
+        <Table.Cell>{row.tool_name}</Table.Cell>
+        <Table.Cell>
+          <Badge variant={row.status.kind === "Success" ? "success" : "error"} appearance="dot">
+            {formatRequestStatus(row.status)}
+          </Badge>
+        </Table.Cell>
+        <Table.Cell>{row.latency_ms}</Table.Cell>
+        <Table.Cell>{row.retry_count}</Table.Cell>
+        <Table.Cell>{row.rate_limited ? "true" : "false"}</Table.Cell>
+        <Table.Cell>{row.queued_ms}</Table.Cell>
+        <Table.Cell>{row.upstream_key_ref}</Table.Cell>
+        <Table.Cell>{row.request_id}</Table.Cell>
+        <Table.Cell>
+          <Button type="button" aria-expanded={open} onClick={() => onToggle(id)}>
             详情
           </Button>
-        </td>
-      </tr>
+        </Table.Cell>
+      </Table.Row>
       {open ? (
-        <tr>
-          <td colSpan={13}>
+        <Table.Row>
+          <Table.Cell colSpan={13}>
             <EventDetail event={row} />
-          </td>
-        </tr>
+          </Table.Cell>
+        </Table.Row>
       ) : null}
     </>
   );

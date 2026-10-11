@@ -1,4 +1,4 @@
-import { Button } from "@cloudflare/kumo";
+import { Button, Textarea } from "@cloudflare/kumo";
 import { useRef, useState } from "react";
 import {
   deleteToolMetadata,
@@ -86,16 +86,14 @@ export function ToolMetadataPanel({
   return (
     <section aria-label={`介绍 ${toolName}`} className="detail">
       <p className="hint">介绍覆盖会代替上游描述。原始：{original || "（无）"}</p>
-      <label className="field">
-        <span>介绍覆盖</span>
-        <textarea
-          rows={3}
-          spellCheck={false}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          style={{ width: "100%", fontFamily: "ui-monospace, Menlo, Consolas, monospace" }}
-        />
-      </label>
+      <Textarea
+        label="介绍覆盖"
+        className="code-input"
+        rows={3}
+        spellCheck={false}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
       <div className="toolbar">
         <Button type="button" disabled={pending} onClick={() => void onSave()}>
           保存

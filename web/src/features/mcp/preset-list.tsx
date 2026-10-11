@@ -1,4 +1,4 @@
-import { Button } from "@cloudflare/kumo";
+import { Badge, Button, Link, Table } from "@cloudflare/kumo";
 import type { OutputMcpPresetResponse } from "../../api/index.ts";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
@@ -24,55 +24,60 @@ export function PresetList({
   onRetry: () => void;
 }) {
   return (
-    <section aria-label="内置集成" className="card">
-      <h3>内置集成</h3>
+    <section aria-label="内置集成">
+      <h3 className="section-title">内置集成</h3>
       {notice === null ? null : <FormMessage tone="error">{notice}</FormMessage>}
       {error !== null ? <ErrorState error={error} onRetry={onRetry} /> : null}
       {loading && presets === null ? <LoadingState /> : null}
       {presets === null ? null : (
         <div className="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>集成</th>
-                <th>描述</th>
-                <th>状态</th>
-                <th>凭据</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <Table.Header variant="compact">
+              <Table.Row>
+                <Table.Head>集成</Table.Head>
+                <Table.Head>描述</Table.Head>
+                <Table.Head>状态</Table.Head>
+                <Table.Head>凭据</Table.Head>
+                <Table.Head></Table.Head>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
               {presets.length === 0 ? (
-                <tr>
-                  <td colSpan={5}>无内置集成</td>
-                </tr>
+                <Table.Row>
+                  <Table.Cell colSpan={5}>无内置集成</Table.Cell>
+                </Table.Row>
               ) : (
                 presets.map((preset) => (
-                  <tr key={preset.id}>
-                    <td>
+                  <Table.Row key={preset.id}>
+                    <Table.Cell>
                       {preset.id}
                       <div className="hint">
                         {preset.domain} / {preset.provider}
                       </div>
-                    </td>
-                    <td style={{ whiteSpace: "normal" }}>{preset.description}</td>
-                    <td>{preset.enabled ? "已启用" : "未启用"}</td>
-                    <td>
+                    </Table.Cell>
+                    <Table.Cell className="wrap">{preset.description}</Table.Cell>
+                    <Table.Cell>
+                      <Badge variant={preset.enabled ? "success" : "neutral"} appearance="dot">
+                        {preset.enabled ? "已启用" : "未启用"}
+                      </Badge>
+                    </Table.Cell>
+                    <Table.Cell>
                       {preset.requires_key ? "需 key" : "免费"}
                       {safeApplyUrl(preset.apply_url) === null ? null : (
                         <>
                           {" "}
-                          <a
+                          <Link
                             href={safeApplyUrl(preset.apply_url) ?? undefined}
                             target="_blank"
                             rel="noreferrer"
                           >
                             申请 key
-                          </a>
+                            <Link.ExternalIcon />
+                          </Link>
                         </>
                       )}
-                    </td>
-                    <td>
+                    </Table.Cell>
+                    <Table.Cell>
                       {preset.enabled ? (
                         <Button type="button" disabled>
                           已启用
@@ -90,12 +95,12 @@ export function PresetList({
                           {enablingId === preset.id ? "启用中…" : "启用"}
                         </Button>
                       )}
-                    </td>
-                  </tr>
+                    </Table.Cell>
+                  </Table.Row>
                 ))
               )}
-            </tbody>
-          </table>
+            </Table.Body>
+          </Table>
         </div>
       )}
     </section>

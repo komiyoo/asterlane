@@ -37,7 +37,7 @@
 | `json-schema-to-typescript`                      | 16.0.0，仅开发依赖。从已提交的 `schemas/admin.json` 生成 `src/api/generated/admin.d.ts`，不调用 Cargo。                                                   |
 | `vite` override 与 `vitest` override             | 按 Vite+ 手动安装说明，把工具链钉到项目里的 `vite-plus`，不是业务依赖。                                                                                   |
 
-样式入口是发布包的 `@cloudflare/kumo/styles/standalone`。这个 CSS 子路径没有类型声明，所以 `src/kumo-styles.d.ts` 只补一条模块声明。不安装 Tailwind，也不复制 Kumo 源码。
+样式入口是发布包的 `@cloudflare/kumo/styles/standalone`。这个 CSS 子路径没有类型声明，所以 `src/kumo-styles.d.ts` 只补一条模块声明。不安装 Tailwind，也不复制 Kumo 源码。页面外壳、组件选择和 `src/styles.css` 的写法见 [外壳与样式](../docs/architecture/console-separation.md#外壳与样式)。
 
 ## 安装
 

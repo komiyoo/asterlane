@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { E2E_ADMIN_TOKEN } from "./fixture.ts";
+import { choose, E2E_ADMIN_TOKEN } from "./fixture.ts";
 
 const readPages = ["总览", "用量", "密钥池", "事件", "安全事件", "审计", "配置"] as const;
 
@@ -12,7 +12,20 @@ async function login(page: Page, token = E2E_ADMIN_TOKEN) {
   await page.getByLabel("管理员 token").fill(token);
   await page.getByRole("button", { name: "连接" }).click();
   await health;
-  await expect(page.getByRole("navigation", { name: "控制台页面" })).toBeVisible();
+  // 窄屏上导航收在抽屉里，不可见；顶栏在两种宽度下都可见。
+  await expect(page.getByRole("button", { name: "刷新当前页" })).toBeVisible();
+}
+
+/** 从侧栏进入页面。窄屏上先打开导航抽屉，换页后抽屉自动收起。 */
+async function openPage(page: Page, name: string) {
+  const menu = page.getByRole("button", { name: "打开导航" });
+  if (await menu.isVisible()) {
+    await menu.click();
+  }
+  await page
+    .getByRole("navigation", { name: "控制台页面" })
+    .getByRole("link", { name, exact: true })
+    .click();
 }
 
 test("logged-out routes do not show console data", async ({ page }) => {
@@ -27,36 +40,48 @@ test("logged-out routes do not show console data", async ({ page }) => {
 test("login, refresh, back, and read pages hit the gateway", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await login(page);
-  await expect(page.getByRole("link", { name: "审计" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "控制台页面" })).toBeHidden();
   await expect(page.getByText(/ok · v/)).toBeVisible();
   await expect(page.getByText("请求总数")).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
 
-  await page.getByRole("link", { name: "用量", exact: true }).click();
+  await openPage(page, "用量");
   await expect(page).toHaveURL(/\/usage$/);
+  await expect(page.getByRole("navigation", { name: "控制台页面" })).toBeHidden();
   await page.goBack();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
 
   for (const name of readPages) {
-    await page.getByRole("link", { name, exact: true }).click();
+    await openPage(page, name);
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   }
+
+  // 宽表格只在自己的容器里横向滚动，页面本身不随之变宽。内置集成表不需要准备数据。
+  await openPage(page, "MCP 服务");
+  await expect(
+    page.getByRole("region", { name: "内置集成" }).getByRole("row", { name: /exa/ }),
+  ).toBeVisible();
+  const overflow = await page.locator("html").evaluate((element) => {
+    const root = element as { scrollWidth: number; clientWidth: number };
+    return root.scrollWidth - root.clientWidth;
+  });
+  expect(overflow).toBeLessThanOrEqual(0);
 });
 
 test("filters, cursor note, limit scope, and YAML export", async ({ page }) => {
   await login(page);
   await page.getByRole("link", { name: "用量", exact: true }).click();
-  await page.getByLabel("维度").selectOption("status");
+  await choose(page, "维度", "按状态");
   await expect(
     page.getByText("无数据").or(page.getByRole("columnheader", { name: "请求数" })),
   ).toBeVisible();
 
   await page.getByRole("link", { name: "事件", exact: true }).click();
   await expect(page.getByText("不会改变这个游标")).toBeVisible();
-  await page.getByLabel("类型").selectOption("tool");
+  await choose(page, "类型", "工具");
   await page.getByLabel("名称").fill("lookup");
   await page.getByRole("button", { name: "查询" }).click();
 

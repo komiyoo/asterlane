@@ -1,7 +1,22 @@
 import path from "node:path";
 import { tmpdir } from "node:os";
+import type { Locator, Page } from "@playwright/test";
 
 export const E2E_ADMIN_TOKEN = "e2e-admin-token";
+
+/**
+ * 在 Kumo Select 里按显示文字选一项。它不是原生 <select>，要先点开；
+ * 选项列表渲染在 body 下，所以从整页找选项，从 scope 里找下拉框。
+ */
+export async function choose(
+  page: Page,
+  label: string,
+  option: string,
+  scope: Page | Locator = page,
+): Promise<void> {
+  await scope.getByRole("combobox", { name: label }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+}
 
 function port(name: string, fallback: number): number {
   const raw = process.env[name];

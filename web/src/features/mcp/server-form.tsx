@@ -1,4 +1,4 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Button, Checkbox, Input, Link, Select } from "@cloudflare/kumo";
 import { useRef, useState, type FormEvent } from "react";
 import {
   createMcpServer,
@@ -18,6 +18,20 @@ import {
   type AuthChoice,
   type McpFormValues,
 } from "./write.ts";
+
+/** 「保持不变」只在编辑时出现。 */
+const authItems: { value: AuthChoice; label: string }[] = [
+  { value: "keep", label: "保持不变" },
+  { value: "none", label: "无凭据" },
+  { value: "bearer", label: "Bearer" },
+  { value: "header", label: "Header" },
+];
+
+const integrityItems: { value: InputIntegrityPolicy; label: string }[] = [
+  { value: "warn", label: "warn" },
+  { value: "quarantine", label: "quarantine" },
+  { value: "block", label: "block" },
+];
 
 export type ServerFormMode =
   | { kind: "create"; preset: OutputMcpPresetResponse | null }
@@ -98,9 +112,10 @@ export function ServerForm({
         <p className="hint">
           配置 {preset.id} 需要 API key。
           {preset.apply_url.startsWith("https://") || preset.apply_url.startsWith("http://") ? (
-            <a href={preset.apply_url} target="_blank" rel="noreferrer">
+            <Link href={preset.apply_url} target="_blank" rel="noreferrer">
               申请 key
-            </a>
+              <Link.ExternalIcon />
+            </Link>
           ) : null}
         </p>
       ) : null}
@@ -131,18 +146,12 @@ export function ServerForm({
           value={values.description}
           onChange={(event) => patch({ description: event.target.value })}
         />
-        <label className="field">
-          认证
-          <select
-            value={values.auth}
-            onChange={(event) => setAuth(event.target.value as AuthChoice)}
-          >
-            {editing ? <option value="keep">保持不变</option> : null}
-            <option value="none">无凭据</option>
-            <option value="bearer">Bearer</option>
-            <option value="header">Header</option>
-          </select>
-        </label>
+        <Select
+          label="认证"
+          value={values.auth}
+          items={editing ? authItems : authItems.filter((item) => item.value !== "keep")}
+          onValueChange={(auth) => setAuth(auth ?? values.auth)}
+        />
         {values.auth === "header" ? (
           <Input
             label="Header 名"
@@ -161,14 +170,11 @@ export function ServerForm({
             onChange={(event) => patch({ secret: event.target.value })}
           />
         ) : null}
-        <label className="field">
-          <input
-            type="checkbox"
-            checked={values.healthCheck}
-            onChange={(event) => patch({ healthCheck: event.target.checked })}
-          />{" "}
-          测活
-        </label>
+        <Checkbox
+          label="测活"
+          checked={values.healthCheck}
+          onCheckedChange={(healthCheck) => patch({ healthCheck })}
+        />
         <Input
           label="rps"
           value={values.rps}
@@ -187,25 +193,17 @@ export function ServerForm({
           inputMode="numeric"
           onChange={(event) => patch({ maxConcurrent: event.target.value })}
         />
-        <label className="field">
-          完整性策略
-          <select
-            value={values.integrity}
-            onChange={(event) => patch({ integrity: event.target.value as InputIntegrityPolicy })}
-          >
-            <option value="warn">warn</option>
-            <option value="quarantine">quarantine</option>
-            <option value="block">block</option>
-          </select>
-        </label>
-        <label className="field">
-          <input
-            type="checkbox"
-            checked={values.defense}
-            onChange={(event) => patch({ defense: event.target.checked })}
-          />{" "}
-          防御
-        </label>
+        <Select
+          label="完整性策略"
+          value={values.integrity}
+          items={integrityItems}
+          onValueChange={(integrity) => patch({ integrity: integrity ?? values.integrity })}
+        />
+        <Checkbox
+          label="防御"
+          checked={values.defense}
+          onCheckedChange={(defense) => patch({ defense })}
+        />
         <Input
           label="结果预算"
           value={values.resultBudget}

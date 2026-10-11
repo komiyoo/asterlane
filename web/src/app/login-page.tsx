@@ -28,7 +28,7 @@ export function LoginPage({ phase, onRetry }: { phase: LoginPhase; onRetry: () =
 
   return (
     <main className="login">
-      <h1>
+      <h1 className="brand">
         星径 <span>控制台</span>
       </h1>
       <p className="hint">管理员 token 只保存在当前标签页。</p>

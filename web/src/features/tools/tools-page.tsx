@@ -1,4 +1,5 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Badge, Button, Input, Pagination, Table } from "@cloudflare/kumo";
+import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
 import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -26,6 +27,16 @@ const columns: { key: ToolSortKey | "actions"; label: string }[] = [
   { key: "description", label: "描述" },
   { key: "actions", label: "操作" },
 ];
+
+const paginationLabels = {
+  navigation: "分页",
+  firstPage: "第一页",
+  previousPage: "上一页",
+  nextPage: "下一页",
+  lastPage: "最后一页",
+  pageNumber: "页码",
+  pageSize: "每页条数",
+};
 
 export function ToolsPage() {
   const load = usePageLoad((signal) => listTools({ signal }), []);
@@ -63,35 +74,11 @@ export function ToolsPage() {
             setPage(1);
           }}
         />
-        <label className="field">
-          每页
-          <select
-            value={String(pageSize)}
-            onChange={(event) => {
-              setPageSize(Number(event.target.value));
-              setPage(1);
-            }}
-          >
-            <option value="10">10</option>
-            <option value="20">20</option>
-            <option value="50">50</option>
-          </select>
-        </label>
-        <Button type="button" disabled={view.page <= 1} onClick={() => setPage(view.page - 1)}>
-          上一页
-        </Button>
-        <Button
-          type="button"
-          disabled={view.page >= view.pageCount}
-          onClick={() => setPage(view.page + 1)}
-        >
-          下一页
-        </Button>
       </div>
       {load.data === undefined ? null : (
         <p className="hint">
-          已取得 {load.data.total_count} 条。筛选后 {view.filteredCount} 条，第 {view.page} /{" "}
-          {view.pageCount} 页。排序和分页只针对这些已取得的目录，不是全部历史。
+          已取得 {load.data.total_count} 条，筛选后 {view.filteredCount}{" "}
+          条。排序和分页只针对这些已取得的目录，不是全部历史。
         </p>
       )}
       {load.loading && load.data === undefined ? <LoadingState /> : null}
@@ -105,85 +92,100 @@ export function ToolsPage() {
         <EmptyState title="无匹配工具" />
       ) : null}
       {view.rows.length === 0 ? null : (
-        <div className="tablewrap">
-          <table
-            style={{
-              width: "100%",
-              tableLayout: widths.some((width) => width > 0) ? "fixed" : "auto",
-            }}
-          >
-            <thead>
-              <tr>
-                {columns.map((column, index) => (
-                  <th
-                    key={column.label}
-                    style={
-                      widths[index] > 0
-                        ? { width: `${widths[index]}px`, position: "relative" }
-                        : { position: "relative" }
-                    }
-                    aria-sort={
-                      column.key === "actions"
-                        ? undefined
-                        : sortKey === column.key
-                          ? direction === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                    }
-                  >
-                    {column.key === "actions" ? (
-                      column.label
-                    ) : (
+        <>
+          <div className="tablewrap">
+            <Table layout={widths.some((width) => width > 0) ? "fixed" : "auto"}>
+              <Table.Header variant="compact">
+                <Table.Row>
+                  {columns.map((column, index) => (
+                    <Table.Head
+                      key={column.label}
+                      style={widths[index] > 0 ? { width: `${widths[index]}px` } : undefined}
+                      aria-sort={
+                        column.key === "actions"
+                          ? undefined
+                          : sortKey === column.key
+                            ? direction === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                      }
+                    >
+                      {column.key === "actions" ? (
+                        column.label
+                      ) : (
+                        <button
+                          type="button"
+                          className="col-sort"
+                          onClick={() => {
+                            if (column.key !== "actions") {
+                              toggleSort(column.key);
+                            }
+                          }}
+                        >
+                          {column.label}
+                          {sortKey !== column.key ? null : direction === "asc" ? (
+                            <CaretUpIcon aria-hidden size={12} />
+                          ) : (
+                            <CaretDownIcon aria-hidden size={12} />
+                          )}
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => {
-                          if (column.key !== "actions") {
-                            toggleSort(column.key);
-                          }
-                        }}
-                      >
-                        {column.label}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label={`调整${column.label}列宽`}
-                      onPointerDown={(event) => onResizePointer(event, index, widths, setWidths)}
-                      onKeyDown={(event) => onResizeKey(event, index, setWidths)}
-                      style={{
-                        position: "absolute",
-                        right: 0,
-                        top: 0,
-                        width: 8,
-                        height: "100%",
-                        padding: 0,
-                        cursor: "col-resize",
-                      }}
-                    />
-                  </th>
+                        className="col-resize"
+                        aria-label={`调整${column.label}列宽`}
+                        onPointerDown={(event) => onResizePointer(event, index, widths, setWidths)}
+                        onKeyDown={(event) => onResizeKey(event, index, setWidths)}
+                      />
+                    </Table.Head>
+                  ))}
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {view.rows.map((tool) => (
+                  <ToolRows
+                    key={tool.name}
+                    tool={tool}
+                    debugOpen={debugName === tool.name}
+                    metaOpen={metaName === tool.name}
+                    onDebug={() =>
+                      setDebugName((current) => (current === tool.name ? null : tool.name))
+                    }
+                    onMeta={() =>
+                      setMetaName((current) => (current === tool.name ? null : tool.name))
+                    }
+                    onSaved={() => load.reload()}
+                  />
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {view.rows.map((tool) => (
-                <ToolRows
-                  key={tool.name}
-                  tool={tool}
-                  debugOpen={debugName === tool.name}
-                  metaOpen={metaName === tool.name}
-                  onDebug={() =>
-                    setDebugName((current) => (current === tool.name ? null : tool.name))
-                  }
-                  onMeta={() =>
-                    setMetaName((current) => (current === tool.name ? null : tool.name))
-                  }
-                  onSaved={() => load.reload()}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </Table.Body>
+            </Table>
+          </div>
+          <Pagination
+            className="pager"
+            page={view.page}
+            setPage={setPage}
+            perPage={pageSize}
+            totalCount={view.filteredCount}
+            labels={paginationLabels}
+          >
+            <Pagination.Info>
+              {({ pageShowingRange, totalCount }) =>
+                `第 ${pageShowingRange} 条，共 ${totalCount} 条`
+              }
+            </Pagination.Info>
+            <Pagination.PageSize
+              label="每页"
+              value={pageSize}
+              options={[10, 20, 50]}
+              onChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+            />
+            <Pagination.Controls />
+          </Pagination>
+        </>
       )}
     </section>
   );
@@ -206,42 +208,49 @@ function ToolRows({
 }) {
   return (
     <>
-      <tr>
-        <td>{tool.name}</td>
-        <td>{tool.resource_id}</td>
-        <td style={{ whiteSpace: "normal" }}>
+      <Table.Row>
+        <Table.Cell className="mono">{tool.name}</Table.Cell>
+        <Table.Cell>{tool.resource_id}</Table.Cell>
+        <Table.Cell className="wrap">
           {effectiveDescription(tool)}
           {tool.description_override === null ? null : (
-            <span title={`原始描述: ${tool.description || "（无）"}`}> 已覆盖</span>
+            <>
+              {" "}
+              <span title={`原始描述: ${tool.description || "（无）"}`}>
+                <Badge variant="neutral">已覆盖</Badge>
+              </span>
+            </>
           )}
-        </td>
-        <td>
-          <Button type="button" onClick={onDebug}>
-            调试
-          </Button>{" "}
-          <Button type="button" onClick={onMeta}>
-            介绍
-          </Button>
-        </td>
-      </tr>
+        </Table.Cell>
+        <Table.Cell>
+          <div className="row-actions">
+            <Button type="button" onClick={onDebug}>
+              调试
+            </Button>
+            <Button type="button" onClick={onMeta}>
+              介绍
+            </Button>
+          </div>
+        </Table.Cell>
+      </Table.Row>
       {metaOpen ? (
-        <tr>
-          <td colSpan={4}>
+        <Table.Row>
+          <Table.Cell colSpan={4}>
             <ToolMetadataPanel
               toolName={tool.name}
               original={tool.description}
               initialOverride={tool.description_override ?? ""}
               onSaved={onSaved}
             />
-          </td>
-        </tr>
+          </Table.Cell>
+        </Table.Row>
       ) : null}
       {debugOpen ? (
-        <tr>
-          <td colSpan={4}>
+        <Table.Row>
+          <Table.Cell colSpan={4}>
             <ToolDebugPanel toolName={tool.name} />
-          </td>
-        </tr>
+          </Table.Cell>
+        </Table.Row>
       ) : null}
     </>
   );

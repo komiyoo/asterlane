@@ -1,4 +1,4 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Button, Input, Select, Table } from "@cloudflare/kumo";
 import { useState, type FormEvent } from "react";
 import { getUsage, type OutputUsageSummaryResponse } from "../../api/index.ts";
 import { usePageLoad } from "../../app/use-page-load.ts";
@@ -19,7 +19,7 @@ const dimensions = [
 ] as const;
 
 interface UsageDraft {
-  groupBy: string;
+  groupBy: (typeof dimensions)[number]["value"];
   from: string;
   to: string;
 }
@@ -62,19 +62,12 @@ export function UsagePage() {
     <section className="page">
       <h2>用量</h2>
       <form className="toolbar" onSubmit={onSubmit}>
-        <label className="field">
-          <span>维度</span>
-          <select
-            value={draft.groupBy}
-            onChange={(event) => apply({ ...draft, groupBy: event.target.value })}
-          >
-            {dimensions.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="维度"
+          value={draft.groupBy}
+          items={dimensions}
+          onValueChange={(groupBy) => apply({ ...draft, groupBy: groupBy ?? "tool" })}
+        />
         <Input
           label="起始时间"
           type="datetime-local"
@@ -166,32 +159,32 @@ function UsageTable({ rows }: { rows: OutputUsageSummaryResponse[] }) {
   const showKind = rows.some((row) => row.request_kind !== null);
   return (
     <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            {showKind ? <th>类型</th> : null}
-            <th>维度</th>
-            <th>请求数</th>
-            <th>错误数</th>
-            <th>总单元</th>
-            <th>平均延迟(ms)</th>
-            <th>限流命中</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <Table.Header variant="compact">
+          <Table.Row>
+            {showKind ? <Table.Head>类型</Table.Head> : null}
+            <Table.Head>维度</Table.Head>
+            <Table.Head>请求数</Table.Head>
+            <Table.Head>错误数</Table.Head>
+            <Table.Head>总单元</Table.Head>
+            <Table.Head>平均延迟(ms)</Table.Head>
+            <Table.Head>限流命中</Table.Head>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {rows.map((row) => (
-            <tr key={rowKey(row)}>
-              {showKind ? <td>{formatRequestKind(row.request_kind)}</td> : null}
-              <td>{row.dimension_value}</td>
-              <td>{row.request_count}</td>
-              <td>{row.error_count}</td>
-              <td>{row.total_units}</td>
-              <td>{formatAverage(row.avg_latency_ms)}</td>
-              <td>{row.rate_limit_hits}</td>
-            </tr>
+            <Table.Row key={rowKey(row)}>
+              {showKind ? <Table.Cell>{formatRequestKind(row.request_kind)}</Table.Cell> : null}
+              <Table.Cell>{row.dimension_value}</Table.Cell>
+              <Table.Cell>{row.request_count}</Table.Cell>
+              <Table.Cell>{row.error_count}</Table.Cell>
+              <Table.Cell>{row.total_units}</Table.Cell>
+              <Table.Cell>{formatAverage(row.avg_latency_ms)}</Table.Cell>
+              <Table.Cell>{row.rate_limit_hits}</Table.Cell>
+            </Table.Row>
           ))}
-        </tbody>
-      </table>
+        </Table.Body>
+      </Table>
     </div>
   );
 }

@@ -28,6 +28,7 @@
 - `asl__batch` 的工具描述、参数说明和 `asterlane_tool_workflow` 写明既有批量契约：按输入顺序对齐结果；后一项不能使用前一项的返回值，也不能假定前一项的上游副作用已经可见；单项失败不中止其余项，也不回滚已成功的上游调用。执行行为不变。
 - **破坏性变更**：网关自身的 meta-tool 改名为 `asl__status`、`asl__search`、`asl__describe`、`asl__call`、`asl__batch`、`asl__fetch`，不保留旧名 alias。REST 路径 `/v1/tools/{name}/invoke` 中的 meta-tool 名与 CLI 同步变更。上游工具的暴露名不得以 `asl__` 开头。
 - **破坏性变更**：scope 已经覆盖某个上游 MCP server 的 key，升级后会在 `prompts/list`、`resources/list`、`resources/templates/list` 里看到该上游的 prompts、resources 与 templates（此前 `prompts/list` 只有网关自有的 `asterlane_tool_workflow`，网关没有开启 resources），并可调用 `prompts/get`、`resources/read`。没有新的配置字段；不想暴露时收窄 scope：用 `denied_tools` 匹配 `domain__provider__<名字>`，或把 server 移出 `allowed_servers`。`asterlane://{server_id}/{上游原 URI}` 是稳定的 URI 格式。
+- 控制台界面：导航改为 Kumo 侧栏，按「概览、资源与工具、访问控制、日志与审计、系统」分组并带图标，窄屏收进抽屉；表格、选择框、状态徽标、复选框和文本域改用 Kumo 组件；页面按需加载；颜色随系统深浅色切换。工具页的分页改为分页条（首页、上一页、页码、下一页、末页和每页条数），原来的「上一页」「下一页」按钮移除。MCP 服务的 `auth_required` 状态显示为「需要授权」，此前显示「未知」。
 
 ### Removed
 

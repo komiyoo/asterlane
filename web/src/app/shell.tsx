@@ -1,56 +1,171 @@
-import { RefreshButton } from "@cloudflare/kumo";
-import type { ReactElement } from "react";
-import { NavLink, Route, Routes } from "react-router";
-import { AuditPage } from "../features/audit/audit-page.tsx";
-import { ConfigPage } from "../features/config/config-page.tsx";
-import { EventsPage } from "../features/events/events-page.tsx";
-import { KeyPoolsPage } from "../features/key-pools/key-pools-page.tsx";
-import { McpPage } from "../features/mcp/mcp-page.tsx";
-import { OverviewPage } from "../features/overview/overview-page.tsx";
-import { ProxyKeysPage } from "../features/proxy-keys/proxy-keys-page.tsx";
-import { ResourcesPage } from "../features/resources/resources-page.tsx";
-import { SecurityPage } from "../features/security/security-page.tsx";
-import { ToolsPage } from "../features/tools/tools-page.tsx";
-import { UsagePage } from "../features/usage/usage-page.tsx";
+import { Badge, Button, RefreshButton, Sidebar, useSidebar } from "@cloudflare/kumo";
+import {
+  ChartBarIcon,
+  GearSixIcon,
+  GlobeIcon,
+  HouseIcon,
+  KeyIcon,
+  ListIcon,
+  PlugsIcon,
+  PulseIcon,
+  ScrollIcon,
+  ShieldWarningIcon,
+  StackIcon,
+  WrenchIcon,
+  type Icon,
+} from "@phosphor-icons/react";
+import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "react";
+import { matchPath, Route, Routes, useLocation } from "react-router";
 import { ConfirmDialog } from "../components/confirm-dialog.tsx";
+import { LoadingState } from "../components/loading-state.tsx";
 import { RefreshProvider } from "./refresh-context.tsx";
-import { consoleRoutes, type ConsolePath } from "./routes.ts";
+import { consoleGroups, consoleRoutes, type ConsolePath } from "./routes.ts";
 import { useRefresh } from "./use-refresh.ts";
 import { useSession } from "./use-session.ts";
 
-const pages: Record<ConsolePath, () => ReactElement> = {
-  "/": OverviewPage,
-  "/usage": UsagePage,
-  "/resources": ResourcesPage,
-  "/mcp-servers": McpPage,
-  "/tools": ToolsPage,
-  "/proxy-keys": ProxyKeysPage,
-  "/key-pools": KeyPoolsPage,
-  "/events": EventsPage,
-  "/security-events": SecurityPage,
-  "/audit": AuditPage,
-  "/config": ConfigPage,
+/** 每个页面单独成包：登录页和外壳先加载，进入页面时再取页面代码。 */
+const pages: Record<ConsolePath, LazyExoticComponent<ComponentType>> = {
+  "/": lazy(() =>
+    import("../features/overview/overview-page.tsx").then((m) => ({ default: m.OverviewPage })),
+  ),
+  "/usage": lazy(() =>
+    import("../features/usage/usage-page.tsx").then((m) => ({ default: m.UsagePage })),
+  ),
+  "/resources": lazy(() =>
+    import("../features/resources/resources-page.tsx").then((m) => ({
+      default: m.ResourcesPage,
+    })),
+  ),
+  "/mcp-servers": lazy(() =>
+    import("../features/mcp/mcp-page.tsx").then((m) => ({ default: m.McpPage })),
+  ),
+  "/tools": lazy(() =>
+    import("../features/tools/tools-page.tsx").then((m) => ({ default: m.ToolsPage })),
+  ),
+  "/proxy-keys": lazy(() =>
+    import("../features/proxy-keys/proxy-keys-page.tsx").then((m) => ({
+      default: m.ProxyKeysPage,
+    })),
+  ),
+  "/key-pools": lazy(() =>
+    import("../features/key-pools/key-pools-page.tsx").then((m) => ({ default: m.KeyPoolsPage })),
+  ),
+  "/events": lazy(() =>
+    import("../features/events/events-page.tsx").then((m) => ({ default: m.EventsPage })),
+  ),
+  "/security-events": lazy(() =>
+    import("../features/security/security-page.tsx").then((m) => ({ default: m.SecurityPage })),
+  ),
+  "/audit": lazy(() =>
+    import("../features/audit/audit-page.tsx").then((m) => ({ default: m.AuditPage })),
+  ),
+  "/config": lazy(() =>
+    import("../features/config/config-page.tsx").then((m) => ({ default: m.ConfigPage })),
+  ),
+};
+
+const icons: Record<ConsolePath, Icon> = {
+  "/": HouseIcon,
+  "/usage": ChartBarIcon,
+  "/resources": GlobeIcon,
+  "/mcp-servers": PlugsIcon,
+  "/tools": WrenchIcon,
+  "/proxy-keys": KeyIcon,
+  "/key-pools": StackIcon,
+  "/events": PulseIcon,
+  "/security-events": ShieldWarningIcon,
+  "/audit": ScrollIcon,
+  "/config": GearSixIcon,
 };
 
 export function Shell({ version }: { version: string }) {
   return (
     <RefreshProvider>
-      <ShellFrame version={version} />
+      <Sidebar.Provider className="console">
+        <ConsoleNav />
+        <ConsoleMain version={version} />
+      </Sidebar.Provider>
     </RefreshProvider>
   );
 }
 
-function ShellFrame({ version }: { version: string }) {
-  const { refresh } = useRefresh();
-  const { client } = useSession();
+function Brand() {
+  return (
+    <p className="brand">
+      星径 <span>控制台</span>
+    </p>
+  );
+}
+
+function ConsoleNav() {
+  const { pathname } = useLocation();
+  const { open, isMobile, setOpenMobile } = useSidebar();
+  // 窄屏上导航是抽屉，点任一项后收起；点的是当前页时地址不变，所以不能等换页再收。
+  const closeDrawer = isMobile ? () => setOpenMobile(false) : undefined;
 
   return (
-    <div className="app-shell">
+    <Sidebar role="navigation" aria-label="控制台页面" className="console-nav">
+      <Sidebar.Header>
+        <Brand />
+      </Sidebar.Header>
+      <Sidebar.Content>
+        {consoleGroups.map((group) => (
+          <Sidebar.Group key={group.label}>
+            <Sidebar.GroupLabel>{group.label}</Sidebar.GroupLabel>
+            <Sidebar.Menu>
+              {group.routes.map((route) => {
+                const active = matchPath({ path: route.path, end: true }, pathname) !== null;
+                return (
+                  <Sidebar.MenuButton
+                    key={route.path}
+                    href={route.path}
+                    icon={icons[route.path]}
+                    active={active}
+                    aria-current={active ? "page" : undefined}
+                    tooltip={route.label}
+                    onClick={closeDrawer}
+                  >
+                    {route.label}
+                  </Sidebar.MenuButton>
+                );
+              })}
+            </Sidebar.Menu>
+          </Sidebar.Group>
+        ))}
+      </Sidebar.Content>
+      {isMobile ? null : (
+        <Sidebar.Footer>
+          <Sidebar.Trigger aria-label={open ? "收起导航" : "展开导航"} />
+        </Sidebar.Footer>
+      )}
+    </Sidebar>
+  );
+}
+
+function ConsoleMain({ version }: { version: string }) {
+  const { refresh } = useRefresh();
+  const { client } = useSession();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  return (
+    <div className="console-main">
       <header className="topbar">
-        <h1>
-          星径 <span>控制台</span>
-        </h1>
-        <p className="hint">已连接 · v{version}</p>
+        {isMobile ? (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              shape="square"
+              icon={ListIcon}
+              aria-label="打开导航"
+              onClick={() => setOpenMobile(true)}
+            />
+            <Brand />
+          </>
+        ) : null}
+        <Badge variant="success" appearance="dot">
+          已连接 · v{version}
+        </Badge>
         <div className="topbar-actions">
           <RefreshButton aria-label="刷新当前页" onClick={refresh} />
           <ConfirmDialog
@@ -62,15 +177,8 @@ function ShellFrame({ version }: { version: string }) {
           />
         </div>
       </header>
-      <div className="shell-body">
-        <nav aria-label="控制台页面">
-          {consoleRoutes.map((route) => (
-            <NavLink key={route.path} to={route.path} end={route.path === "/"}>
-              {route.label}
-            </NavLink>
-          ))}
-        </nav>
-        <main className="view">
+      <main className="view">
+        <Suspense fallback={<LoadingState />}>
           <Routes>
             {consoleRoutes.map((route) => {
               const Page = pages[route.path];
@@ -78,8 +186,8 @@ function ShellFrame({ version }: { version: string }) {
             })}
             <Route path="*" element={<p className="hint">未找到页面</p>} />
           </Routes>
-        </main>
-      </div>
+        </Suspense>
+      </main>
     </div>
   );
 }

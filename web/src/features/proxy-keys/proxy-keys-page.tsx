@@ -1,4 +1,4 @@
-import { Button } from "@cloudflare/kumo";
+import { Badge, Button, Table } from "@cloudflare/kumo";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   commitIfCurrent,
@@ -314,41 +314,43 @@ function KeyTable({
 }) {
   return (
     <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>显示名</th>
-            <th>认证</th>
-            <th>用量</th>
-            <th>服务</th>
-            <th>工具</th>
-            <th>限额</th>
-            <th>正则范围</th>
-            <th>页大小</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <Table.Header variant="compact">
+          <Table.Row>
+            <Table.Head>ID</Table.Head>
+            <Table.Head>显示名</Table.Head>
+            <Table.Head>认证</Table.Head>
+            <Table.Head>用量</Table.Head>
+            <Table.Head>服务</Table.Head>
+            <Table.Head>工具</Table.Head>
+            <Table.Head>限额</Table.Head>
+            <Table.Head>正则范围</Table.Head>
+            <Table.Head>页大小</Table.Head>
+            <Table.Head>操作</Table.Head>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {keys.map((key) => (
-            <tr key={key.id}>
-              <td>{key.id}</td>
-              <td>{key.display_name}</td>
-              <td>
-                <span className={key.auth_mode === "token" ? "ok" : "hint"}>{key.auth_mode}</span>
+            <Table.Row key={key.id}>
+              <Table.Cell>{key.id}</Table.Cell>
+              <Table.Cell>{key.display_name}</Table.Cell>
+              <Table.Cell>
+                <Badge variant={key.auth_mode === "token" ? "success" : "neutral"} appearance="dot">
+                  {key.auth_mode}
+                </Badge>
                 {key.expires_at === null ? null : <div className="hint">到期 {key.expires_at}</div>}
-              </td>
-              <td>
+              </Table.Cell>
+              <Table.Cell>
                 <div>总 {quota(key.usage.calls_total, key.usage.max_calls)}</div>
                 <div>日 {quota(key.usage.calls_today, key.usage.max_calls_per_day)}</div>
-              </td>
-              <td>{key.allowed_servers.join(", ")}</td>
-              <td>{key.allowed_tool_names.join(", ")}</td>
-              <td>{limitText(key)}</td>
-              <td>{regexText(key)}</td>
-              <td>{key.default_tool_page_size}</td>
-              <td>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              </Table.Cell>
+              <Table.Cell>{key.allowed_servers.join(", ")}</Table.Cell>
+              <Table.Cell>{key.allowed_tool_names.join(", ")}</Table.Cell>
+              <Table.Cell>{limitText(key)}</Table.Cell>
+              <Table.Cell>{regexText(key)}</Table.Cell>
+              <Table.Cell>{key.default_tool_page_size}</Table.Cell>
+              <Table.Cell>
+                <div className="row-actions">
                   <Button type="button" disabled={busy} onClick={() => onEdit(key)}>
                     {`编辑 ${key.id}`}
                   </Button>
@@ -374,11 +376,11 @@ function KeyTable({
                     onConfirm={() => onDelete(key.id)}
                   />
                 </div>
-              </td>
-            </tr>
+              </Table.Cell>
+            </Table.Row>
           ))}
-        </tbody>
-      </table>
+        </Table.Body>
+      </Table>
     </div>
   );
 }

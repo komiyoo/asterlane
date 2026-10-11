@@ -1,11 +1,6 @@
-import { Button, Input, Textarea } from "@cloudflare/kumo";
+import { Button, Input, Select, Table, Textarea } from "@cloudflare/kumo";
 import { useRef, useState, type FormEvent } from "react";
-import {
-  createResource,
-  deleteResource,
-  listResources,
-  type InputLoadBalanceStrategy,
-} from "../../api/index.ts";
+import { createResource, deleteResource, listResources } from "../../api/index.ts";
 import { usePageLoad } from "../../app/use-page-load.ts";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { EmptyState } from "../../components/empty-state.tsx";
@@ -20,6 +15,14 @@ import {
   validateResourceDraft,
   type ResourceDraft,
 } from "./draft.ts";
+
+const authItems: { value: ResourceDraft["authType"]; label: string }[] = [
+  { value: "none", label: "none" },
+  { value: "bearer", label: "bearer" },
+  { value: "header", label: "header" },
+];
+
+const strategyItems = STRATEGIES.map((strategy) => ({ value: strategy, label: strategy }));
 
 export function ResourcesPage() {
   const load = usePageLoad((signal) => listResources({ signal }), []);
@@ -136,30 +139,30 @@ export function ResourcesPage() {
       {load.data !== undefined && load.data.length === 0 ? <EmptyState title="无资源" /> : null}
       {load.data !== undefined && load.data.length > 0 ? (
         <div className="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>领域</th>
-                <th>提供商</th>
-                <th>基础 URL</th>
-                <th>认证</th>
-                <th>池大小</th>
-                <th>端点数</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table>
+            <Table.Header variant="compact">
+              <Table.Row>
+                <Table.Head>ID</Table.Head>
+                <Table.Head>领域</Table.Head>
+                <Table.Head>提供商</Table.Head>
+                <Table.Head>基础 URL</Table.Head>
+                <Table.Head>认证</Table.Head>
+                <Table.Head>池大小</Table.Head>
+                <Table.Head>端点数</Table.Head>
+                <Table.Head>操作</Table.Head>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
               {load.data.map((resource) => (
-                <tr key={resource.id}>
-                  <td>{resource.id}</td>
-                  <td>{resource.domain}</td>
-                  <td>{resource.provider}</td>
-                  <td>{resource.base_url}</td>
-                  <td>{resource.auth_type}</td>
-                  <td>{resource.key_pool_size}</td>
-                  <td>{resource.endpoint_count}</td>
-                  <td>
+                <Table.Row key={resource.id}>
+                  <Table.Cell>{resource.id}</Table.Cell>
+                  <Table.Cell>{resource.domain}</Table.Cell>
+                  <Table.Cell>{resource.provider}</Table.Cell>
+                  <Table.Cell>{resource.base_url}</Table.Cell>
+                  <Table.Cell>{resource.auth_type}</Table.Cell>
+                  <Table.Cell>{resource.key_pool_size}</Table.Cell>
+                  <Table.Cell>{resource.endpoint_count}</Table.Cell>
+                  <Table.Cell>
                     <ConfirmDialog
                       label={`删除 ${resource.id}`}
                       title="删除资源"
@@ -168,11 +171,11 @@ export function ResourcesPage() {
                       confirmLabel="确认删除"
                       onConfirm={() => onDelete(resource.id)}
                     />
-                  </td>
-                </tr>
+                  </Table.Cell>
+                </Table.Row>
               ))}
-            </tbody>
-          </table>
+            </Table.Body>
+          </Table>
         </div>
       ) : null}
       {load.error !== null && load.data !== undefined ? (
@@ -229,19 +232,12 @@ function ResourceForm({
           value={draft.description}
           onChange={(event) => patch({ description: event.target.value })}
         />
-        <label className="field">
-          <span>认证</span>
-          <select
-            value={draft.authType}
-            onChange={(event) =>
-              patch({ authType: event.target.value as ResourceDraft["authType"] })
-            }
-          >
-            <option value="none">none</option>
-            <option value="bearer">bearer</option>
-            <option value="header">header</option>
-          </select>
-        </label>
+        <Select
+          label="认证"
+          value={draft.authType}
+          items={authItems}
+          onValueChange={(authType) => patch({ authType: authType ?? "none" })}
+        />
         {draft.authType === "bearer" ? (
           <Input
             label="Token 引用"
@@ -270,21 +266,12 @@ function ResourceForm({
             />
           </>
         ) : null}
-        <label className="field">
-          <span>池策略</span>
-          <select
-            value={draft.strategy}
-            onChange={(event) =>
-              patch({ strategy: event.target.value as InputLoadBalanceStrategy })
-            }
-          >
-            {STRATEGIES.map((strategy) => (
-              <option key={strategy} value={strategy}>
-                {strategy}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="池策略"
+          value={draft.strategy}
+          items={strategyItems}
+          onValueChange={(strategy) => patch({ strategy: strategy ?? draft.strategy })}
+        />
       </div>
       <Textarea
         label="密钥池引用"

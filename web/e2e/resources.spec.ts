@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
-import { E2E_ADMIN_TOKEN } from "./fixture.ts";
+import { choose, E2E_ADMIN_TOKEN } from "./fixture.ts";
 
 async function login(page: Page, token = E2E_ADMIN_TOKEN) {
   await page.goto("/");
@@ -36,7 +36,7 @@ test("creates none, bearer, header, and pool resources on the gateway", async ({
   await page.getByLabel("ID").fill("e2e-res-none");
   await page.getByLabel("领域").fill("search");
   await page.getByLabel("基础 URL").fill("https://example.test/none");
-  await page.getByLabel("认证").selectOption("none");
+  await choose(page, "认证", "none");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(
     page.getByRole("row").filter({ hasText: "e2e-res-none" }).getByRole("cell").nth(4),
@@ -50,7 +50,7 @@ test("creates none, bearer, header, and pool resources on the gateway", async ({
   await page.getByLabel("ID").fill("e2e-res-bearer");
   await page.getByLabel("领域").fill("search");
   await page.getByLabel("基础 URL").fill("https://example.test/bearer");
-  await page.getByLabel("认证").selectOption("bearer");
+  await choose(page, "认证", "bearer");
   await page.getByLabel("Token 引用").fill("secret://e2e/bearer");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(
@@ -61,7 +61,7 @@ test("creates none, bearer, header, and pool resources on the gateway", async ({
   await page.getByLabel("ID").fill("e2e-res-header");
   await page.getByLabel("领域").fill("search");
   await page.getByLabel("基础 URL").fill("https://example.test/header");
-  await page.getByLabel("认证").selectOption("header");
+  await choose(page, "认证", "header");
   await page.getByLabel("Header 名").fill("x-api-key");
   await page.getByLabel("Header 引用").fill("secret://e2e/header");
   await page.getByRole("button", { name: "创建", exact: true }).click();
@@ -74,9 +74,9 @@ test("creates none, bearer, header, and pool resources on the gateway", async ({
   await page.getByLabel("领域").fill("search");
   await page.getByLabel("提供商").fill("e2e");
   await page.getByLabel("基础 URL").fill("https://example.test/pool");
-  await page.getByLabel("认证").selectOption("bearer");
+  await choose(page, "认证", "bearer");
   await page.getByLabel("Token 引用").fill("secret://e2e/pool-auth");
-  await page.getByLabel("池策略").selectOption("weighted");
+  await choose(page, "池策略", "weighted");
   await page.getByLabel("密钥池引用").fill("secret://e2e/pool-a\nsecret://e2e/pool-b");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   const poolRow = page.getByRole("row").filter({ hasText: "e2e-res-pool" });
@@ -108,7 +108,7 @@ test("rejects a bad secret ref, keeps input, and shows a duplicate as a server e
   await page.getByLabel("ID").fill("e2e-res-bad-secret");
   await page.getByLabel("领域").fill("search");
   await page.getByLabel("基础 URL").fill("https://example.test/bad");
-  await page.getByLabel("认证").selectOption("bearer");
+  await choose(page, "认证", "bearer");
   await page.getByLabel("Token 引用").fill("secret://tavily/");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("脱敏");
@@ -121,7 +121,7 @@ test("rejects a bad secret ref, keeps input, and shows a duplicate as a server e
   expect(posts).toBe(0);
 
   await page.getByLabel("ID").fill("e2e-res-none");
-  await page.getByLabel("认证").selectOption("none");
+  await choose(page, "认证", "none");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("already exists");
   await expect(page.getByLabel("ID")).toHaveValue("e2e-res-none");

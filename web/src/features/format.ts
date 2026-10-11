@@ -18,10 +18,6 @@ export function formatRequestStatus(status: OutputRequestStatus): string {
   return status.kind;
 }
 
-export function statusClass(status: OutputRequestStatus): string {
-  return status.kind === "Success" ? "ok" : "err";
-}
-
 export function formatAverage(value: number): string {
   return value.toFixed(1);
 }

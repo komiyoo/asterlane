@@ -1,4 +1,4 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Button, Input, Select, Table } from "@cloudflare/kumo";
 import { useState, type FormEvent } from "react";
 import {
   listSecurityEvents,
@@ -21,6 +21,12 @@ const kinds: readonly OutputSecurityEventKind[] = [
   "integrity_hint_flipped",
   "content_defense_flag",
   "admin_audit",
+];
+
+/** 空串表示全部类型。 */
+const kindItems = [
+  { value: "", label: "全部类型" },
+  ...kinds.map((kind) => ({ value: kind, label: kind })),
 ];
 
 interface SecurityQuery {
@@ -63,20 +69,12 @@ export function SecurityPage() {
     <section className="page">
       <h2>安全事件</h2>
       <form className="toolbar" onSubmit={onSubmit}>
-        <label className="field">
-          <span>类型</span>
-          <select
-            value={draft.kind}
-            onChange={(event) => setDraft({ ...draft, kind: event.target.value })}
-          >
-            <option value="">全部类型</option>
-            {kinds.map((kind) => (
-              <option key={kind} value={kind}>
-                {kind}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="类型"
+          value={draft.kind}
+          items={kindItems}
+          onValueChange={(kind) => setDraft({ ...draft, kind: kind ?? "" })}
+        />
         <Input
           label="资源 ID"
           value={draft.resource}
@@ -121,32 +119,32 @@ function SecurityResults({
 function SecurityTable({ rows }: { rows: OutputSecurityEventResponse[] }) {
   return (
     <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>资源</th>
-            <th>工具</th>
-            <th>类型</th>
-            <th>严重度</th>
-            <th>详情</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table>
+        <Table.Header variant="compact">
+          <Table.Row>
+            <Table.Head>时间</Table.Head>
+            <Table.Head>资源</Table.Head>
+            <Table.Head>工具</Table.Head>
+            <Table.Head>类型</Table.Head>
+            <Table.Head>严重度</Table.Head>
+            <Table.Head>详情</Table.Head>
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
           {rows.map((row, index) => (
-            <tr key={`${row.timestamp}-${row.kind}-${index}`}>
-              <td>{row.timestamp}</td>
-              <td>{row.resource_id}</td>
-              <td>{row.tool_name ?? ""}</td>
-              <td>{row.kind}</td>
-              <td>{row.severity}</td>
-              <td>
+            <Table.Row key={`${row.timestamp}-${row.kind}-${index}`}>
+              <Table.Cell>{row.timestamp}</Table.Cell>
+              <Table.Cell>{row.resource_id}</Table.Cell>
+              <Table.Cell>{row.tool_name ?? ""}</Table.Cell>
+              <Table.Cell>{row.kind}</Table.Cell>
+              <Table.Cell>{row.severity}</Table.Cell>
+              <Table.Cell>
                 <pre>{jsonText(row.details)}</pre>
-              </td>
-            </tr>
+              </Table.Cell>
+            </Table.Row>
           ))}
-        </tbody>
-      </table>
+        </Table.Body>
+      </Table>
     </div>
   );
 }
