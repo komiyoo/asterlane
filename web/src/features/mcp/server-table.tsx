@@ -15,6 +15,7 @@ import { formatOptionalNumber } from "../format.ts";
 import { effectiveDescription } from "../tools/catalog.ts";
 import { ToolDebugPanel } from "../tools/debug-panel.tsx";
 import { ToolMetadataPanel } from "../tools/metadata-panel.tsx";
+import { OAuthActions, oauthStatusText } from "./oauth-actions.tsx";
 
 export type DetailState =
   | { status: "loading" }
@@ -32,6 +33,7 @@ export function ServerTable({
   onProbe,
   onEdit,
   onDelete,
+  onDeauthorize,
   onRefreshDetail,
 }: {
   servers: OutputMcpServerResponse[];
@@ -44,6 +46,7 @@ export function ServerTable({
   onProbe: (id: string) => void;
   onEdit: (server: OutputMcpServerResponse) => void;
   onDelete: (id: string) => void;
+  onDeauthorize: (id: string) => void;
   onRefreshDetail: (id: string) => void;
 }) {
   const [debugName, setDebugName] = useState<string | null>(null);
@@ -87,6 +90,7 @@ export function ServerTable({
                 onProbe={() => onProbe(server.id)}
                 onEdit={() => onEdit(server)}
                 onDelete={() => onDelete(server.id)}
+                onDeauthorize={onDeauthorize}
                 onRefreshDetail={() => onRefreshDetail(server.id)}
                 onDebug={(name) => setDebugName((current) => (current === name ? null : name))}
                 onMeta={(name) => setMetaName((current) => (current === name ? null : name))}
@@ -112,6 +116,7 @@ function ServerRows({
   onProbe,
   onEdit,
   onDelete,
+  onDeauthorize,
   onRefreshDetail,
   onDebug,
   onMeta,
@@ -128,6 +133,7 @@ function ServerRows({
   onProbe: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDeauthorize: (id: string) => void;
   onRefreshDetail: () => void;
   onDebug: (name: string) => void;
   onMeta: (name: string) => void;
@@ -174,6 +180,11 @@ function ServerRows({
               resource={server.id}
               confirmLabel="确认删除"
               onConfirm={onDelete}
+            />
+            <OAuthActions
+              key={`${server.oauth?.grant ?? ""}:${server.oauth?.status ?? ""}`}
+              server={server}
+              onDeauthorize={onDeauthorize}
             />
           </div>
           {probeError === null ? null : <FormMessage tone="error">{probeError}</FormMessage>}
@@ -231,6 +242,13 @@ function ServerDetail({
       </p>
       {health.last_error === null ? null : <p className="err">最近错误：{health.last_error}</p>}
       <p>测活：{detail.health_check_enabled ? "开启" : "关闭"}</p>
+      {detail.oauth === null ? null : (
+        <p>
+          授权：{oauthStatusText(detail.oauth.status)}（{detail.oauth.status}） · {detail.oauth.grant}{" "}
+          · 到期 {detail.oauth.expires_at ?? "—"}
+          {detail.oauth.expires_at ? "（到期前自动刷新，不必重新授权）" : ""}
+        </p>
+      )}
       <p>
         限额：rps {detail.limits.rps ?? "—"} · rpm {detail.limits.rpm ?? "—"} · 最大并发{" "}
         {detail.limits.max_concurrent ?? "—"}

@@ -1,12 +1,13 @@
 import type {
   InputIntegrityPolicy,
   InputMcpServerWriteParams,
+  InputOAuthGrant,
   InputUpstreamAuth,
   OutputMcpPresetResponse,
   OutputMcpServerResponse,
 } from "../../api/index.ts";
 
-export type AuthChoice = "keep" | "none" | "bearer" | "header";
+export type AuthChoice = "keep" | "none" | "bearer" | "header" | "oauth";
 
 export interface McpFormValues {
   id: string;
@@ -17,6 +18,10 @@ export interface McpFormValues {
   auth: AuthChoice;
   secret: string;
   headerName: string;
+  grant: InputOAuthGrant;
+  clientId: string;
+  clientSecretRef: string;
+  scopes: string;
   healthCheck: boolean;
   rps: string;
   rpm: string;
@@ -42,6 +47,10 @@ export function emptyMcpForm(): McpFormValues {
     auth: "none",
     secret: "",
     headerName: "",
+    grant: "authorization_code",
+    clientId: "",
+    clientSecretRef: "",
+    scopes: "",
     healthCheck: true,
     rps: "",
     rpm: "",
@@ -61,6 +70,10 @@ export function formFromServer(server: OutputMcpServerResponse): McpFormValues {
     url: server.url,
     description: server.description,
     auth: "keep",
+    grant: oauthGrant(server.oauth?.grant),
+    clientId: server.oauth?.client_id ?? "",
+    clientSecretRef: server.oauth?.client_secret_ref ?? "",
+    scopes: (server.oauth?.scopes ?? []).join(" "),
     healthCheck: server.health_check_enabled,
     rps: numberText(server.limits.rps),
     rpm: numberText(server.limits.rpm),
@@ -149,12 +162,15 @@ function authValue(
       return fail("新建服务需要选择认证方式");
     }
     if (secret !== "") {
-      return fail("选择了保持不变，请清空 secret 引用，或改成 Bearer / Header");
+      return fail("选择了保持不变，请清空 secret 引用，或改成 Bearer、Header 或 OAuth");
     }
     return { ok: true, value: undefined };
   }
   if (values.auth === "none") {
     return { ok: true, value: { type: "none" } };
+  }
+  if (values.auth === "oauth") {
+    return oauthAuth(values);
   }
   if (!isSecretRef(secret)) {
     return fail("只接受 secret:// 引用，不接受明文密钥");
@@ -167,6 +183,49 @@ function authValue(
     return fail("Header 名不能为空");
   }
   return { ok: true, value: { type: "header", name, value_ref: secret } };
+}
+
+function oauthAuth(
+  values: McpFormValues,
+): { ok: true; value: InputUpstreamAuth } | { ok: false; message: string } {
+  const clientId = values.clientId.trim();
+  const secret = values.clientSecretRef.trim();
+  const scopes = readScopes(values.scopes);
+  if (secret !== "" && !isSecretRef(secret)) {
+    return fail("只接受 secret:// 引用，不接受明文密钥");
+  }
+  if (values.grant === "client_credentials") {
+    if (clientId === "") {
+      return fail("client_credentials 需要 client_id");
+    }
+    if (secret === "") {
+      return fail("client_credentials 需要 client secret 引用");
+    }
+  } else if (secret !== "" && clientId === "") {
+    return fail("填写 client secret 引用时必须同时填写 client_id");
+  }
+  return {
+    ok: true,
+    value: {
+      type: "oauth",
+      grant: values.grant,
+      ...(clientId === "" ? {} : { client_id: clientId }),
+      ...(secret === "" ? {} : { client_secret_ref: secret }),
+      ...(scopes.length === 0 ? {} : { scopes }),
+    },
+  };
+}
+
+function oauthGrant(grant: string | undefined): InputOAuthGrant {
+  return grant === "client_credentials" ? "client_credentials" : "authorization_code";
+}
+
+function readScopes(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return [];
+  }
+  return trimmed.split(/\s+/);
 }
 
 function readLimits(

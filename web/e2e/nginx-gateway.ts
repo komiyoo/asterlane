@@ -146,12 +146,26 @@ async function main(): Promise<void> {
   const tokenPath = path.join(directory, "admin-token");
   const configPath = path.join(directory, "gateway.yaml");
   const databasePath = path.join(directory, "e2e.db");
+  const gatewayPort = await freePort();
+  const keyPath = path.join(directory, "oauth-key");
   await writeFile(tokenPath, `${E2E_ADMIN_TOKEN}\n`, { mode: 0o600 });
+  // 32 个 0 的 base64。只用来满足 authorization_code 的启动校验，不是真实密钥。
+  await writeFile(keyPath, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n", { mode: 0o600 });
   await writeFile(
     configPath,
-    `admin:\n  keys:\n    - id: e2e-ops\n      token_ref: "secret://file/${tokenPath}"\napi_resources: []\nproxy_keys: []\n`,
+    [
+      "admin:",
+      "  keys:",
+      "    - id: e2e-ops",
+      `      token_ref: "secret://file/${tokenPath}"`,
+      "oauth:",
+      `  redirect_base_url: "http://127.0.0.1:${gatewayPort}"`,
+      `  token_encryption_key_ref: "secret://file/${keyPath}"`,
+      "api_resources: []",
+      "proxy_keys: []",
+      "",
+    ].join("\n"),
   );
-  const gatewayPort = await freePort();
   await writeFile(gatewayPortFile(), `${gatewayPort}\n`, { mode: 0o600 });
   const gateway = track(
     spawn(
