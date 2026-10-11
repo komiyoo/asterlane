@@ -15,7 +15,7 @@ use crate::secrets::DefaultSecretStore;
 use crate::semantic::SemanticIndex;
 use crate::shaping::ResultCache;
 use crate::store::SqliteRequestEventRepository;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, MutexGuard, RwLock};
 
 /// HTTP handler 共享的应用状态。
 ///
@@ -32,6 +32,17 @@ pub struct AppState {
     /// `RwLock<Arc<>>` 允许 CRUD 写路径原子替换配置快照，
     /// 读路径 `.read().await.clone()` 得到 `Arc<GatewayConfig>` 后立即释放锁。
     pub config: Arc<tokio::sync::RwLock<Arc<GatewayConfig>>>,
+    /// 本进程的管理写锁。
+    ///
+    /// 改配置的接口在读快照之前取得它，一直持有到 `swap_config_and_catalog`
+    /// 和落库都完成。只改 catalog 的路径（工具介绍覆盖、授权后重连、后台刷新、
+    /// 按需探测）在请求上游期间不持锁，只在写入 catalog 时取得。
+    ///
+    /// 限制：只串行化本进程。MCP 服务的创建与修改在锁内连接上游，其他管理写
+    /// 最长会等一个连接超时。多副本要由多租户计划改成数据库事务加版本号。
+    /// `tokio::sync::Mutex` 不可重入，已持有本锁的函数不能再调用会取得它的函数，
+    /// 否则死锁。守卫用 `let _guard` 持有；`let _ =` 会立刻放开。
+    pub admin_write: Arc<Mutex<()>>,
     /// 工具目录（从配置构建，按 key scope 与 query 过滤）。
     pub catalog: Arc<RwLock<ToolCatalog>>,
     /// Secret resolver used by invoke routes.
@@ -81,6 +92,7 @@ impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
             .field("config", &"<rwlock>")
+            .field("admin_write", &"<mutex>")
             .field("limit_registry", &"<rwlock>")
             .field("event_repo", &self.event_repo)
             .field(
@@ -97,6 +109,7 @@ impl AppState {
         Self {
             gateway_auth: Arc::new(RwLock::new(gateway_auth)),
             config: Arc::new(tokio::sync::RwLock::new(Arc::new(config))),
+            admin_write: Arc::new(Mutex::new(())),
             catalog: Arc::new(RwLock::new(catalog)),
             secrets: Arc::new(DefaultSecretStore::with_backends()),
             http_client: reqwest::Client::new(),
@@ -192,6 +205,14 @@ impl AppState {
     /// 供 `call_tool` / `invoke` 在调用上游前检查。读锁短暂持有。
     pub async fn quarantine_policy(&self, wire_name: &str) -> Option<IntegrityPolicy> {
         self.quarantined_tools.read().await.get(wire_name).copied()
+    }
+
+    /// 取得管理写锁。限制见 [`Self::admin_write`]。
+    ///
+    /// 返回的守卫要绑定成 `let _guard`，并持有到临界区结束。已持有这把锁时
+    /// 不能再调用本方法。
+    pub async fn lock_admin_write(&self) -> MutexGuard<'_, ()> {
+        self.admin_write.lock().await
     }
 
     /// 获取配置快照（读锁瞬间释放），下游代码直接使用 `Arc<GatewayConfig>`。

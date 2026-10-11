@@ -48,10 +48,15 @@ impl AppState {
             .as_ref()
             .ok_or_else(|| McpError::unknown_server(server_id))?;
         let health = registry.reconnect(server_id, self.secrets.as_ref()).await?;
-        self.catalog
-            .write()
-            .await
-            .replace_mcp_tools(registry.all_wrapped_tools(), &registry.mcp_resource_ids());
+        {
+            // 重连在锁外。写 catalog 时才排队，并在锁内读取当前工具列表，
+            // 避免用重连前的快照盖掉并发的配置替换。
+            let _guard = self.lock_admin_write().await;
+            self.catalog
+                .write()
+                .await
+                .replace_mcp_tools(registry.all_wrapped_tools(), &registry.mcp_resource_ids());
+        }
         let descriptors: Vec<ToolDescriptor> = registry
             .all_descriptors()
             .into_iter()
@@ -68,7 +73,7 @@ impl AppState {
     /// 即时触发时上游通知的 server id（周期触发为 `None`）。步骤：
     /// 1. `registry.refresh_with_secrets()` 重新拉取上游 `tools/list`
     ///    （unreachable 的 server 用 secrets 自动重连，恢复后并入其工具）。
-    /// 2. `catalog.replace_mcp_tools()` 更新工具快照。
+    /// 2. 持管理写锁，`catalog.replace_mcp_tools()` 更新工具快照（上游拉取不持锁）。
     /// 3. `check_drift()` 检测 drift → 写 security event → 更新隔离集合 → rebase baseline。
     /// 4. `notify_peers_tool_list_changed()` 向 legacy session 与
     ///    `subscriptions/listen` 通道推送通知。
@@ -94,12 +99,15 @@ impl AppState {
             );
         }
 
-        let new_tools = registry.all_wrapped_tools();
-        let mcp_ids = registry.mcp_resource_ids();
-        self.catalog
-            .write()
-            .await
-            .replace_mcp_tools(new_tools, &mcp_ids);
+        {
+            // 上游拉取已结束。写 catalog 时才排队，并在锁内再读 registry，
+            // 避免用刷新开始前的工具列表盖掉刚完成的增删改。
+            let _guard = self.lock_admin_write().await;
+            self.catalog
+                .write()
+                .await
+                .replace_mcp_tools(registry.all_wrapped_tools(), &registry.mcp_resource_ids());
+        }
 
         let config = self.config_snapshot().await;
         crate::integrity::check_drift(

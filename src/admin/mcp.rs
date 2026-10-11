@@ -3,9 +3,10 @@
 //!
 //! 列表 = 配置快照 `mcp_servers` 与 registry 健康快照按 id 合并；网关未配
 //! 任何 MCP server 启动时（registry 不存在）health 全 `unknown`。
-//! 写路径流程：输入校验（400）→ registry 增删改 → `swap_config_and_catalog`
-//! 原子替换 → registry 快照同步 catalog + integrity baseline rebase →
-//! DB best-effort 持久化 → `AdminAudit`。响应永不含明文密钥；除 OAuth server 的
+//! 写路径流程：输入校验（400）→ 取得管理写锁 → registry 增删改（创建与修改
+//! 在锁内连接上游）→ `swap_config_and_catalog` 原子替换 → registry 快照同步
+//! catalog + integrity baseline rebase → DB best-effort 持久化 → `AdminAudit`。
+//! 响应永不含明文密钥；除 OAuth server 的
 //! `oauth` 段外也不含 secret ref（该段回显 `client_secret_ref` 供编辑表单使用）。
 
 use std::collections::HashMap;
@@ -212,6 +213,7 @@ pub(super) async fn create_server(
     Extension(admin): Extension<AdminKeyId>,
     Json(input): Json<McpServerWriteParams>,
 ) -> Result<(StatusCode, Json<McpServerResponse>), AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     let server = input.into_config(None, config.oauth.as_ref())?;
     // 重复 id 预检（含 api_resources——catalog 按 resource_id 分片，不允许互撞），干净 400
@@ -250,6 +252,7 @@ pub(super) async fn update_server(
 ) -> Result<Json<McpServerResponse>, AsterlaneError> {
     // 省略 auth 表示保留已有 secret ref。响应不回显引用，编辑端无法原样重传。
     let preserve_auth = input.auth.is_none();
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     let mut server = input.into_config(Some(&id), config.oauth.as_ref())?;
     let Some(existing_auth) = config.mcp_server(&id).map(|item| item.auth.clone()) else {
@@ -289,6 +292,7 @@ pub(super) async fn delete_server(
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if config.mcp_server(&id).is_none() {
         return Err(not_found(&id));
@@ -328,6 +332,8 @@ pub(super) async fn probe_server(
 ) -> Result<Json<McpHealthResponse>, AsterlaneError> {
     let registry = require_registry(&state)?;
     let health = registry.probe(&id, state.secrets.as_ref()).await?;
+    // 探测在锁外。写 catalog 时再排队，避免盖掉并发的配置替换。
+    let _guard = state.lock_admin_write().await;
     sync_catalog_from_registry(&state, &registry).await;
     Ok(Json(McpHealthResponse::from_health(&health)))
 }
@@ -335,6 +341,9 @@ pub(super) async fn probe_server(
 // ── registry → catalog/baseline 同步 ──
 
 /// registry 当前快照同步进 catalog（`replace_mcp_tools` 内部重放介绍 override）。
+///
+/// 调用方必须已经持有 `AppState::admin_write`，并在持锁期间再读 registry。
+/// 本函数不再取锁。
 async fn sync_catalog_from_registry(state: &AppState, registry: &McpServerRegistry) {
     let tools = registry.all_wrapped_tools();
     let ids = registry.mcp_resource_ids();

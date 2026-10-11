@@ -1,7 +1,8 @@
 //! Admin CRUD 路由：resources / proxy keys 写路径、配置校验（见 docs/admin/admin-console.md C3）。
 //!
 //! 所有写操作落审计事件（`SecurityEventKind::AdminAudit`），
-//! 完成后原子替换内存配置 + 重建 catalog。
+//! 完成后原子替换内存配置 + 重建 catalog。改配置的写接口在读快照前取得
+//! `AppState::admin_write`，持有到替换和落库结束。
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -38,6 +39,7 @@ pub(super) async fn create_resource(
     Extension(admin): Extension<AdminKeyId>,
     Json(input): Json<ResourceWriteParams>,
 ) -> Result<Json<CreatedResponse>, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if config.api_resources.iter().any(|r| r.id == input.id) {
         return Err(AsterlaneError::internal(
@@ -65,6 +67,7 @@ pub(super) async fn update_resource(
     Path(id): Path<String>,
     Json(input): Json<ResourceWriteParams>,
 ) -> Result<Json<UpdatedResponse>, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if !config.api_resources.iter().any(|r| r.id == id) {
         return Err(AsterlaneError::internal(
@@ -94,6 +97,7 @@ pub(super) async fn delete_resource(
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
 ) -> Result<Json<DeletedResponse>, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if !config.api_resources.iter().any(|r| r.id == id) {
         return Err(AsterlaneError::internal(
@@ -124,6 +128,7 @@ pub(super) async fn create_proxy_key(
     Extension(admin): Extension<AdminKeyId>,
     Json(input): Json<ProxyKeyWriteParams>,
 ) -> Result<Json<CreatedResponse>, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if config.proxy_keys.iter().any(|k| k.id == input.id) {
         return Err(AsterlaneError::internal(
@@ -150,6 +155,7 @@ pub(super) async fn update_proxy_key(
     Path(id): Path<String>,
     Json(input): Json<ProxyKeyWriteParams>,
 ) -> Result<Json<UpdatedResponse>, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if !config.proxy_keys.iter().any(|k| k.id == id) {
         return Err(AsterlaneError::internal(
@@ -186,6 +192,7 @@ pub(super) async fn delete_proxy_key(
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
 ) -> Result<Json<DeletedResponse>, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if !config.proxy_keys.iter().any(|k| k.id == id) {
         return Err(AsterlaneError::internal(
@@ -325,6 +332,10 @@ fn proxy_key_from_input(input: &ProxyKeyWriteParams) -> ProxyKey {
 /// 配额。gateway 认证随每次 swap 从新快照重建：CRUD 增删 key、token 签发/
 /// 吊销即时生效（见 docs/runtime/key-credentials-and-persistence.md K1）。
 /// mcp-servers CRUD（`super::mcp`）与 token 端点（`super::tokens`）复用。
+///
+/// 调用方必须已经持有 `state.admin_write`。本函数读取旧 catalog 的介绍覆盖
+/// 和 MCP 工具再整体替换；读和写之间若让出这把锁，并发的 catalog 写入会被
+/// 旧快照盖掉。这里不再取锁：`tokio::sync::Mutex` 不可重入。
 pub(super) async fn swap_config_and_catalog(
     state: &AppState,
     new_config: GatewayConfig,
