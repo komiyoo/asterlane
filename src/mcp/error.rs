@@ -10,6 +10,7 @@
 //! - `Secret` → `auth.missing_upstream_secret`
 //! - `UpstreamFailure` → `mcp.upstream_mcp_failure` → tool result `isError: true`
 //! - `UpstreamAuthRequired` → `mcp.upstream_auth_required` → tool result `isError: true`
+//! - `EgressBlocked` → `proxy.egress_blocked` → tool result `isError: true`
 //! - `UnknownServer` → `admin.not_found`（治理路径 404，不进 JSON-RPC 边界）
 
 use crate::error::{AsterlaneError, ErrorCode};
@@ -47,6 +48,10 @@ pub enum McpError {
     #[error("upstream MCP server requires administrator authorization")]
     UpstreamAuthRequired,
 
+    /// 出站地址校验拒绝。映射到 `proxy.egress_blocked`。消息固定，不含地址。
+    #[error("upstream address is not allowed")]
+    EgressBlocked,
+
     /// secret 解析失败（复用 `SecretError` → `auth.missing_upstream_secret`）。
     #[error(transparent)]
     Secret(#[from] SecretError),
@@ -79,6 +84,10 @@ impl McpError {
         }
     }
 
+    pub fn egress_blocked() -> Self {
+        Self::EgressBlocked
+    }
+
     pub fn unknown_server(server_id: impl Into<String>) -> Self {
         Self::UnknownServer {
             server_id: server_id.into(),
@@ -88,8 +97,8 @@ impl McpError {
 
 /// 把 `McpError` 映射为顶层 `AsterlaneError`。
 ///
-/// 使用 `AsterlaneError::internal(code, message)` 构造 `Internal` 变体，
-/// 不修改 `src/error.rs`。`message` 取自 `McpError` 的 `Display` 输出
+/// 使用 `AsterlaneError::internal(code, message)` 构造 `Internal` 变体。
+/// 错误码在 `src/error.rs` 登记。`message` 取自 `McpError` 的 `Display` 输出
 /// （已脱敏），由 `AsterlaneError::mcp_error()` 在边界处转换为
 /// `McpErrorForm`（`-32601` / `-32602` / `ToolResultIsError`）。
 impl From<McpError> for AsterlaneError {
@@ -110,6 +119,10 @@ impl From<McpError> for AsterlaneError {
             McpError::UpstreamAuthRequired => (
                 ErrorCode::McpUpstreamAuthRequired,
                 McpError::UpstreamAuthRequired.to_string(),
+            ),
+            McpError::EgressBlocked => (
+                ErrorCode::ProxyEgressBlocked,
+                McpError::EgressBlocked.to_string(),
             ),
             McpError::Secret(err) => return err.into(),
             McpError::UnknownServer { server_id } => (
@@ -144,6 +157,20 @@ mod tests {
     fn upstream_failure_maps_to_mcp_upstream_failure() {
         let err = AsterlaneError::from(McpError::upstream_failure("connection refused"));
         assert_eq!(err.error_code(), ErrorCode::McpUpstreamMcpFailure);
+    }
+
+    #[test]
+    fn egress_blocked_uses_the_proxy_code_and_hides_addresses() {
+        let err = AsterlaneError::from(McpError::egress_blocked());
+        assert_eq!(err.error_code(), ErrorCode::ProxyEgressBlocked);
+        assert_eq!(err.exit_code(), 6);
+        assert_eq!(err.http_response().status, 403);
+        assert!(matches!(
+            err.mcp_error(),
+            McpErrorForm::ToolResultIsError(ref message)
+                if message == "upstream address is not allowed"
+        ));
+        assert!(!err.to_string().contains("169.254.169.254"));
     }
 
     #[test]

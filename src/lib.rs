@@ -4,6 +4,7 @@ pub mod cli;
 pub mod config;
 pub mod defense;
 pub mod discovery;
+mod egress;
 pub mod error;
 pub mod gateway_auth;
 pub mod http;

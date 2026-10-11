@@ -12,6 +12,7 @@ mod support;
 
 mod admin_contracts;
 mod background_tasks;
+mod egress;
 mod gateway_auth;
 mod http_boundary;
 mod integrity_drift;

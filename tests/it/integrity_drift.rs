@@ -82,6 +82,7 @@ fn config_with_quarantine_policy() -> asterlane::config::GatewayConfig {
         mcp: Default::default(),
         builtin_mcp: Vec::new(),
         oauth: None,
+        egress: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "srv-a".to_string(),
@@ -269,6 +270,7 @@ async fn drift_with_warn_policy_does_not_quarantine() {
         mcp: Default::default(),
         builtin_mcp: Vec::new(),
         oauth: None,
+        egress: Default::default(),
         api_resources: Vec::new(),
         mcp_servers: vec![McpServerConfig {
             id: "srv-a".to_string(),

@@ -3,14 +3,15 @@
 //!
 //! `ProxyError` 描述 proxy 执行层在工具解析、凭据注入、上游调用、
 //! 重试与 failover 环节的错误，通过 `From<ProxyError> for AsterlaneError`
-//! 接入顶层错误，映射到 `AsterlaneError::Internal { code, message }`
-//! （见 `src/error.rs`），不修改 `src/error.rs`。
+//! 接入顶层错误，映射到 `AsterlaneError::Internal { code, message }`。
+//! 错误码在 `src/error.rs` 登记。
 //!
 //! 错误码选择（见 error-model.md）：
 //! - `UpstreamTimeout` → `proxy.upstream_timeout`（HTTP 504）
 //! - `RetryExhausted` → `proxy.retry_exhausted`（HTTP 502）
 //! - `UpstreamError` → `proxy.upstream_error`（HTTP 502）
 //! - `ConnectionFailed` → `proxy.connection_failed`（HTTP 504）
+//! - `EgressBlocked` → `proxy.egress_blocked`（HTTP 403；MCP tool `isError`）
 //! - `UnknownTool` → `catalog.unknown_tool`（HTTP 404）
 //! - `UnknownResource` → `config.unknown_resource`（HTTP 500）
 //! - `ForbiddenTool` → `auth.forbidden_tool`（HTTP 403）
@@ -48,6 +49,10 @@ pub enum ProxyError {
     /// 上游连接失败（DNS/TCP/TLS 层）。
     #[error("upstream connection failed")]
     ConnectionFailed,
+
+    /// 出站地址校验拒绝。消息固定，不含解析出的地址。
+    #[error("upstream address is not allowed")]
+    EgressBlocked,
 
     /// 调用的工具不存在（wire name 无法在 catalog 中找到）。
     #[error("unknown tool: {0}")]
@@ -88,8 +93,8 @@ pub enum ProxyError {
 
 /// 把 `ProxyError` 映射为顶层 `AsterlaneError`。
 ///
-/// 使用 `AsterlaneError::internal(code, message)` 构造 `Internal` 变体，
-/// 不修改 `src/error.rs`。对于 `Secret`/`KeyPool`/`Limit`/`Policy` 变体，
+/// 使用 `AsterlaneError::internal(code, message)` 构造 `Internal` 变体。
+/// 错误码在 `src/error.rs` 登记。对于 `Secret`/`KeyPool`/`Limit`/`Policy` 变体，
 /// 复用各模块已有的 `From<ModuleError> for AsterlaneError` 映射，
 /// 保证错误码与边界转换一致。`message` 取自 `ProxyError` 的 `Display`
 /// 输出（已脱敏），不含 Authorization header、Bearer token 或上游响应体。
@@ -111,6 +116,10 @@ impl From<ProxyError> for AsterlaneError {
             ProxyError::ConnectionFailed => AsterlaneError::internal(
                 ErrorCode::ProxyConnectionFailed,
                 "upstream connection failed",
+            ),
+            ProxyError::EgressBlocked => AsterlaneError::internal(
+                ErrorCode::ProxyEgressBlocked,
+                "upstream address is not allowed",
             ),
             ProxyError::UnknownTool(name) => AsterlaneError::internal(
                 ErrorCode::CatalogUnknownTool,
@@ -173,6 +182,19 @@ mod tests {
         let err = AsterlaneError::from(ProxyError::ConnectionFailed);
         assert_eq!(err.error_code(), ErrorCode::ProxyConnectionFailed);
         assert_eq!(err.exit_code(), 6);
+    }
+
+    #[test]
+    fn egress_blocked_maps_to_proxy_egress_blocked_without_an_address() {
+        let err = AsterlaneError::from(ProxyError::EgressBlocked);
+        assert_eq!(err.error_code(), ErrorCode::ProxyEgressBlocked);
+        assert_eq!(err.http_response().status, 403);
+        assert_eq!(err.to_string(), "proxy.egress_blocked: upstream address is not allowed");
+        assert!(!err.to_string().contains("10.0.0.1"));
+        assert!(matches!(
+            err.mcp_error(),
+            McpErrorForm::ToolResultIsError(_)
+        ));
     }
 
     #[test]

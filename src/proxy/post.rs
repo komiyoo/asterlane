@@ -294,7 +294,10 @@ fn joined_text(tool_result: &ToolCallResult) -> String {
 pub(super) fn request_status_from_proxy_error(err: &ProxyError) -> RequestStatus {
     match err {
         ProxyError::UpstreamTimeout { .. } => RequestStatus::Timeout,
-        ProxyError::ConnectionFailed => RequestStatus::ConnectionFailed,
+        // RequestStatus 没有单独的策略拒绝状态，出站拒绝与连接失败记成同一项。
+        ProxyError::ConnectionFailed | ProxyError::EgressBlocked => {
+            RequestStatus::ConnectionFailed
+        }
         ProxyError::UpstreamError(status) => RequestStatus::UpstreamError(*status),
         ProxyError::RetryExhausted { .. } => RequestStatus::UpstreamError(0),
         ProxyError::Mcp(_) => RequestStatus::UpstreamError(0),

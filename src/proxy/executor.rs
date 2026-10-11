@@ -79,6 +79,10 @@ pub struct ProxyExecutor<
     pub(super) secrets: Arc<S>,
     pub(super) event_repo: Option<Arc<R>>,
     pub(super) http: reqwest::Client,
+    /// `egress.block_private_addresses`。关闭时不检查地址，沿用注入的 client。
+    pub(super) block_private: bool,
+    /// 受控 client 是否建成。没建成时拒绝全部 URL，避免退回未校验的 client。
+    pub(super) egress_dns_pinned: bool,
     pub(super) mcp_registry: Option<Arc<McpServerRegistry>>,
     pub(super) key_pools: Option<Arc<KeyPoolRegistry>>,
     pub(super) limits: Option<Arc<LimitRegistry>>,
@@ -102,6 +106,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                 &self.event_repo.as_ref().map(|_| "<RequestEventRepository>"),
             )
             .field("http", &self.http)
+            .field("block_private", &self.block_private)
+            .field("egress_dns_pinned", &self.egress_dns_pinned)
             .field(
                 "mcp_registry",
                 &self.mcp_registry.as_ref().map(|_| "<McpServerRegistry>"),
@@ -123,6 +129,24 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
     }
 }
 
+/// 开关关闭时原样使用注入的 client。打开时换成带 DNS 过滤的 client；
+/// 构建失败则保留原 client，但标记为未固定，后续请求一律拒绝。
+fn prepare_http(
+    config: &GatewayConfig,
+    http: reqwest::Client,
+) -> (reqwest::Client, bool, bool) {
+    if !config.egress.block_private_addresses {
+        return (http, false, false);
+    }
+    match crate::egress::guarded_client(crate::egress::RedirectMode::Follow, None, None) {
+        Ok(guarded) => (guarded, true, true),
+        Err(error) => {
+            tracing::error!(%error, "failed to build egress-guarded HTTP client");
+            (http, true, false)
+        }
+    }
+}
+
 impl<S: SecretStore> ProxyExecutor<S> {
     /// 构造执行器。
     pub fn new(
@@ -131,12 +155,15 @@ impl<S: SecretStore> ProxyExecutor<S> {
         secrets: Arc<S>,
         http: reqwest::Client,
     ) -> Self {
+        let (http, block_private, egress_dns_pinned) = prepare_http(&config, http);
         Self {
             config,
             catalog,
             secrets,
             event_repo: None,
             http,
+            block_private,
+            egress_dns_pinned,
             mcp_registry: None,
             key_pools: None,
             limits: None,
@@ -223,6 +250,8 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             secrets: self.secrets,
             event_repo: Some(event_repo),
             http: self.http,
+            block_private: self.block_private,
+            egress_dns_pinned: self.egress_dns_pinned,
             mcp_registry: self.mcp_registry,
             key_pools: self.key_pools,
             limits: self.limits,
@@ -510,6 +539,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: vec![ApiResource {
                 id: "tavily".to_string(),
                 domain: "search".to_string(),
@@ -560,6 +590,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: vec![ApiResource {
                 id: "exa".to_string(),
                 domain: "search".to_string(),
@@ -676,6 +707,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: vec![],
             mcp_servers: Vec::new(),
             proxy_keys: config_with_tavily.proxy_keys.clone(),
@@ -774,6 +806,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -931,6 +964,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1061,6 +1095,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1134,6 +1169,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1506,6 +1542,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1769,6 +1806,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),
@@ -1837,6 +1875,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),

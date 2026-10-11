@@ -81,6 +81,7 @@ fn test_config() -> GatewayConfig {
         mcp: Default::default(),
         builtin_mcp: Vec::new(),
         oauth: None,
+        egress: Default::default(),
         api_resources: vec![ApiResource {
             id: "tavily".to_string(),
             domain: "search".to_string(),

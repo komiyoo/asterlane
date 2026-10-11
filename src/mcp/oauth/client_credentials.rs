@@ -157,9 +157,9 @@ pub(super) async fn connect(
         ));
     };
     let id = server.id.as_str();
-    let mut manager = AuthorizationManager::new(server.url.as_str())
-        .await
-        .map_err(|e| setup_failure(id, "client setup", &e))?;
+    let mut manager = oauth
+        .authorization_manager(id, server.url.as_str())
+        .await?;
     let resolution = manager
         .resolve_metadata()
         .await
