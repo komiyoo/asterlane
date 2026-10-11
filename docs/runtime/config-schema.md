@@ -4,10 +4,12 @@ title: Gateway Configuration Schema
 description: Documents the YAML configuration for upstream API resources, OpenAPI discovery, proxy key scopes, and tool discovery queries.
 resource: docs/runtime/config-schema.md
 tags: [configuration, schema, credentials, discovery]
-timestamp: 2026-10-10T00:00:00Z
+timestamp: 2026-10-11T00:00:00Z
 ---
 
 # Context
+
+[English](config-schema.en.md)
 
 The initial gateway config is YAML. It should be easy to review in git and later migrate into a database-backed control plane. 配置向后兼容，新增字段有默认值，详见 [Compatibility Policy](../architecture/compatibility-policy.md)。
 

@@ -9,6 +9,8 @@ timestamp: 2026-10-11T00:00:00Z
 
 # 运行网关
 
+[English](running.en.md)
+
 管理口令、本机端口和镜像版本的缺省在 [`.env.schema`](../../.env.schema)。从源码启动和安装后启动使用 [`examples/gateway.yaml`](../../examples/gateway.yaml)。发布镜像使用仓库根的 `run.yaml`。在线的 `admin` 与 `tools` 只连接已经运行的网关，不读取配置文件。
 
 `secret://exa/default` 对应环境变量 `EXA_DEFAULT`；从源码走 Exa 示例时，把 `EXA_DEFAULT` 换成你自己的 key。没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。签发 token 的那一步需要 `jq`。
