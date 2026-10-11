@@ -1,10 +1,10 @@
 ---
 type: Development Workflow
 title: 发布流程
-description: 版本策略、CHANGELOG 约定、发布步骤，以及 tag 触发的发布流水线（二进制、镜像、GitHub Release）和首次发布注意事项。
+description: 版本策略、CHANGELOG 约定、发布步骤，以及 tag 触发的发布流水线（二进制、网关镜像、控制台镜像、GitHub Release）和首次发布注意事项。
 resource: docs/engineering/release-process.md
 tags: [release, versioning, changelog, ci, docker]
-timestamp: 2026-10-01T00:00:00Z
+timestamp: 2026-10-11T00:00:00Z
 ---
 
 # 背景
@@ -36,13 +36,13 @@ timestamp: 2026-10-01T00:00:00Z
 4. 提交（建议 `chore(release): vX.Y.Z`）并合入 main。
 5. 在该提交上打带注释的 tag：`git tag -a vX.Y.Z -m "vX.Y.Z"`。
 6. 由维护者推送 tag：`git push origin vX.Y.Z`。编码代理不打 tag、不推 tag。
-7. 在 Actions 里确认 Release 运行成功，检查 Release 页的附件，并 `docker pull ghcr.io/komiyoo/asterlane:X.Y.Z`。
+7. 在 Actions 里确认 Release 运行成功，检查 Release 页的附件，并拉取两个镜像：`docker pull ghcr.io/komiyoo/asterlane:X.Y.Z` 与 `docker pull ghcr.io/komiyoo/asterlane-web:X.Y.Z`。
 
 失败与回退：
 
 - 流水线中途失败时，修复原因后用 Actions 的 “Re-run failed jobs” 重跑。GitHub Release 在二进制与镜像都成功后才创建，构建阶段的失败不会留下空 Release；如果失败发生在 `release` job 的上传阶段，先到 Releases 页删除残留的 Release 再重跑。
-- 如果 tag 本身打错且 Release 与镜像尚未发布，可以删除本地和远程 tag 后重打。
-- 已经发布的版本不要改写：镜像 tag 和 `latest` 已被拉取，Release 已通知订阅者。发下一个 patch 修正。
+- 如果 tag 本身打错且 Release 与两个镜像都尚未发布，可以删除本地和远程 tag 后重打。
+- 已经发布的版本不要改写：任一镜像的 tag 和 `latest` 已被拉取，或 Release 已通知订阅者，都算已经发布。发下一个 patch 修正。两个镜像的版本标签保持相同，不要只重推其中一个。
 
 # 流水线
 
@@ -52,9 +52,11 @@ timestamp: 2026-10-01T00:00:00Z
 | --- | --- | --- | --- |
 | `validate` | `ubuntu-latest` | tag 必须是 `vX.Y.Z`，且去掉 `v` 后等于 `Cargo.toml` 的 `version`，也等于 `Cargo.lock` 中 `asterlane` 的版本；`CHANGELOG.md` 必须有 `## [X.Y.Z]` 小节 | 无 |
 | `binaries` | matrix：`ubuntu-latest`、`ubuntu-24.04-arm`、`macos-latest`（均为原生 runner） | `cargo build --release --locked --target <triple>`，运行 `--help` 冒烟，打包 tar.gz 并生成 `.sha256` | 无 |
-| `image` | matrix：`ubuntu-latest`（linux/amd64）、`ubuntu-24.04-arm`（linux/arm64） | 每个架构在原生 runner 上用 `Dockerfile` 构建，按摘要（push-by-digest）推送，不用 QEMU 编译 Rust | `packages: write` |
-| `image-manifest` | `ubuntu-latest` | 用 `docker buildx imagetools create` 把两个摘要合成多架构 manifest，打 `X.Y.Z` 与 `latest` 标签 | `packages: write` |
-| `release` | `ubuntu-latest` | 前三个 job 全部成功后，从 CHANGELOG 抽出本版本小节作为说明，`gh release create` 创建 Release 并上传全部附件 | `contents: write` |
+| `image` | matrix：`ubuntu-latest`（linux/amd64）、`ubuntu-24.04-arm`（linux/arm64） | 每个架构在原生 runner 上用 `Dockerfile` 构建网关镜像，按摘要（push-by-digest）推送，不用 QEMU 编译 Rust | `packages: write` |
+| `image-manifest` | `ubuntu-latest` | 用 `docker buildx imagetools create` 把网关的两个摘要合成多架构 manifest，打 `X.Y.Z` 与 `latest` 标签 | `packages: write` |
+| `web-image` | 与 `image` 相同的 matrix | 每个架构在原生 runner 上用 `web/Dockerfile` 构建控制台镜像。build arg 传入 `GIT_COMMIT`（tag 的提交号）和 `ASSET_LABEL=release`；Node、Bun、`vp`、Nginx 的版本用 Dockerfile 里的缺省。按摘要推送 | `packages: write` |
+| `web-image-manifest` | `ubuntu-latest` | 用 `docker buildx imagetools create` 把控制台的两个摘要合成多架构 manifest，打与网关相同的 `X.Y.Z` 与 `latest` 标签 | `packages: write` |
+| `release` | `ubuntu-latest` | `binaries` 与两个 manifest job 全部成功后，从 CHANGELOG 抽出本版本小节作为说明，`gh release create` 创建 Release 并上传全部附件 | `contents: write` |
 
 # 产物
 
@@ -62,7 +64,10 @@ timestamp: 2026-10-01T00:00:00Z
 | --- | --- | --- |
 | 二进制 | GitHub Release 附件 `asterlane-X.Y.Z-<triple>.tar.gz` | 目标为 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin`；包内含 `asterlane`、`LICENSE`、`README.md` |
 | 校验和 | 同名 `.sha256` 附件 | 在附件所在目录执行 `sha256sum -c asterlane-X.Y.Z-<triple>.tar.gz.sha256` |
-| 镜像 | `ghcr.io/komiyoo/asterlane:X.Y.Z` 与 `:latest` | linux/amd64 + linux/arm64 多架构 manifest，镜像名必须全小写 |
+| 网关镜像 | `ghcr.io/komiyoo/asterlane:X.Y.Z` 与 `:latest` | linux/amd64 + linux/arm64 多架构 manifest，镜像名必须全小写 |
+| 控制台镜像 | `ghcr.io/komiyoo/asterlane-web:X.Y.Z` 与 `:latest` | 与网关镜像由同一个 tag 触发，版本标签相同。linux/amd64 + linux/arm64。镜像内是静态文件和 Nginx，构建参数见 `web/Dockerfile` |
+
+一起运行这两个镜像用仓库根的 [`compose.release.yaml`](../../compose.release.yaml)。`ASTERLANE_VERSION` 的缺省是 `.env.schema` 里的 `0.1.0`，两个服务使用同一个 tag。
 
 使用限制：
 
@@ -78,11 +83,11 @@ timestamp: 2026-10-01T00:00:00Z
 
 本机无法运行 GitHub Actions，流水线的第一次真实运行发生在维护者推送 tag 时，请留意以下几点。
 
-- **GHCR package 默认私有。** workflow 首次推送会创建 `asterlane` package，初始可见性为私有。需要匿名拉取时，维护者在 GitHub 的 package 设置中改为 Public；该操作只能在网页端由有权限的账号完成。镜像带有 `org.opencontainers.image.source` 标签，会自动关联到仓库。
-- **Arm runner。** `ubuntu-24.04-arm` 对公开仓库可直接使用；私有仓库需先确认账号是否可用 Arm runner 及其计费，否则 arm64 的 `binaries` 与 `image` 会一直排队。
+- **GHCR package 默认私有。** workflow 首次推送会创建 `asterlane` 与 `asterlane-web` 两个 package，初始可见性都是私有。需要匿名拉取时，维护者在 GitHub 的 package 设置中把两个都改为 Public；该操作只能在网页端由有权限的账号完成。只改其中一个时，另一个仍然拉不下来。两个镜像都带有 `org.opencontainers.image.source` 标签，会自动关联到仓库。
+- **Arm runner。** `ubuntu-24.04-arm` 对公开仓库可直接使用；私有仓库需先确认账号是否可用 Arm runner 及其计费，否则 arm64 的 `binaries`、`image` 与 `web-image` 会一直排队。
 - **仓库设置。** 组织或仓库如果限制了 Actions 的默认 token 权限、tag 创建，或对 `v*` tag 设了规则，需要允许 workflow 申请 `packages: write` 与 `contents: write`，并允许维护者创建 `v*` tag。
 - **首个 tag。** `v0.1.0` 要求 `Cargo.toml` 与 `Cargo.lock` 已是 `0.1.0`（当前即是），并把 CHANGELOG 整理出 `## [0.1.0]` 小节。
-- **首次失败后的处理。** 如果第一次运行失败且 Release 与镜像尚未发布，修复后删除并重打 tag；如果镜像已推送，则按「已经发布的版本不要改写」处理，改发 `v0.1.1`。
+- **首次失败后的处理。** 如果第一次运行失败且 Release 与两个镜像都尚未发布，修复后删除并重打 tag；如果任一镜像已推送，则按「已经发布的版本不要改写」处理，改发 `v0.1.1`。
 
 # Citations
 

@@ -1,0 +1,42 @@
+# 使用已发布的镜像，不在本机构建。
+# 镜像版本、管理口令和本机端口的缺省与 .env.schema 相同。
+# 与 compose.yaml 的服务、端口、卷和网络相同；在同一目录启动时，gateway-data 卷可以沿用。
+# 首个版本发布前，下面两个镜像还没有可拉取的 tag。
+services:
+  gateway:
+    image: ghcr.io/komiyoo/asterlane:${ASTERLANE_VERSION:-0.1.0}
+    restart: always
+    ports:
+      - "127.0.0.1:${ASTERLANE_GATEWAY_PORT:-3721}:3000"
+    volumes:
+      - ./run.yaml:/etc/asterlane/config.yaml:ro
+      - gateway-data:/data
+    # 未设置时的缺省与 .env.schema 相同。
+    environment:
+      - ASTERLANE_ADMIN_TOKEN=${ASTERLANE_ADMIN_TOKEN:-demo-admin-token-2026}
+    command:
+      - serve
+      - --config=/etc/asterlane/config.yaml
+      - --database-url=sqlite:/data/asterlane.db?mode=rwc
+      - --bind=0.0.0.0:3000
+    networks:
+      - asterlane
+
+  web:
+    image: ghcr.io/komiyoo/asterlane-web:${ASTERLANE_VERSION:-0.1.0}
+    restart: always
+    depends_on:
+      gateway:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${ASTERLANE_WEB_PORT:-3722}:8080"
+    environment:
+      ASTERLANE_GATEWAY_UPSTREAM: gateway:3000
+    networks:
+      - asterlane
+
+networks:
+  asterlane:
+
+volumes:
+  gateway-data:
