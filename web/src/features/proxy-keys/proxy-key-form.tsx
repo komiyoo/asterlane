@@ -1,10 +1,9 @@
-import { Button, Input, Select } from "@cloudflare/kumo";
+import { Button, Combobox, Input, Select } from "@cloudflare/kumo";
 import { useState, type FormEvent } from "react";
 import { FormMessage } from "../../components/form-message.tsx";
 import type { ProxyKeyDraft } from "./draft.ts";
 import {
   matchingTools,
-  mergeVisibleSelection,
   serverChoices,
   serverLabel,
   toolChoices,
@@ -40,10 +39,8 @@ export function ProxyKeyForm({
   const serverOptions = serverChoices(servers, draft.allowedServers);
   const toolOptions = toolChoices(tools, draft.allowedToolNames);
   const visibleTools = matchingTools(toolOptions, toolFilter, toolServer);
-  const visibleNames = new Set(visibleTools.map((tool) => tool.name));
-  const hiddenSelected = toolOptions.filter(
-    (tool) => draft.allowedToolNames.includes(tool.name) && !visibleNames.has(tool.name),
-  );
+  // 下拉里只有过滤后的工具。value 保存全部已选，过滤不会把看不见的已选项清掉。
+  const visibleToolNames = visibleTools.map((tool) => tool.name);
 
   function patch(partial: Partial<ProxyKeyDraft>) {
     onChange({ ...draft, ...partial });
@@ -101,32 +98,16 @@ export function ProxyKeyForm({
         />
       </div>
       <div className="toolbar">
-        <label className="field">
-          <span>允许的服务</span>
-          <select
-            multiple
-            size={6}
-            value={draft.allowedServers}
-            disabled={busy}
-            onChange={(event) => {
-              const picked = [...event.target.selectedOptions].map((option) => option.value);
-              patch({
-                allowedServers: mergeVisibleSelection(
-                  draft.allowedServers,
-                  serverOptions.map((server) => server.id),
-                  picked,
-                ),
-              });
-            }}
-          >
-            {serverOptions.map((server) => (
-              <option key={server.id} value={server.id}>
-                {serverLabel(server)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="field">
+        <MultiPicker
+          label="允许的服务"
+          items={serverOptions.map((server) => server.id)}
+          value={draft.allowedServers}
+          disabled={busy}
+          itemLabel={(id) => serverText(serverOptions, id)}
+          empty="无匹配服务"
+          onChange={(allowedServers) => patch({ allowedServers })}
+        />
+        <div className="scope-tools">
           <Input
             label="工具过滤"
             value={toolFilter}
@@ -143,36 +124,15 @@ export function ProxyKeyForm({
             ]}
             onValueChange={(server) => setToolServer(server ?? "")}
           />
-          <label className="field">
-            <span>允许的工具</span>
-            <select
-              multiple
-              size={6}
-              value={draft.allowedToolNames}
-              disabled={busy}
-              onChange={(event) => {
-                const picked = [...event.target.selectedOptions].map((option) => option.value);
-                patch({
-                  allowedToolNames: mergeVisibleSelection(
-                    draft.allowedToolNames,
-                    visibleTools.map((tool) => tool.name),
-                    picked,
-                  ),
-                });
-              }}
-            >
-              {visibleTools.map((tool) => (
-                <option key={tool.name} value={tool.name}>
-                  {tool.name}
-                </option>
-              ))}
-              {hiddenSelected.map((tool) => (
-                <option key={tool.name} value={tool.name} hidden>
-                  {tool.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <MultiPicker
+            label="允许的工具"
+            items={visibleToolNames}
+            value={draft.allowedToolNames}
+            disabled={busy}
+            itemLabel={(name) => name}
+            empty="无匹配工具"
+            onChange={(allowedToolNames) => patch({ allowedToolNames })}
+          />
           <p className="hint">已选工具：{draft.allowedToolNames.join(", ") || "无"}</p>
         </div>
       </div>
@@ -211,4 +171,66 @@ export function ProxyKeyForm({
       </div>
     </form>
   );
+}
+
+function MultiPicker({
+  label,
+  items,
+  value,
+  disabled,
+  itemLabel,
+  empty,
+  onChange,
+}: {
+  label: string;
+  items: readonly string[];
+  value: readonly string[];
+  disabled: boolean;
+  itemLabel: (id: string) => string;
+  empty: string;
+  onChange: (next: string[]) => void;
+}) {
+  const itemList = [...items];
+  // 沿用同一数组引用。每次渲染都复制会让受控 value 看起来变了。
+  const selected = value as string[];
+  return (
+    <Combobox<string, true>
+      multiple
+      label={label}
+      items={itemList}
+      value={selected}
+      disabled={disabled}
+      itemToStringLabel={itemLabel}
+      onValueChange={(next) => onChange([...next])}
+    >
+      <Combobox.TriggerMultipleWithInput
+        className="scope-picker"
+        placeholder="搜索"
+        value={selected}
+        renderItem={(item) => (
+          <Combobox.Chip key={item} value={item} removeLabel="移除">
+            {itemLabel(item)}
+          </Combobox.Chip>
+        )}
+      />
+      <Combobox.Content>
+        <Combobox.Empty>{empty}</Combobox.Empty>
+        <Combobox.List>
+          {(item: string) => (
+            <Combobox.Item key={item} value={item}>
+              {itemLabel(item)}
+            </Combobox.Item>
+          )}
+        </Combobox.List>
+      </Combobox.Content>
+    </Combobox>
+  );
+}
+
+function serverText(options: readonly ScopeServer[], id: string): string {
+  const server = options.find((item) => item.id === id);
+  if (server === undefined) {
+    return `${id}（已保存）`;
+  }
+  return serverLabel(server);
 }

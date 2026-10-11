@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { E2E_ADMIN_TOKEN, PREVIEW_PORT, gatewayPortFile } from "./fixture.ts";
+import { chooseMultiple, E2E_ADMIN_TOKEN, PREVIEW_PORT, gatewayPortFile } from "./fixture.ts";
+import { startMcpStandIn } from "./mcp-stand-in.ts";
 
 async function login(page: Page, token = E2E_ADMIN_TOKEN) {
   await page.addInitScript(() => {
@@ -33,6 +34,12 @@ async function login(page: Page, token = E2E_ADMIN_TOKEN) {
 async function openProxyKeys(page: Page) {
   await page.getByRole("link", { name: "代理密钥", exact: true }).click();
   await expect(page.getByRole("heading", { name: "代理密钥", exact: true })).toBeVisible();
+}
+
+function selectedChips(page: Page, label: string) {
+  return page.getByRole("toolbar").filter({
+    has: page.getByRole("combobox", { name: label }),
+  });
 }
 
 function gatewayOrigin(): string {
@@ -159,7 +166,7 @@ test("edits scope without sending credential fields and keeps it when tools are 
   await page.getByLabel("ID").fill("e2e-key-alpha");
   await page.getByLabel("显示名").fill("Alpha");
   await page.getByLabel("页大小").fill("21");
-  await page.getByLabel("允许的服务").selectOption(["e2e-scope-server"]);
+  await chooseMultiple(page, "允许的服务", ["e2e-scope-server（api）"]);
   await page.getByText("高级：正则范围").click();
   await page.getByLabel("允许正则").fill("^alpha:.*");
   await page.getByRole("button", { name: "创建", exact: true }).click();
@@ -209,13 +216,54 @@ test("edits scope without sending credential fields and keeps it when tools are 
   await expect(page.getByText("工具列表不可用，已有范围会保留。")).toBeVisible();
   await page.getByRole("button", { name: "编辑 e2e-key-alpha" }).click();
   await expect(page.getByLabel("允许正则")).toHaveValue("^alpha:.*");
-  await expect(page.getByLabel("允许的服务").locator("option:checked")).toHaveText(
-    /e2e-scope-server/,
-  );
+  await expect(selectedChips(page, "允许的服务")).toContainText("e2e-scope-server");
   await page.getByRole("button", { name: "取消" }).click();
   await expect(page.getByRole("row").filter({ hasText: "e2e-key-alpha" })).toContainText(
     "^alpha:.*",
   );
+});
+
+test("keeps selected tools that the filter hides", async ({ page }) => {
+  test.setTimeout(120_000);
+  const echo = "lab__scope__echo";
+  const note = "lab__scope__note";
+  const standIn = await startMcpStandIn();
+  try {
+    const created = await page.request.post("/admin/mcp-servers", {
+      headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },
+      data: {
+        id: "e2e-scope-tools",
+        domain: "lab",
+        provider: "scope",
+        url: standIn.url,
+        description: "e2e scope tools",
+        auth: { type: "none" },
+      },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    await login(page);
+    await openProxyKeys(page);
+    await page.getByRole("button", { name: "新建代理密钥" }).click();
+    await page.getByLabel("ID").fill("e2e-key-filtered");
+    await page.getByLabel("显示名").fill("Filtered");
+    await chooseMultiple(page, "允许的工具", [echo, note]);
+    await expect(page.getByText(`已选工具：${echo}, ${note}`)).toBeVisible();
+    await page.getByLabel("工具过滤").fill("echo");
+    await expect(page.getByText(`已选工具：${echo}, ${note}`)).toBeVisible();
+    await expect(selectedChips(page, "允许的工具")).toContainText(note);
+    await page.getByRole("button", { name: "创建", exact: true }).click();
+    const row = page.getByRole("row").filter({ hasText: "e2e-key-filtered" });
+    await expect(row).toContainText(echo);
+    await expect(row).toContainText(note);
+  } finally {
+    await page.request.delete("/admin/proxy-keys/e2e-key-filtered", {
+      headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },
+    });
+    await page.request.delete("/admin/mcp-servers/e2e-scope-tools", {
+      headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },
+    });
+    await standIn.close();
+  }
 });
 
 test("shows invalid page size, limits, regex, and backend errors without pretending success", async ({

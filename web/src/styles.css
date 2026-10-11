@@ -157,30 +157,21 @@ body {
   white-space: nowrap;
 }
 
-/* 代理密钥表单的服务与工具多选仍用原生 select：它要和过滤框配合，并保留被筛掉的已选项。
-   换成 Kumo Combobox（支持 multiple）需要重做这套交互，暂未做。这里只让标签和边框接近 Kumo 表单控件。 */
-.field {
+.scope-tools {
   display: grid;
-  gap: 6px;
+  flex: 1 1 280px;
+  gap: 8px;
+  min-width: min(280px, 100%);
 }
 
-.field > span {
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.field select {
-  min-width: 220px;
-  padding: 4px;
-  color: inherit;
-  background: var(--color-kumo-control);
-  border: 1px solid var(--color-kumo-line);
-  border-radius: var(--radius-lg);
-  font: inherit;
+.scope-picker {
+  width: min(320px, 100%);
 }
 
 .tablewrap {
   overflow-x: auto;
+  /* 给 .detail 的 100cqw 提供可视区宽度，而不是整张表的滚动宽度。 */
+  container-type: inline-size;
   background: var(--color-kumo-base);
   border: 1px solid var(--color-kumo-line);
   border-radius: var(--radius-lg);
@@ -305,9 +296,17 @@ body {
   padding: 16px;
 }
 
-/* 展开行放在不换行的表格单元格里，正文要能换行。 */
+/* 展开行在跨列单元格里。宽度跟随表格可视区，并贴在左侧，窄屏不用把整张表滚过来才能读完。
+   1.5rem 是单元格左右内边距（Kumo 的 p-3）。 */
 .detail {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: calc(100cqw - 1.5rem);
+  max-width: calc(100cqw - 1.5rem);
+  min-width: 0;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .confirm-actions {
