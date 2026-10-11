@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asterlane-gateway
+  labels:
+    app.kubernetes.io/name: asterlane
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  # 固定 1 个副本：存储是 SQLite，限流与配额是进程内状态。
+  # 多副本要等多租户计划的共享状态。在那之前加副本会让多个进程写同一个库文件，
+  # 并拆开内存里的会话、限流和配额。
+  replicas: 1
+  # ReadWriteOnce 不能同时挂给两个 Pod。滚动更新会在旧 Pod 释放卷之前拉起新 Pod。
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: asterlane
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: asterlane
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/version: "0.1.0"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # 与 Dockerfile 的用户 asterlane（uid/gid 10001）一致。
+        # deploy/asterlane-entrypoint 要以 root chown /data，再用 setpriv 降权。
+        # 这里由 fsGroup 把卷交给同一用户，进程直接以非 root 启动二进制。
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          # 占位发布版本。不用 latest。流水线尚未推送这枚镜像时，改成已载入集群的标签。
+          image: ghcr.io/komiyoo/asterlane:0.1.0
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/asterlane"]
+          args:
+            - serve
+            - --config=/etc/asterlane/config.yaml
+            - --database-url=sqlite:/data/asterlane.db?mode=rwc
+            - --bind=0.0.0.0:3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: ASTERLANE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: asterlane-admin-token
+                  key: token
+          volumeMounts:
+            - name: config
+              mountPath: /etc/asterlane/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /data
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: asterlane-gateway-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: asterlane-gateway-data
