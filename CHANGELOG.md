@@ -30,6 +30,10 @@
 - **破坏性变更**：scope 已经覆盖某个上游 MCP server 的 key，升级后会在 `prompts/list`、`resources/list`、`resources/templates/list` 里看到该上游的 prompts、resources 与 templates（此前 `prompts/list` 只有网关自有的 `asterlane_tool_workflow`，网关没有开启 resources），并可调用 `prompts/get`、`resources/read`。没有新的配置字段；不想暴露时收窄 scope：用 `denied_tools` 匹配 `domain__provider__<名字>`，或把 server 移出 `allowed_servers`。`asterlane://{server_id}/{上游原 URI}` 是稳定的 URI 格式。
 - 控制台界面：导航改为 Kumo 侧栏，按「概览、资源与工具、访问控制、日志与审计、系统」分组并带图标，窄屏收进抽屉；表格、选择框、状态徽标、复选框和文本域改用 Kumo 组件；页面按需加载；颜色随系统深浅色切换。工具页的分页改为分页条（首页、上一页、页码、下一页、末页和每页条数），原来的「上一页」「下一页」按钮移除。MCP 服务的 `auth_required` 状态显示为「需要授权」，此前显示「未知」。
 
+### Fixed
+
+- 并发的管理写请求不再互相覆盖。此前同时创建资源和 MCP 服务时，运行中的配置会丢掉其中一项，数据库里却有这一行。现在资源、proxy key、MCP 服务的增删改与 token 签发、吊销在本进程内排队执行；工具介绍、授权后重连、后台工具刷新和探测只在写入工具目录时排队。多副本部署仍需等后续版本。
+
 ### Removed
 
 - 删除未接入执行路径的请求变换模块（`transform`）及 `transform.*` 错误码；这些错误码从未在生产路径发出。CLI 退出码 8 曾对应 `transform.*`，已退役，不复用。

@@ -36,7 +36,7 @@ timestamp: 2026-10-10T00:00:00Z
 - 新增 Phase 11–15。建议顺序：Phase 11（开源就绪）先做；Phase 12（身份服务）与 Phase 13（多租户数据面）可以并行；Phase 14（下游 MCP OAuth）依赖 Phase 12；Phase 15（商业化与运营）依赖 Phase 13 与 14，代码和计划在私有仓库。
 - Phase 9 的 Postgres 与共享状态移入 Phase 13，K8s 部署物移入 Phase 11。Phase 8 尚缺的真实 OAuth 上游验证列入 Phase 11 准出。Phase 10 的成本核算是 SaaS 按量计费的前提，要在 Phase 15 之前定口径。
 - 「多租户与 RBAC」「Postgres 与共享状态」改为进入规划；SSO 与下游 OAuth 由独立身份服务承担，网关进程仍不做授权服务器。见[产品决策](#产品决策)与[不变的非目标](#不变的非目标)。
-- 同日发现：管理写接口并发时会互相覆盖，见[横切：生产就绪](#横切生产就绪)。开源版也受影响，排在 Phase 11。
+- 同日发现：管理写接口并发时会互相覆盖，见[横切：生产就绪](#横切生产就绪)。开源版也受影响，2026-10-11 已在 Phase 11 修复本进程内的情况。
 
 # 2026-08-20 竞品吸收
 
@@ -118,7 +118,7 @@ timestamp: 2026-10-10T00:00:00Z
 | --- | --- | --- |
 | **仅 SQLite，无 Postgres** | 生产就绪（重；2026-10-10 移入 Phase 13） | `Cargo.toml` 的 sqlx features 只有 `sqlite`；`src/main.rs` 硬编码 `SqlitePool::connect` |
 | **状态全进程内，多副本失效** | 生产就绪（重；2026-10-10 移入 Phase 13） | `limits::registry` 的用量表、`keys::pool` 的 `PoolState`、`shaping::ResultCache` 均为进程内 `Mutex` |
-| **并发管理写入互相覆盖**（2026-10-10 发现） | 生产就绪（重；排在 Phase 11） | 写配置的管理接口都是 `config_snapshot()` → 克隆 → 修改 → `swap_config_and_catalog`，读快照和替换之间没有锁（`src/admin/crud.rs`、`src/admin/mcp.rs`、`src/admin/tokens.rs`）。并发创建一个资源和一个 MCP 服务时，运行中的配置丢了资源，SQLite 的 `resources` 表里却有这一行 |
+| **已修复（2026-10-11）：并发管理写入互相覆盖** | 生产就绪（本进程已清；多副本见 Phase 13） | 2026-10-10 发现：写配置的管理接口读快照和替换之间没有锁，并发时后完成的写入覆盖先完成的。现在 `AppState.admin_write` 串行化本进程的管理写：改配置的接口持锁到替换和落库结束，只改 catalog 的路径（工具介绍、重连、后台刷新、探测）在写 catalog 时排队。回归测试 `admin_contracts::concurrent_creates_keep_resources_keys_and_mcp_servers`。多副本要靠 Phase 13 的数据库事务加版本号 |
 | **已交付：HTTP 边界**（2026-08-19） | 生产就绪（已清） | `GatewayConfig.http`：`DefaultBodyLimit` + `http.body_too_large`（413）；REST/admin `TimeoutLayer` + `http.timeout`（408），不套 `/mcp` 与探活；响应头 `nosniff` / `DENY` / `no-referrer` |
 | **已交付：容器非 root + HEALTHCHECK**（2026-08-19） | 生产就绪（已清） | `Dockerfile`：`USER asterlane`（uid 10001）+ `HEALTHCHECK` 探 `/healthz` |
 | **已交付：发布工程**（2026-10-01） | 生产就绪（已清） | 根 `CHANGELOG.md`；`.github/workflows/release.yml`（tag 触发，构建二进制与镜像并创建 GitHub Release）；`ci.yml` 的 `build` job。版本仍是 `0.1.0`，流水线首次真实运行待维护者推 tag 验证，见 [Release Process](../engineering/release-process.md) |
@@ -187,7 +187,7 @@ timestamp: 2026-10-10T00:00:00Z
 **目标**：外部用户能从零安装、运行并参与贡献，发布第一个公开版本。
 
 - **已交付（2026-10-10）**：控制台界面整理。Kumo 侧栏外壳，导航分组并带图标，窄屏收进抽屉；表格、选择框、分页、状态徽标改用 Kumo 组件；页面按需加载；深浅色跟随系统。见 [控制台与网关分离架构 · 外壳与样式](../architecture/console-separation.md#外壳与样式)
-- 修复并发管理写入互相覆盖（见[横切：生产就绪](#横切生产就绪)）：配置写入串行化，并补并发写入的回归测试
+- **已交付（2026-10-11）**：修复并发管理写入互相覆盖（见[横切：生产就绪](#横切生产就绪)）：本进程的配置写入串行化，并补并发写入的回归测试
 - 控制台补回上游 OAuth 的「授权 / 撤销授权」和 OAuth 字段编辑。2026-09-27 页面迁到 `web/` 时没有带过来（见 [Admin Console · 分阶段路线](../admin/admin-console.md#分阶段路线) 的 C7），而 `CHANGELOG.md` 的 Unreleased 已经写了这项；发布前要么补上，要么改正那条记录
 - 首次打 tag 发布，验证 release 流水线（Phase 9 遗留）
 - 对至少一个真实 OAuth 类上游 MCP server 做端到端验证（Phase 8 遗留）
