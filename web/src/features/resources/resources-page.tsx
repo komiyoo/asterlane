@@ -7,6 +7,7 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
+import { text } from "../../i18n/locale.ts";
 import {
   STRATEGIES,
   emptyResourceDraft,
@@ -69,12 +70,12 @@ export function ResourcesPage() {
       const result = await createResource(body);
       load.reload();
       if (result.created !== body.id) {
-        setFormError("创建结果和提交的 ID 不一致");
+        setFormError(text("resources.notice.createMismatch"));
         return;
       }
       setDraft(emptyResourceDraft());
       setFormOpen(false);
-      setNotice(`已创建 ${result.created}`);
+      setNotice(text("resources.notice.created", { id: result.created }));
     } catch (error) {
       setFormError(presentWriteError(error));
     } finally {
@@ -94,10 +95,10 @@ export function ResourcesPage() {
     void deleteResource(id)
       .then((result) => {
         if (result.deleted !== id) {
-          setActionError("删除结果和目标不一致");
+          setActionError(text("resources.notice.deleteMismatch"));
           return;
         }
-        setNotice(`已删除 ${id}`);
+        setNotice(text("resources.notice.deleted", { id }));
         load.reload();
       })
       .catch((error: unknown) => {
@@ -111,12 +112,12 @@ export function ResourcesPage() {
 
   return (
     <section className="page">
-      <h2>资源</h2>
-      <p className="hint">凭据和密钥池只接受 secret:// 引用。列表里的脱敏值不能拿来提交。</p>
+      <h2>{text("shell.routes.resources")}</h2>
+      <p className="hint">{text("resources.hint")}</p>
       {formOpen ? null : (
         <div className="toolbar">
           <Button type="button" onClick={openCreate} disabled={busy}>
-            新建资源
+            {text("resources.create")}
           </Button>
         </div>
       )}
@@ -136,20 +137,22 @@ export function ResourcesPage() {
       {load.error !== null && load.data === undefined ? (
         <ErrorState error={load.error} onRetry={load.reload} />
       ) : null}
-      {load.data !== undefined && load.data.length === 0 ? <EmptyState title="无资源" /> : null}
+      {load.data !== undefined && load.data.length === 0 ? (
+        <EmptyState title={text("resources.empty")} />
+      ) : null}
       {load.data !== undefined && load.data.length > 0 ? (
         <div className="tablewrap">
           <Table>
             <Table.Header variant="compact">
               <Table.Row>
                 <Table.Head>ID</Table.Head>
-                <Table.Head>领域</Table.Head>
-                <Table.Head>提供商</Table.Head>
-                <Table.Head>基础 URL</Table.Head>
-                <Table.Head>认证</Table.Head>
-                <Table.Head>池大小</Table.Head>
-                <Table.Head>端点数</Table.Head>
-                <Table.Head>操作</Table.Head>
+                <Table.Head>{text("resources.columns.domain")}</Table.Head>
+                <Table.Head>{text("resources.columns.provider")}</Table.Head>
+                <Table.Head>{text("resources.columns.baseUrl")}</Table.Head>
+                <Table.Head>{text("resources.columns.auth")}</Table.Head>
+                <Table.Head>{text("resources.columns.poolSize")}</Table.Head>
+                <Table.Head>{text("resources.columns.endpoints")}</Table.Head>
+                <Table.Head>{text("resources.columns.actions")}</Table.Head>
               </Table.Row>
             </Table.Header>
             <Table.Body>
@@ -164,11 +167,11 @@ export function ResourcesPage() {
                   <Table.Cell>{resource.endpoint_count}</Table.Cell>
                   <Table.Cell>
                     <ConfirmDialog
-                      label={`删除 ${resource.id}`}
-                      title="删除资源"
-                      description={`删除后会从网关配置里移除资源 ${resource.id}。`}
+                      label={text("resources.delete", { id: resource.id })}
+                      title={text("resources.deleteTitle")}
+                      description={text("resources.deleteDescription", { id: resource.id })}
                       resource={resource.id}
-                      confirmLabel="确认删除"
+                      confirmLabel={text("resources.deleteConfirm")}
                       onConfirm={() => onDelete(resource.id)}
                     />
                   </Table.Cell>
@@ -213,34 +216,34 @@ function ResourceForm({
           onChange={(event) => patch({ id: event.target.value })}
         />
         <Input
-          label="领域"
+          label={text("resources.fields.domain")}
           value={draft.domain}
           onChange={(event) => patch({ domain: event.target.value })}
         />
         <Input
-          label="提供商"
+          label={text("resources.fields.provider")}
           value={draft.provider}
           onChange={(event) => patch({ provider: event.target.value })}
         />
         <Input
-          label="基础 URL"
+          label={text("resources.fields.baseUrl")}
           value={draft.baseUrl}
           onChange={(event) => patch({ baseUrl: event.target.value })}
         />
         <Input
-          label="描述"
+          label={text("resources.fields.description")}
           value={draft.description}
           onChange={(event) => patch({ description: event.target.value })}
         />
         <Select
-          label="认证"
+          label={text("resources.fields.auth")}
           value={draft.authType}
           items={authItems}
           onValueChange={(authType) => patch({ authType: authType ?? "none" })}
         />
         {draft.authType === "bearer" ? (
           <Input
-            label="Token 引用"
+            label={text("resources.fields.tokenRef")}
             value={draft.tokenRef}
             spellCheck={false}
             passwordManagerIgnore
@@ -251,13 +254,13 @@ function ResourceForm({
         {draft.authType === "header" ? (
           <>
             <Input
-              label="Header 名"
+              label={text("resources.fields.headerName")}
               value={draft.headerName}
               placeholder="x-api-key"
               onChange={(event) => patch({ headerName: event.target.value })}
             />
             <Input
-              label="Header 引用"
+              label={text("resources.fields.headerRef")}
               value={draft.headerRef}
               spellCheck={false}
               passwordManagerIgnore
@@ -267,15 +270,15 @@ function ResourceForm({
           </>
         ) : null}
         <Select
-          label="池策略"
+          label={text("resources.fields.strategy")}
           value={draft.strategy}
           items={strategyItems}
           onValueChange={(strategy) => patch({ strategy: strategy ?? draft.strategy })}
         />
       </div>
       <Textarea
-        label="密钥池引用"
-        description="每行一个 secret:// 引用。留空表示不配置密钥池。"
+        label={text("resources.fields.refs")}
+        description={text("resources.refsDescription")}
         value={draft.refsText}
         rows={3}
         spellCheck={false}
@@ -284,10 +287,10 @@ function ResourceForm({
       {error === null ? null : <FormMessage tone="error">{error}</FormMessage>}
       <div className="toolbar">
         <Button type="submit" disabled={busy}>
-          创建
+          {text("common.create")}
         </Button>
         <Button type="button" onClick={onCancel} disabled={busy}>
-          取消
+          {text("common.cancel")}
         </Button>
       </div>
     </form>

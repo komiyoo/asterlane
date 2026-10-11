@@ -1,3 +1,4 @@
+import { text } from "../i18n/locale.ts";
 import { getApiClient, type CallInit } from "./client.ts";
 import type {
   InputMcpServerWriteParams,
@@ -34,7 +35,7 @@ export async function createMcpServer(
     body,
     init,
   );
-  return expectBody(value, "创建 MCP 服务响应为空");
+  return expectBody(value, text("api.mcp.createEmpty"));
 }
 
 export async function updateMcpServer(
@@ -48,7 +49,7 @@ export async function updateMcpServer(
     body,
     init,
   );
-  return expectBody(value, "更新 MCP 服务响应为空");
+  return expectBody(value, text("api.mcp.updateEmpty"));
 }
 
 export function deleteMcpServer(id: string, init?: CallInit): Promise<void> {
@@ -65,7 +66,7 @@ export async function probeMcpServer(
     undefined,
     init,
   );
-  return expectBody(value, "探测响应为空");
+  return expectBody(value, text("api.mcp.probeEmpty"));
 }
 
 export async function authorizeMcpServer(
@@ -78,10 +79,10 @@ export async function authorizeMcpServer(
     undefined,
     init,
   );
-  const start = expectBody(value, "授权响应为空");
+  const start = expectBody(value, text("api.mcp.authorizeEmpty"));
   // 授权 URL 会渲染成链接。只接受 http(s)，失败文案不含 URL，避免把一次性 state 带进界面。
   if (!isAuthorizationUrl(start.authorization_url)) {
-    throw new Error("授权响应无效");
+    throw new Error(text("api.mcp.authorizeInvalid"));
   }
   return start;
 }
@@ -96,7 +97,7 @@ export async function deauthorizeMcpServer(
     undefined,
     init,
   );
-  return expectBody(value, "撤销授权响应为空");
+  return expectBody(value, text("api.mcp.deauthorizeEmpty"));
 }
 
 function expectBody<T>(value: T | undefined, message: string): T {

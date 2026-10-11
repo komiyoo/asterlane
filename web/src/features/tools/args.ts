@@ -1,18 +1,19 @@
 import type { InputJsonObject, JsonValue } from "../../api/index.ts";
+import { text } from "../../i18n/locale.ts";
 import { jsonObject } from "../json-value.ts";
 
 export type ArgsParse = { ok: true; value: InputJsonObject } | { ok: false; message: string };
 
-export function parseArgsObject(text: string): ArgsParse {
-  const trimmed = text.trim();
+export function parseArgsObject(raw: string): ArgsParse {
+  const trimmed = raw.trim();
   let value: unknown;
   try {
     value = JSON.parse(trimmed === "" ? "{}" : trimmed) as unknown;
   } catch {
-    return { ok: false, message: "参数不是合法 JSON" };
+    return { ok: false, message: text("tools.args.invalidJson") };
   }
   if (!isJsonObject(value)) {
-    return { ok: false, message: "参数必须是 JSON object" };
+    return { ok: false, message: text("tools.args.notObject") };
   }
   return { ok: true, value };
 }
@@ -29,19 +30,19 @@ export function eventDefaultArgs(
   requestArgs: string | null,
 ): { ok: true; args: InputJsonObject } | { ok: false; message: string } {
   if (toolName.trim() === "") {
-    return { ok: false, message: "这条事件没有工具名，不能存为默认参数。" };
+    return { ok: false, message: text("tools.args.noTool") };
   }
   if (requestArgs === null || requestArgs.trim() === "") {
-    return { ok: false, message: "这条事件没有请求参数，不能存为默认参数。" };
+    return { ok: false, message: text("tools.args.noArgs") };
   }
   const parsed = parseArgsObject(requestArgs);
   if (!parsed.ok) {
     return {
       ok: false,
       message:
-        parsed.message === "参数不是合法 JSON"
-          ? "请求参数不是合法 JSON，可能已被截断。"
-          : "请求参数不是 JSON object。",
+        parsed.message === text("tools.args.invalidJson")
+          ? text("tools.args.truncated")
+          : text("tools.args.notObjectEvent"),
     };
   }
   return { ok: true, args: parsed.value };

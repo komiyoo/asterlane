@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { formatApiError, getHealth, isApiError, isStaleOrAborted } from "../api/index.ts";
+import { getHealth, isApiError, isStaleOrAborted } from "../api/index.ts";
 import { LoginPage, type LoginPhase } from "./login-page.tsx";
 import { useSession } from "./use-session.ts";
 import { Shell } from "./shell.tsx";
@@ -36,7 +36,7 @@ export function AuthGate() {
         setResult({
           sessionId,
           attempt,
-          phase: { kind: "connection", message: formatApiError(error) },
+          phase: { kind: "connection", error },
         });
       });
     return () => {

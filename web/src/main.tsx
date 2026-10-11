@@ -2,7 +2,9 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@cloudflare/kumo/styles/standalone";
 import { App } from "./app/app.tsx";
+import { LocaleFrame } from "./app/locale-frame.tsx";
 import "./build-label.ts";
+import "./i18n/index.ts";
 import "./styles.css";
 
 const colorMode = window.matchMedia("(prefers-color-scheme: dark)");
@@ -21,6 +23,8 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <LocaleFrame>
+      <App />
+    </LocaleFrame>
   </StrictMode>,
 );

@@ -68,6 +68,15 @@ body {
   margin-left: auto;
 }
 
+.language-switch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.login .language-switch {
+  justify-self: end;
+}
+
 .view {
   padding: 16px 20px 32px;
 }

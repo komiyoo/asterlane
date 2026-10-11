@@ -1,5 +1,6 @@
 import { formatApiError, isApiError, isStaleOrAborted } from "../../api/index.ts";
 import type { InputTokenIssueParams } from "../../api/index.ts";
+import { text } from "../../i18n/locale.ts";
 import { toRfc3339 } from "../time.ts";
 
 export type TokenDialogState =
@@ -96,28 +97,29 @@ export function tokenIssueBody(local: string): {
   }
   const iso = toRfc3339(local);
   if (iso === undefined) {
-    return { error: "过期时间格式不正确", body: undefined };
+    return { error: text("proxyKeys.token.badFormat"), body: undefined };
   }
   if (new Date(iso).getTime() <= Date.now()) {
-    return { error: "过期时间必须晚于当前时间", body: undefined };
+    return { error: text("proxyKeys.token.notFuture"), body: undefined };
   }
   return { error: null, body: { expires_at: iso } };
 }
 
 export function issueFailure(error: unknown): { message: string; uncertain: boolean } {
   if (isStaleOrAborted(error)) {
-    return { message: "请求已取消", uncertain: false };
+    return { message: text("errors.cancelled"), uncertain: false };
   }
+  // 抛出点保持字面量，这里按同一字面量识别，避免和普通连接失败混在一起。
   if (error instanceof Error && error.message === "签发响应为空") {
-    return { message: "签发响应为空。这次签发可能已经执行，不会自动重试。", uncertain: true };
+    return { message: text("proxyKeys.token.emptyResponse"), uncertain: true };
   }
   if (isApiError(error)) {
     if (error.kind === "connection" && error.status === undefined) {
-      return { message: "连接失败。这次签发可能已经执行，不会自动重试。", uncertain: true };
+      return { message: text("proxyKeys.token.uncertain"), uncertain: true };
     }
     return { message: formatApiError(error), uncertain: false };
   }
-  return { message: "连接失败。这次签发可能已经执行，不会自动重试。", uncertain: true };
+  return { message: text("proxyKeys.token.uncertain"), uncertain: true };
 }
 
 function stay(state: TokenDialogState): TokenDialogStep {

@@ -18,6 +18,9 @@ import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "re
 import { matchPath, Route, Routes, useLocation } from "react-router";
 import { ConfirmDialog } from "../components/confirm-dialog.tsx";
 import { LoadingState } from "../components/loading-state.tsx";
+import { text } from "../i18n/locale.ts";
+import { groupLabel, routeLabel } from "../i18n/nav.ts";
+import { LanguageSwitch } from "./language-switch.tsx";
 import { RefreshProvider } from "./refresh-context.tsx";
 import { consoleGroups, consoleRoutes, type ConsolePath } from "./routes.ts";
 import { useRefresh } from "./use-refresh.ts";
@@ -92,7 +95,7 @@ export function Shell({ version }: { version: string }) {
 function Brand() {
   return (
     <p className="brand">
-      星径 <span>控制台</span>
+      {text("shell.brand")} <span>{text("shell.brandMark")}</span>
     </p>
   );
 }
@@ -104,14 +107,14 @@ function ConsoleNav() {
   const closeDrawer = isMobile ? () => setOpenMobile(false) : undefined;
 
   return (
-    <Sidebar role="navigation" aria-label="控制台页面" className="console-nav">
+    <Sidebar role="navigation" aria-label={text("shell.navLabel")} className="console-nav">
       <Sidebar.Header>
         <Brand />
       </Sidebar.Header>
       <Sidebar.Content>
         {consoleGroups.map((group) => (
           <Sidebar.Group key={group.label}>
-            <Sidebar.GroupLabel>{group.label}</Sidebar.GroupLabel>
+            <Sidebar.GroupLabel>{groupLabel(group.label)}</Sidebar.GroupLabel>
             <Sidebar.Menu>
               {group.routes.map((route) => {
                 const active = matchPath({ path: route.path, end: true }, pathname) !== null;
@@ -122,10 +125,10 @@ function ConsoleNav() {
                     icon={icons[route.path]}
                     active={active}
                     aria-current={active ? "page" : undefined}
-                    tooltip={route.label}
+                    tooltip={routeLabel(route.path)}
                     onClick={closeDrawer}
                   >
-                    {route.label}
+                    {routeLabel(route.path)}
                   </Sidebar.MenuButton>
                 );
               })}
@@ -135,7 +138,9 @@ function ConsoleNav() {
       </Sidebar.Content>
       {isMobile ? null : (
         <Sidebar.Footer>
-          <Sidebar.Trigger aria-label={open ? "收起导航" : "展开导航"} />
+          <Sidebar.Trigger
+            aria-label={open ? text("shell.collapseNav") : text("shell.expandNav")}
+          />
         </Sidebar.Footer>
       )}
     </Sidebar>
@@ -157,22 +162,23 @@ function ConsoleMain({ version }: { version: string }) {
               variant="ghost"
               shape="square"
               icon={ListIcon}
-              aria-label="打开导航"
+              aria-label={text("shell.openNav")}
               onClick={() => setOpenMobile(true)}
             />
             <Brand />
           </>
         ) : null}
         <Badge variant="success" appearance="dot">
-          已连接 · v{version}
+          {text("shell.connected", { version })}
         </Badge>
         <div className="topbar-actions">
-          <RefreshButton aria-label="刷新当前页" onClick={refresh} />
+          <LanguageSwitch />
+          <RefreshButton aria-label={text("shell.refresh")} onClick={refresh} />
           <ConfirmDialog
-            label="退出"
-            title="退出登录"
-            description="退出后会清除本标签页的管理员 token 和未完成的读取。"
-            confirmLabel="确认退出"
+            label={text("shell.logout")}
+            title={text("shell.logoutTitle")}
+            description={text("shell.logoutDescription")}
+            confirmLabel={text("shell.logoutConfirm")}
             onConfirm={() => client.logout()}
           />
         </div>
@@ -184,7 +190,7 @@ function ConsoleMain({ version }: { version: string }) {
               const Page = pages[route.path];
               return <Route key={route.path} path={route.path} element={<Page />} />;
             })}
-            <Route path="*" element={<p className="hint">未找到页面</p>} />
+            <Route path="*" element={<p className="hint">{text("shell.notFound")}</p>} />
           </Routes>
         </Suspense>
       </main>

@@ -1,14 +1,14 @@
 import type { OutputRequestKind, OutputRequestStatus } from "../api/index.ts";
+import { intlLocale, text } from "../i18n/locale.ts";
 
-export const requestKindLabels: Record<OutputRequestKind, string> = {
-  tool: "工具",
-  prompt: "prompt",
-  resource: "resource",
-};
-
-/** 调用类型的显示文字；没有类型（非按工具聚合）时为空串。 */
 export function formatRequestKind(kind: OutputRequestKind | null): string {
-  return kind === null ? "" : requestKindLabels[kind];
+  if (kind === null) {
+    return "";
+  }
+  if (kind === "tool") {
+    return text("format.kind.tool");
+  }
+  return kind;
 }
 
 export function formatRequestStatus(status: OutputRequestStatus): string {
@@ -19,9 +19,30 @@ export function formatRequestStatus(status: OutputRequestStatus): string {
 }
 
 export function formatAverage(value: number): string {
-  return value.toFixed(1);
+  return new Intl.NumberFormat(intlLocale(), {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+export function formatCount(value: number): string {
+  return new Intl.NumberFormat(intlLocale(), { maximumFractionDigits: 20 }).format(value);
 }
 
 export function formatOptionalNumber(value: number | null): string {
-  return value === null ? "" : String(value);
+  return value === null ? "" : formatCount(value);
+}
+
+export function formatTimestamp(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(intlLocale(), {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(parsed);
 }

@@ -17,6 +17,8 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
+import { text } from "../../i18n/locale.ts";
+import { formatCount, formatOptionalNumber, formatTimestamp } from "../format.ts";
 import {
   draftFromKey,
   emptyProxyKeyDraft,
@@ -46,7 +48,7 @@ export function ProxyKeysPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [tokenTarget, setTokenTarget] = useState<{ id: string; mode: "签发" | "轮换" } | null>(
+  const [tokenTarget, setTokenTarget] = useState<{ id: string; mode: "issue" | "rotate" } | null>(
     null,
   );
   const writeLock = useRef(false);
@@ -143,19 +145,19 @@ export function ProxyKeysPage() {
       if (editing) {
         const result = await updateProxyKey(id, body);
         if (result.updated !== id) {
-          setFormError("更新结果和目标不一致");
+          setFormError(text("proxyKeys.notice.updateMismatch"));
           reload();
           return;
         }
-        setNotice(`已保存 ${id}`);
+        setNotice(text("proxyKeys.notice.saved", { id }));
       } else {
         const result = await createProxyKey(body);
         if (result.created !== id) {
-          setFormError("创建结果和提交的 ID 不一致");
+          setFormError(text("proxyKeys.notice.createMismatch"));
           reload();
           return;
         }
-        setNotice(`已创建 ${id}`);
+        setNotice(text("proxyKeys.notice.created", { id }));
       }
       setFormOpen(false);
       setEditingId(null);
@@ -170,7 +172,7 @@ export function ProxyKeysPage() {
   }
 
   function onDelete(id: string) {
-    runWrite(id, () => deleteProxyKey(id), "删除");
+    runWrite(id, () => deleteProxyKey(id));
   }
 
   function onRevoke(id: string) {
@@ -183,7 +185,7 @@ export function ProxyKeysPage() {
     setNotice(null);
     void revokeProxyKeyToken(id)
       .then(() => {
-        setNotice(`已吊销 ${id}`);
+        setNotice(text("proxyKeys.notice.revoked", { id }));
         reload();
       })
       .catch((error: unknown) => {
@@ -195,7 +197,7 @@ export function ProxyKeysPage() {
       });
   }
 
-  function runWrite(id: string, request: () => Promise<{ deleted: string }>, verb: string) {
+  function runWrite(id: string, request: () => Promise<{ deleted: string }>) {
     if (writeLock.current) {
       return;
     }
@@ -206,10 +208,12 @@ export function ProxyKeysPage() {
     void request()
       .then((result) => {
         if (result.deleted !== id) {
-          setActionError(`${verb}结果和目标不一致`);
+          setActionError(
+            text("proxyKeys.notice.verbMismatch", { verb: text("proxyKeys.verbDelete") }),
+          );
           return;
         }
-        setNotice(`已${verb} ${id}`);
+        setNotice(text("proxyKeys.notice.done", { verb: text("proxyKeys.verbDelete"), id }));
         reload();
       })
       .catch((error: unknown) => {
@@ -226,14 +230,12 @@ export function ProxyKeysPage() {
 
   return (
     <section className="page">
-      <h2>代理密钥</h2>
-      <p className="hint">
-        范围、页大小和限额在这个表单里提交。签发得到的明文 token 不会写入列表或浏览器存储。
-      </p>
+      <h2>{text("shell.routes.proxyKeys")}</h2>
+      <p className="hint">{text("proxyKeys.hint")}</p>
       {formOpen ? null : (
         <div className="toolbar">
           <Button type="button" onClick={openCreate} disabled={busy || sources === undefined}>
-            新建代理密钥
+            {text("proxyKeys.create")}
           </Button>
         </div>
       )}
@@ -265,7 +267,9 @@ export function ProxyKeysPage() {
       {loadError !== null && keys === undefined ? (
         <ErrorState error={loadError} onRetry={reload} />
       ) : null}
-      {keys !== undefined && keys.length === 0 ? <EmptyState title="无代理密钥" /> : null}
+      {keys !== undefined && keys.length === 0 ? (
+        <EmptyState title={text("proxyKeys.empty")} />
+      ) : null}
       {keys !== undefined && keys.length > 0 ? (
         <KeyTable
           keys={keys}
@@ -274,7 +278,7 @@ export function ProxyKeysPage() {
           onDelete={onDelete}
           onRevoke={onRevoke}
           onIssue={(key) =>
-            setTokenTarget({ id: key.id, mode: key.auth_mode === "token" ? "轮换" : "签发" })
+            setTokenTarget({ id: key.id, mode: key.auth_mode === "token" ? "rotate" : "issue" })
           }
         />
       ) : null}
@@ -318,15 +322,15 @@ function KeyTable({
         <Table.Header variant="compact">
           <Table.Row>
             <Table.Head>ID</Table.Head>
-            <Table.Head>显示名</Table.Head>
-            <Table.Head>认证</Table.Head>
-            <Table.Head>用量</Table.Head>
-            <Table.Head>服务</Table.Head>
-            <Table.Head>工具</Table.Head>
-            <Table.Head>限额</Table.Head>
-            <Table.Head>正则范围</Table.Head>
-            <Table.Head>页大小</Table.Head>
-            <Table.Head>操作</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.name")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.auth")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.usage")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.servers")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.tools")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.limits")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.regex")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.pageSize")}</Table.Head>
+            <Table.Head>{text("proxyKeys.columns.actions")}</Table.Head>
           </Table.Row>
         </Table.Header>
         <Table.Body>
@@ -338,41 +342,55 @@ function KeyTable({
                 <Badge variant={key.auth_mode === "token" ? "success" : "neutral"} appearance="dot">
                   {key.auth_mode}
                 </Badge>
-                {key.expires_at === null ? null : <div className="hint">到期 {key.expires_at}</div>}
+                {key.expires_at === null ? null : (
+                  <div className="hint">
+                    {text("proxyKeys.expires", { time: formatTimestamp(key.expires_at) })}
+                  </div>
+                )}
               </Table.Cell>
               <Table.Cell>
-                <div>总 {quota(key.usage.calls_total, key.usage.max_calls)}</div>
-                <div>日 {quota(key.usage.calls_today, key.usage.max_calls_per_day)}</div>
+                <div>
+                  {text("proxyKeys.usageTotal", {
+                    text: quota(key.usage.calls_total, key.usage.max_calls),
+                  })}
+                </div>
+                <div>
+                  {text("proxyKeys.usageDay", {
+                    text: quota(key.usage.calls_today, key.usage.max_calls_per_day),
+                  })}
+                </div>
               </Table.Cell>
               <Table.Cell>{key.allowed_servers.join(", ")}</Table.Cell>
               <Table.Cell>{key.allowed_tool_names.join(", ")}</Table.Cell>
               <Table.Cell>{limitText(key)}</Table.Cell>
               <Table.Cell>{regexText(key)}</Table.Cell>
-              <Table.Cell>{key.default_tool_page_size}</Table.Cell>
+              <Table.Cell>{formatCount(key.default_tool_page_size)}</Table.Cell>
               <Table.Cell>
                 <div className="row-actions">
                   <Button type="button" disabled={busy} onClick={() => onEdit(key)}>
-                    {`编辑 ${key.id}`}
+                    {text("proxyKeys.edit", { id: key.id })}
                   </Button>
                   <Button type="button" disabled={busy} onClick={() => onIssue(key)}>
-                    {key.auth_mode === "token" ? `轮换 token ${key.id}` : `签发 token ${key.id}`}
+                    {key.auth_mode === "token"
+                      ? text("proxyKeys.rotateToken", { id: key.id })
+                      : text("proxyKeys.issueToken", { id: key.id })}
                   </Button>
                   {key.auth_mode === "token" ? (
                     <ConfirmDialog
-                      label={`吊销 ${key.id}`}
-                      title="吊销 token"
-                      description={`吊销 ${key.id} 的 token 后，该密钥回到 legacy（仅 id）模式。`}
+                      label={text("proxyKeys.revoke", { id: key.id })}
+                      title={text("proxyKeys.revokeTitle")}
+                      description={text("proxyKeys.revokeDescription", { id: key.id })}
                       resource={key.id}
-                      confirmLabel="确认吊销"
+                      confirmLabel={text("proxyKeys.revokeConfirm")}
                       onConfirm={() => onRevoke(key.id)}
                     />
                   ) : null}
                   <ConfirmDialog
-                    label={`删除 ${key.id}`}
-                    title="删除代理密钥"
-                    description={`删除后代理密钥 ${key.id} 会立即失效。`}
+                    label={text("proxyKeys.delete", { id: key.id })}
+                    title={text("proxyKeys.deleteTitle")}
+                    description={text("proxyKeys.deleteDescription", { id: key.id })}
                     resource={key.id}
-                    confirmLabel="确认删除"
+                    confirmLabel={text("proxyKeys.deleteConfirm")}
                     onConfirm={() => onDelete(key.id)}
                   />
                 </div>
@@ -386,7 +404,9 @@ function KeyTable({
 }
 
 function quota(count: number, max: number | null): string {
-  return max === null ? String(count) : `${count}/${max}`;
+  const shown = formatCount(count);
+  const cap = formatOptionalNumber(max);
+  return cap === "" ? shown : `${shown}/${cap}`;
 }
 
 function limitText(key: OutputProxyKeyResponse): string {
@@ -394,18 +414,26 @@ function limitText(key: OutputProxyKeyResponse): string {
   if (limits === null) {
     return "";
   }
+  const calls = formatOptionalNumber(limits.max_calls);
+  const day = formatOptionalNumber(limits.max_calls_per_day);
   return [
-    limits.rps === null ? "" : `rps ${limits.rps}`,
-    limits.rpm === null ? "" : `rpm ${limits.rpm}`,
-    limits.max_calls === null ? "" : `最大调用 ${limits.max_calls}`,
-    limits.max_calls_per_day === null ? "" : `当日上限 ${limits.max_calls_per_day}`,
+    limits.rps === null ? "" : `rps ${formatCount(limits.rps)}`,
+    limits.rpm === null ? "" : `rpm ${formatCount(limits.rpm)}`,
+    calls === "" ? "" : text("proxyKeys.limitCalls", { value: calls }),
+    day === "" ? "" : text("proxyKeys.limitDay", { value: day }),
   ]
     .filter((part) => part !== "")
     .join(" · ");
 }
 
 function regexText(key: OutputProxyKeyResponse): string {
-  const allowed = key.allowed_tools.length === 0 ? "" : `允许 ${key.allowed_tools.join(", ")}`;
-  const denied = key.denied_tools.length === 0 ? "" : `拒绝 ${key.denied_tools.join(", ")}`;
+  const allowed =
+    key.allowed_tools.length === 0
+      ? ""
+      : text("proxyKeys.allow", { value: key.allowed_tools.join(", ") });
+  const denied =
+    key.denied_tools.length === 0
+      ? ""
+      : text("proxyKeys.deny", { value: key.denied_tools.join(", ") });
   return [allowed, denied].filter((part) => part !== "").join(" ");
 }

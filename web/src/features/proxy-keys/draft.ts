@@ -5,6 +5,7 @@ import {
   type InputProxyKeyWriteParams,
   type OutputProxyKeyResponse,
 } from "../../api/index.ts";
+import { text } from "../../i18n/locale.ts";
 
 export interface ProxyKeyDraft {
   id: string;
@@ -54,27 +55,27 @@ export function draftFromKey(key: OutputProxyKeyResponse): ProxyKeyDraft {
 
 export function validateProxyKeyDraft(draft: ProxyKeyDraft, editing: boolean): string | null {
   if (!editing && draft.id.trim() === "") {
-    return "请填写 ID";
+    return text("proxyKeys.validation.id");
   }
   if (parsePositiveInt(draft.pageSize) === null) {
-    return "页大小必须是大于 0 的整数";
+    return text("proxyKeys.validation.pageSize");
   }
   const limits = [
     ["rps", draft.rps],
     ["rpm", draft.rpm],
-    ["最大调用", draft.maxCalls],
-    ["当日上限", draft.maxCallsPerDay],
+    [text("proxyKeys.fields.maxCalls"), draft.maxCalls],
+    [text("proxyKeys.fields.maxCallsPerDay"), draft.maxCallsPerDay],
   ] as const;
   for (const [label, raw] of limits) {
     if (raw.trim() !== "" && parsePositiveInt(raw) === null) {
-      return `${label} 必须是大于 0 的整数`;
+      return text("proxyKeys.validation.positive", { label });
     }
   }
-  const allowed = validatePatterns(draft.allowedTools, "允许正则");
+  const allowed = validatePatterns(draft.allowedTools, "allowed");
   if (allowed !== null) {
     return allowed;
   }
-  return validatePatterns(draft.deniedTools, "拒绝正则");
+  return validatePatterns(draft.deniedTools, "denied");
 }
 
 // 只放本表单拥有的字段。token_ref、token_digest、expires_at 由签发流程单独处理。
@@ -103,7 +104,7 @@ export function presentWriteError(error: unknown): string {
   if (error instanceof Error && error.message.trim() !== "") {
     return error.message;
   }
-  return "连接失败";
+  return text("errors.connection");
 }
 
 function limitsFrom(draft: ProxyKeyDraft): InputKeyLimits | undefined {
@@ -127,10 +128,10 @@ function limitsFrom(draft: ProxyKeyDraft): InputKeyLimits | undefined {
   return Object.keys(limits).length === 0 ? undefined : limits;
 }
 
-function validatePatterns(raw: string, label: string): string | null {
+function validatePatterns(raw: string, kind: "allowed" | "denied"): string | null {
   for (const pattern of splitList(raw)) {
     if (!isBasicRegex(pattern)) {
-      return `${label}格式不正确：${pattern}`;
+      return text(`proxyKeys.validation.${kind}`, { pattern });
     }
   }
   return null;

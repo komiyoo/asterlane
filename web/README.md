@@ -35,6 +35,8 @@
 | `typescript`、`@types/react`、`@types/react-dom` | strict 类型检查。`@types/node` 只给 `vite.config.ts` 和 Playwright 配置提供 Node 类型；运行时 Node 仍是 22.23.1，类型包版本跟随官方模板解析结果 24.19.0。 |
 | `@playwright/test`                               | 独立浏览器回归，不进 `vp test` 或 `just check`。                                                                                                          |
 | `json-schema-to-typescript`                      | 16.0.0，仅开发依赖。从已提交的 `schemas/admin.json` 生成 `src/api/generated/admin.d.ts`，不调用 Cargo。                                                   |
+| `i18next`                                        | 26.4.3。控制台文案。语言存在 `localStorage` 键 `asterlane.locale`，缺省跟随浏览器，不支持的语言回退中文。                                                 |
+| `react-i18next`                                  | 17.0.16。把 i18next 接到 React。Kumo 的 `KumoLocaleProvider` 只覆盖层对话框的关闭和取消；分页标签仍由调用方传入。                                         |
 | `vite` override 与 `vitest` override             | 按 Vite+ 手动安装说明，把工具链钉到项目里的 `vite-plus`，不是业务依赖。                                                                                   |
 
 样式入口是发布包的 `@cloudflare/kumo/styles/standalone`。这个 CSS 子路径没有类型声明，所以 `src/kumo-styles.d.ts` 只补一条模块声明。不安装 Tailwind，也不复制 Kumo 源码。页面外壳、组件选择和 `src/styles.css` 的写法见 [外壳与样式](../docs/architecture/console-separation.md#外壳与样式)。

@@ -1,3 +1,4 @@
+import { text } from "../i18n/locale.ts";
 import { ApiError } from "./errors.ts";
 import { browserTokenStorage, type SessionSnapshot, type TokenStorage } from "./session.ts";
 
@@ -41,6 +42,12 @@ interface ErrorObject {
   request_id: string;
 }
 
+interface AuthFailure {
+  code: string;
+  message: string;
+  requestId: string;
+}
+
 let singleton: ApiClient | undefined;
 
 export function getApiClient(): ApiClient {
@@ -52,7 +59,7 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
   const storage = options.storage ?? browserTokenStorage();
   const fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   let sessionId = 1;
-  let authMessage: string | null = null;
+  let authFailure: AuthFailure | null = null;
   const listeners = new Set<(snapshot: SessionSnapshot) => void>();
   const inflight = new Set<AbortController>();
 
@@ -61,7 +68,14 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
     return {
       id: sessionId,
       authenticated: token !== null && token !== "",
-      authMessage,
+      authMessage:
+        authFailure === null
+          ? null
+          : text("errors.authDetail", {
+              code: authFailure.code,
+              message: authFailure.message,
+              requestId: authFailure.requestId,
+            }),
     };
   }
 
@@ -79,11 +93,11 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
     inflight.clear();
   }
 
-  function replaceSession(nextMessage: string | null, clearToken: boolean): void {
+  function replaceSession(next: AuthFailure | null, clearToken: boolean): void {
     if (clearToken) {
       storage.clear();
     }
-    authMessage = nextMessage;
+    authFailure = next;
     sessionId += 1;
     abortInflight();
     emit();
@@ -92,10 +106,10 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
   function login(token: string): void {
     const trimmed = token.trim();
     if (trimmed === "") {
-      throw new Error("请输入管理员 token");
+      throw new Error(text("login.tokenRequired"));
     }
     storage.set(trimmed);
-    authMessage = null;
+    authFailure = null;
     sessionId += 1;
     abortInflight();
     emit();
@@ -105,16 +119,16 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
     replaceSession(null, true);
   }
 
-  function unauthorized(captured: number, message: string): void {
+  function unauthorized(captured: number, failure: AuthFailure): void {
     if (captured !== sessionId) {
       return;
     }
-    replaceSession(message, true);
+    replaceSession(failure, true);
   }
 
   function ensureCurrent(captured: number): void {
     if (captured !== sessionId) {
-      throw new ApiError({ kind: "stale", message: "请求已取消", sessionId: captured });
+      throw new ApiError({ kind: "stale", message: text("errors.cancelled"), sessionId: captured });
     }
   }
 
@@ -153,12 +167,24 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
 
   function transportError(error: unknown, captured: number): ApiError {
     if (captured !== sessionId) {
-      return new ApiError({ kind: "stale", message: "请求已取消", sessionId: captured });
+      return new ApiError({
+        kind: "stale",
+        message: text("errors.cancelled"),
+        sessionId: captured,
+      });
     }
     if (isAbortError(error)) {
-      return new ApiError({ kind: "aborted", message: "请求已取消", sessionId: captured });
+      return new ApiError({
+        kind: "aborted",
+        message: text("errors.cancelled"),
+        sessionId: captured,
+      });
     }
-    return new ApiError({ kind: "connection", message: "连接失败", sessionId: captured });
+    return new ApiError({
+      kind: "connection",
+      message: text("errors.connection"),
+      sessionId: captured,
+    });
   }
 
   function errorFrom(result: HttpResult): ApiError {
@@ -168,8 +194,11 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
       const envelope = errorObject(parsed.value);
       if (envelope !== undefined) {
         if (result.status === 401) {
-          const message = `认证失败：${envelope.message}（${envelope.request_id}）`;
-          unauthorized(result.captured, message);
+          unauthorized(result.captured, {
+            code: envelope.code,
+            message: envelope.message,
+            requestId: envelope.request_id,
+          });
           return new ApiError({
             kind: "auth",
             message: envelope.message,
@@ -191,7 +220,7 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
     }
     return new ApiError({
       kind: "connection",
-      message: "连接失败",
+      message: text("errors.connection"),
       sessionId: result.captured,
       status: result.status,
     });
@@ -206,7 +235,7 @@ export function createApiClient(options: ClientOptions = {}): ApiClient {
     if (parsed.kind !== "json") {
       throw new ApiError({
         kind: "connection",
-        message: "连接失败",
+        message: text("errors.connection"),
         sessionId: result.captured,
         status: result.status,
       });

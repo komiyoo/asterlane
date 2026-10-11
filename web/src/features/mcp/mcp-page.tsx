@@ -17,6 +17,7 @@ import {
 import { usePageLoad } from "../../app/use-page-load.ts";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
+import { text } from "../../i18n/locale.ts";
 import { PresetList } from "./preset-list.tsx";
 import { ServerForm, type ServerFormMode } from "./server-form.tsx";
 import { ServerTable, type DetailState } from "./server-table.tsx";
@@ -28,11 +29,16 @@ interface McpSnapshot {
   serverError: unknown;
 }
 
+interface SaveNotice {
+  message: string;
+  error: boolean;
+}
+
 export function McpPage() {
   const load = usePageLoad((signal) => loadMcpPage(signal), []);
   const [form, setForm] = useState<ServerFormMode | null>(null);
   const [presetNotice, setPresetNotice] = useState<string | null>(null);
-  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<SaveNotice | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [enablingId, setEnablingId] = useState<string | null>(null);
   const [openIds, setOpenIds] = useState<string[]>([]);
@@ -84,10 +90,16 @@ export function McpPage() {
 
   function noteSaved(saved: OutputMcpServerResponse) {
     if (saved.health.status === "unreachable") {
-      setSaveNotice(`已保存 ${saved.id}，但连接失败：${saved.health.last_error ?? "不可达"}`);
+      setSaveNotice({
+        message: text("mcp.notice.savedUnreachable", {
+          id: saved.id,
+          error: saved.health.last_error ?? text("mcp.health.unreachable"),
+        }),
+        error: true,
+      });
       return;
     }
-    setSaveNotice(`已保存 ${saved.id}`);
+    setSaveNotice({ message: text("mcp.notice.saved", { id: saved.id }), error: false });
   }
 
   async function enablePreset(preset: OutputMcpPresetResponse) {
@@ -110,7 +122,9 @@ export function McpPage() {
       load.reload();
     } catch (error) {
       if (!isStaleOrAborted(error)) {
-        setPresetNotice(`启用 ${preset.id} 失败：${formatApiError(error)}`);
+        setPresetNotice(
+          text("mcp.notice.enableFailed", { id: preset.id, detail: formatApiError(error) }),
+        );
       }
     } finally {
       enabling.current.delete(preset.id);
@@ -130,7 +144,7 @@ export function McpPage() {
       load.reload();
     } catch (error) {
       if (!isStaleOrAborted(error)) {
-        setActionError(`删除 ${id} 失败：${formatApiError(error)}`);
+        setActionError(text("mcp.notice.deleteFailed", { id, detail: formatApiError(error) }));
       }
     } finally {
       deleting.current.delete(id);
@@ -149,7 +163,7 @@ export function McpPage() {
       setDetailEpoch((current) => current + 1);
     } catch (error) {
       if (!isStaleOrAborted(error)) {
-        setActionError(`撤销 ${id} 的授权失败：${formatApiError(error)}`);
+        setActionError(text("mcp.notice.revokeFailed", { id, detail: formatApiError(error) }));
       }
     } finally {
       deauthorizing.current.delete(id);
@@ -179,7 +193,7 @@ export function McpPage() {
 
   return (
     <section className="page">
-      <h2>MCP 服务</h2>
+      <h2>{text("shell.routes.mcp")}</h2>
       <PresetList
         presets={data?.presets ?? null}
         error={data?.presetError ?? null}
@@ -192,13 +206,11 @@ export function McpPage() {
       />
       <div className="toolbar">
         <Button type="button" onClick={() => setForm({ kind: "create", preset: null })}>
-          添加 MCP 服务
+          {text("mcp.add")}
         </Button>
       </div>
       {saveNotice === null ? null : (
-        <FormMessage tone={saveNotice.includes("连接失败") ? "error" : "info"}>
-          {saveNotice}
-        </FormMessage>
+        <FormMessage tone={saveNotice.error ? "error" : "info"}>{saveNotice.message}</FormMessage>
       )}
       {actionError === null ? null : <FormMessage tone="error">{actionError}</FormMessage>}
       {form === null ? null : (

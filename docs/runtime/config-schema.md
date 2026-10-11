@@ -9,6 +9,8 @@ timestamp: 2026-10-11T00:00:00Z
 
 # Context
 
+[English](config-schema.en.md)
+
 The initial gateway config is YAML. It should be easy to review in git and later migrate into a database-backed control plane. 配置向后兼容，新增字段有默认值，详见 [Compatibility Policy](../architecture/compatibility-policy.md)。
 
 # Top-Level Shape

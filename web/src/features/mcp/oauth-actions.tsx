@@ -9,6 +9,8 @@ import {
 } from "../../api/index.ts";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
+import { text } from "../../i18n/locale.ts";
+import { formatTimestamp } from "../format.ts";
 
 interface AuthorizeLink {
   url: string;
@@ -59,7 +61,9 @@ export function OAuthActions({
     } catch (caught) {
       setStart(null);
       if (!isStaleOrAborted(caught)) {
-        setError(isApiError(caught) ? formatApiError(caught) : "授权响应无效");
+        setError(
+          isApiError(caught) ? formatApiError(caught) : text("api.mcp.authorizeInvalid"),
+        );
       }
     } finally {
       lock.current = false;
@@ -72,15 +76,15 @@ export function OAuthActions({
     <>
       {needsAuthorization ? (
         <Button type="button" disabled={pending} onClick={() => void onAuthorize()}>
-          {pending ? "授权中…" : "授权"}
+          {pending ? text("mcp.oauth.pending") : text("mcp.oauth.start")}
         </Button>
       ) : (
         <ConfirmDialog
-          label="撤销授权"
-          title="撤销授权"
-          description="清除网关保存的凭据，并让当前连接失效。不会通知授权服务器吊销 token。"
+          label={text("mcp.oauth.revoke")}
+          title={text("mcp.oauth.revokeTitle")}
+          description={text("mcp.oauth.revokeDescription")}
           resource={server.id}
-          confirmLabel="确认撤销"
+          confirmLabel={text("mcp.oauth.revokeConfirm")}
           onConfirm={() => onDeauthorize(server.id)}
         />
       )}
@@ -89,10 +93,13 @@ export function OAuthActions({
           {link === null ? null : (
             <p className="hint">
               <Link href={link.url} target="_blank" rel="noopener noreferrer">
-                打开授权页
+                {text("mcp.oauth.open")}
                 <Link.ExternalIcon />
               </Link>{" "}
-              有效期至 {link.deadline}（{link.expiresIn} 秒）
+              {text("mcp.oauth.deadline", {
+                deadline: formatTimestamp(link.deadline) || link.deadline,
+                seconds: String(link.expiresIn),
+              })}
             </p>
           )}
           {error === null ? null : <FormMessage tone="error">{error}</FormMessage>}

@@ -12,7 +12,8 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
-import { formatRequestKind, formatRequestStatus, requestKindLabels } from "../format.ts";
+import { text } from "../../i18n/locale.ts";
+import { formatCount, formatRequestKind, formatRequestStatus, formatTimestamp } from "../format.ts";
 import { parseLimit, toRfc3339 } from "../time.ts";
 import { cursorFromResponse } from "./cursor.ts";
 import { EventDetail } from "./event-detail.tsx";
@@ -40,16 +41,17 @@ const initialFilters: EventFilters = {
   limit: 50,
 };
 
-const kindItems = [
-  { value: "", label: "全部" },
-  ...Object.entries(requestKindLabels).map(([value, label]) => ({ value, label })),
-];
-
 export function EventsPage() {
   const { nonce } = useRefresh();
   const [draft, setDraft] = useState({ ...initialFilters, limitText: "50" });
   const [applied, setApplied] = useState(initialFilters);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formInvalid, setFormInvalid] = useState(false);
+  const kindItems = [
+    { value: "", label: text("events.all") },
+    { value: "tool", label: formatRequestKind("tool") },
+    { value: "prompt", label: "prompt" },
+    { value: "resource", label: "resource" },
+  ];
   const [rows, setRows] = useState<OutputRequestEventResponse[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [canMore, setCanMore] = useState(false);
@@ -116,50 +118,47 @@ export function EventsPage() {
     event.preventDefault();
     const limit = parseLimit(draft.limitText, 50, maxLimit);
     if (limit === undefined || invalidTime(draft.from) || invalidTime(draft.to)) {
-      setFormError("请检查时间和 limit。limit 为 1 到 200 的整数。");
+      setFormInvalid(true);
       return;
     }
-    setFormError(null);
+    setFormInvalid(false);
     setApplied({ ...draft, limit });
   }
 
   return (
     <section className="page">
-      <h2>事件</h2>
-      <p className="hint">
-        加载更多把本次接口返回顺序的最后一条 timestamp 当作
-        to，不含该边界。表格展示顺序不会改变这个游标。
-      </p>
+      <h2>{text("shell.routes.events")}</h2>
+      <p className="hint">{text("events.hint")}</p>
       <form className="toolbar" onSubmit={onSubmit}>
         <Input
-          label="代理密钥 ID"
+          label={text("events.proxyKey")}
           value={draft.proxyKey}
           onChange={(event) => setDraft({ ...draft, proxyKey: event.target.value })}
         />
         <Input
-          label="资源 ID"
+          label={text("events.resource")}
           value={draft.resource}
           onChange={(event) => setDraft({ ...draft, resource: event.target.value })}
         />
         <Select
-          label="类型"
+          label={text("events.kind")}
           value={draft.kind}
           items={kindItems}
           onValueChange={(kind) => setDraft({ ...draft, kind: kind ?? "" })}
         />
         <Input
-          label="名称"
+          label={text("events.name")}
           value={draft.tool}
           onChange={(event) => setDraft({ ...draft, tool: event.target.value })}
         />
         <Input
-          label="起始时间"
+          label={text("events.from")}
           type="datetime-local"
           value={draft.from}
           onChange={(event) => setDraft({ ...draft, from: event.target.value })}
         />
         <Input
-          label="结束时间"
+          label={text("events.to")}
           type="datetime-local"
           value={draft.to}
           onChange={(event) => setDraft({ ...draft, to: event.target.value })}
@@ -170,12 +169,12 @@ export function EventsPage() {
           inputMode="numeric"
           onChange={(event) => setDraft({ ...draft, limitText: event.target.value })}
         />
-        <Button type="submit">查询</Button>
+        <Button type="submit">{text("common.query")}</Button>
         <Button type="button" disabled={!canMore || loading} onClick={() => load(true, applied)}>
-          加载更多
+          {text("events.more")}
         </Button>
       </form>
-      {formError === null ? null : <FormMessage tone="error">{formError}</FormMessage>}
+      {formInvalid ? <FormMessage tone="error">{text("events.invalid")}</FormMessage> : null}
       {loading && rows.length === 0 ? <LoadingState /> : null}
       {error !== null ? <ErrorState error={error} onRetry={() => load(false, applied)} /> : null}
       {error === null && !loading && rows.length === 0 ? <EmptyState /> : null}
@@ -208,18 +207,18 @@ function EventTable({
       <Table>
         <Table.Header variant="compact">
           <Table.Row>
-            <Table.Head>时间</Table.Head>
-            <Table.Head>代理密钥</Table.Head>
-            <Table.Head>资源</Table.Head>
-            <Table.Head>类型</Table.Head>
-            <Table.Head>名称</Table.Head>
-            <Table.Head>状态</Table.Head>
-            <Table.Head>延迟(ms)</Table.Head>
-            <Table.Head>重试</Table.Head>
-            <Table.Head>限流</Table.Head>
-            <Table.Head>排队(ms)</Table.Head>
-            <Table.Head>上游密钥</Table.Head>
-            <Table.Head>请求 ID</Table.Head>
+            <Table.Head>{text("events.columns.time")}</Table.Head>
+            <Table.Head>{text("events.columns.proxyKey")}</Table.Head>
+            <Table.Head>{text("events.columns.resource")}</Table.Head>
+            <Table.Head>{text("events.columns.kind")}</Table.Head>
+            <Table.Head>{text("events.columns.name")}</Table.Head>
+            <Table.Head>{text("events.columns.status")}</Table.Head>
+            <Table.Head>{text("events.columns.latency")}</Table.Head>
+            <Table.Head>{text("events.columns.retries")}</Table.Head>
+            <Table.Head>{text("events.columns.rateLimit")}</Table.Head>
+            <Table.Head>{text("events.columns.queued")}</Table.Head>
+            <Table.Head>{text("events.columns.upstreamKey")}</Table.Head>
+            <Table.Head>{text("events.columns.requestId")}</Table.Head>
             <Table.Head></Table.Head>
           </Table.Row>
         </Table.Header>
@@ -250,7 +249,7 @@ function EventRows({
   return (
     <>
       <Table.Row>
-        <Table.Cell>{row.timestamp}</Table.Cell>
+        <Table.Cell>{formatTimestamp(row.timestamp) || row.timestamp}</Table.Cell>
         <Table.Cell>{row.proxy_key_id}</Table.Cell>
         <Table.Cell>{row.resource_id}</Table.Cell>
         <Table.Cell>{formatRequestKind(row.request_kind)}</Table.Cell>
@@ -260,15 +259,15 @@ function EventRows({
             {formatRequestStatus(row.status)}
           </Badge>
         </Table.Cell>
-        <Table.Cell>{row.latency_ms}</Table.Cell>
-        <Table.Cell>{row.retry_count}</Table.Cell>
+        <Table.Cell>{formatCount(row.latency_ms)}</Table.Cell>
+        <Table.Cell>{formatCount(row.retry_count)}</Table.Cell>
         <Table.Cell>{row.rate_limited ? "true" : "false"}</Table.Cell>
-        <Table.Cell>{row.queued_ms}</Table.Cell>
+        <Table.Cell>{formatCount(row.queued_ms)}</Table.Cell>
         <Table.Cell>{row.upstream_key_ref}</Table.Cell>
         <Table.Cell>{row.request_id}</Table.Cell>
         <Table.Cell>
           <Button type="button" aria-expanded={open} onClick={() => onToggle(id)}>
-            详情
+            {text("events.details")}
           </Button>
         </Table.Cell>
       </Table.Row>

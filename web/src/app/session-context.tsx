@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { getApiClient } from "../api/index.ts";
+import { subscribeLocale } from "../i18n/locale.ts";
 import { SessionContext } from "./use-session.ts";
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -7,6 +8,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState(() => client.snapshot());
 
   useEffect(() => client.subscribe(setSnapshot), [client]);
+  useEffect(() => subscribeLocale(() => setSnapshot(client.snapshot())), [client]);
 
   const value = useMemo(() => ({ client, snapshot }), [client, snapshot]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

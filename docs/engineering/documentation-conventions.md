@@ -4,7 +4,7 @@ title: 文档体系约定
 description: 面向 GitHub 读者的文档地图、仓库门面、OKF 层级、生命周期、引用规则与自进化检查。
 resource: docs/engineering/documentation-conventions.md
 tags: [conventions, docs, okf, workflow]
-timestamp: 2026-10-10T00:00:00Z
+timestamp: 2026-10-11T00:00:00Z
 ---
 
 # 读者
@@ -22,7 +22,7 @@ timestamp: 2026-10-10T00:00:00Z
 
 下列文件由 GitHub 单独展示。它们不是 OKF 概念，不放进 `docs/<category>/`，也不要在概念文档里复制一份。
 
-`README.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、`SECURITY.md` 是英文版，同目录的 `*.zh-CN.md` 是中文版，两版标题下互相给出语言切换链接。改其中一版时同步另一版。`docs/` 里的链接指向中文版。
+`README.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、`SECURITY.md` 是英文版，同目录的 `*.zh-CN.md` 是中文版，两版标题下互相给出语言切换链接。改其中一版时同步另一版。`docs/` 里的链接指向中文版；某篇概念文档已有英文版时，英文版之间可以链到对应的 `*.en.md`，见「中英对照」。
 
 | 文件 | 职责 |
 | --- | --- |
@@ -45,7 +45,17 @@ timestamp: 2026-10-10T00:00:00Z
 - 不写贡献者机器上的绝对路径，不用 `file://` 链接本机目录。外部项目只作概念参考时，写名字，不写本机克隆位置。
 - 还没做的能力写在 [Roadmap](../product/roadmap.md) 或 `docs/plans/`。操作文档用现在时，不把计划写成已经可以执行的步骤。
 - `docs/log.md` 只记文档包的结论、影响面和验证。它不代替 `CHANGELOG.md`，也不记录代理会话过程。
-- 中文是文档语言。协议名、代码标识、命令、错误码、crate 名保留英文。
+- 中文是 `docs/` 的正文语言。协议名、代码标识、命令、错误码、crate 名保留英文。需要英文版时按下一节，不把中文文件改名为 `*.zh-CN.md`。
+
+# 中英对照
+
+`docs/` 以中文为准。英文版是同目录的 `name.en.md`，不替换中文文件，也不另写一套决策。
+
+- 两版都是 L2：frontmatter 的 `type` 非空，`resource` 写自己的路径。分类 `README.md` 要链到英文版，这样从 `docs/README.md` 能走到它。
+- 两版标题下互相给出语言切换链接。
+- 步骤、字段、命令或结论变了，两版一起改。英文只翻译散文，不新增中文版没有的结论。YAML、JSON、标识符和错误码保持原样。
+- 其它文档仍链接中文路径。英文版只在对方也有 `*.en.md` 时才链英文路径。
+- `docs/plans/` 和 `docs/log.md` 不要求英文版。
 
 # 层级
 

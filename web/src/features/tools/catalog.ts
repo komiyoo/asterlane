@@ -1,4 +1,5 @@
 import type { OutputToolSummaryResponse } from "../../api/index.ts";
+import { intlLocale } from "../../i18n/locale.ts";
 
 export type ToolSortKey = "name" | "resource_id" | "description";
 export type SortDirection = "asc" | "desc";
@@ -55,7 +56,10 @@ export function sortTools(
   return tools
     .map((tool, index) => ({ tool, index }))
     .sort((left, right) => {
-      const compared = sortValue(left.tool, key).localeCompare(sortValue(right.tool, key), "zh");
+      const compared = sortValue(left.tool, key).localeCompare(
+        sortValue(right.tool, key),
+        intlLocale(),
+      );
       if (compared !== 0) {
         return direction === "asc" ? compared : -compared;
       }

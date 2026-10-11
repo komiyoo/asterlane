@@ -6,7 +6,7 @@
 //! state 有效，校验与换 token 见 [`crate::mcp::UpstreamOAuth::complete_authorization`]。
 //!
 //! 响应是极简 HTML，不显示任何 token，也不把 query 参数或授权服务器返回的内容写进
-//! 页面（页面文字都是固定文案，唯一的动态内容 `request_id` 与 server id 经转义）。
+//! 页面。页面文字是中英并列的固定文案；唯一的动态内容 `request_id` 与 server id 经转义。
 //! 授权服务器返回的错误细节只进 tracing。响应带 `Cache-Control: no-store`。
 
 use axum::extract::rejection::QueryRejection;
@@ -68,47 +68,70 @@ fn success_page(server_id: &str, connected: bool) -> Response {
     let server = escape_html(server_id);
     let body = if connected {
         format!(
-            "<h1>授权完成</h1><p>已为 MCP 服务 <code>{server}</code> 完成授权，网关已保存凭据并重新连接。</p>\
-             <p>可以关闭此页面。</p>"
+            "<h1>授权完成 / Authorization complete</h1>\
+             <p>已为 MCP 服务 <code>{server}</code> 完成授权，网关已保存凭据并重新连接。</p>\
+             <p lang=\"en\">Authorization for MCP server <code>{server}</code> is complete. \
+             The gateway saved the credential and reconnected.</p>\
+             <p>可以关闭此页面。</p>\
+             <p lang=\"en\">You can close this page.</p>"
         )
     } else {
         format!(
-            "<h1>授权完成</h1><p>已为 MCP 服务 <code>{server}</code> 完成授权，网关已保存凭据，\
+            "<h1>授权完成 / Authorization complete</h1>\
+             <p>已为 MCP 服务 <code>{server}</code> 完成授权，网关已保存凭据，\
              但暂时无法连接该服务。请在控制台查看服务状态，或稍后点击「探测」。</p>\
-             <p>可以关闭此页面。</p>"
+             <p lang=\"en\">Authorization for MCP server <code>{server}</code> is complete \
+             and the credential is saved, but the gateway cannot connect to the service right now. \
+             Check the service status in the console, or probe it again later.</p>\
+             <p>可以关闭此页面。</p>\
+             <p lang=\"en\">You can close this page.</p>"
         )
     };
-    html_page(StatusCode::OK, "授权完成", &body)
+    html_page(StatusCode::OK, "授权完成 / Authorization complete", &body)
 }
 
 fn error_page(error: CallbackError, request_id: &str) -> Response {
-    let (status, advice) = match error {
+    let (status, advice_zh, advice_en) = match error {
         CallbackError::InvalidState => (
             StatusCode::BAD_REQUEST,
             "授权请求无效，或已经使用过。请回到控制台重新发起授权。",
+            "The authorization request is invalid or was already used. \
+             Start it again from the console.",
         ),
         CallbackError::Expired => (
             StatusCode::BAD_REQUEST,
             "授权请求已过期。请回到控制台重新发起授权，并在有效期内完成。",
+            "The authorization request has expired. Start it again from the console \
+             and finish within the time limit.",
         ),
         CallbackError::NotGranted => (
             StatusCode::BAD_REQUEST,
             "授权服务器没有授予访问权限（可能在授权页面选择了拒绝）。如需授权，请回到控制台重新发起。",
+            "The authorization server did not grant access. This can happen if access was denied \
+             on the authorization page. Start again from the console \
+             if you still want to authorize.",
         ),
         CallbackError::MissingCode => (
             StatusCode::BAD_REQUEST,
             "授权服务器的响应不完整。请回到控制台重新发起授权。",
+            "The authorization server response is incomplete. \
+             Start authorization again from the console.",
         ),
         CallbackError::ExchangeFailed => (
             StatusCode::BAD_GATEWAY,
             "向授权服务器换取令牌失败。请回到控制台重新发起授权；反复失败时，凭请求编号查看网关日志。",
+            "Exchanging the authorization code for a token failed. Start again from the console. \
+             If it keeps failing, look up the request ID in the gateway logs.",
         ),
     };
+    let request = escape_html(request_id);
     let body = format!(
-        "<h1>授权失败</h1><p>{advice}</p><p>请求编号：<code>{}</code></p>",
-        escape_html(request_id)
+        "<h1>授权失败 / Authorization failed</h1><p>{advice_zh}</p>\
+         <p lang=\"en\">{advice_en}</p>\
+         <p>请求编号：<code>{request}</code></p>\
+         <p lang=\"en\">Request ID: <code>{request}</code></p>"
     );
-    html_page(status, "授权失败", &body)
+    html_page(status, "授权失败 / Authorization failed", &body)
 }
 
 fn html_page(status: StatusCode, title: &str, body: &str) -> Response {
@@ -208,8 +231,21 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers[CACHE_CONTROL], "no-store");
         assert!(body.contains("授权完成"));
+        assert!(body.contains("Authorization complete"));
+        assert!(body.contains("lang=\"en\""));
         assert!(!body.contains("<b>x</b>"));
         let (_, _, degraded) = text(success_page("srv", false)).await;
         assert!(degraded.contains("暂时无法连接"));
+        assert!(degraded.contains("cannot connect"));
+    }
+
+    #[tokio::test]
+    async fn error_page_shows_chinese_and_english() {
+        let (_, _, body) = text(error_page(CallbackError::InvalidState, "req-1")).await;
+        assert!(body.contains("授权失败"));
+        assert!(body.contains("Authorization failed"));
+        assert!(body.contains("lang=\"zh-CN\""));
+        assert!(body.contains("lang=\"en\""));
+        assert!(body.contains("req-1"));
     }
 }

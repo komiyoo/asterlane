@@ -6,22 +6,38 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
-import { formatAverage, formatRequestKind } from "../format.ts";
+import { text } from "../../i18n/locale.ts";
+import { formatAverage, formatCount, formatRequestKind } from "../format.ts";
 import { toRfc3339 } from "../time.ts";
 
-const dimensions = [
-  { value: "tool", label: "按工具" },
-  { value: "domain", label: "按领域" },
-  { value: "resource", label: "按资源" },
-  { value: "proxy_key", label: "按 proxy key" },
-  { value: "status", label: "按状态" },
-  { value: "bucket", label: "按小时（趋势）" },
-] as const;
+type UsageGroup = "tool" | "domain" | "resource" | "proxy_key" | "status" | "bucket";
 
 interface UsageDraft {
-  groupBy: (typeof dimensions)[number]["value"];
+  groupBy: UsageGroup;
   from: string;
   to: string;
+}
+
+function isUsageGroup(value: string | null): value is UsageGroup {
+  return (
+    value === "tool" ||
+    value === "domain" ||
+    value === "resource" ||
+    value === "proxy_key" ||
+    value === "status" ||
+    value === "bucket"
+  );
+}
+
+function dimensionItems(): { value: UsageGroup; label: string }[] {
+  return [
+    { value: "tool", label: text("usage.dimensions.tool") },
+    { value: "domain", label: text("usage.dimensions.domain") },
+    { value: "resource", label: text("usage.dimensions.resource") },
+    { value: "proxy_key", label: text("usage.dimensions.proxyKey") },
+    { value: "status", label: text("usage.dimensions.status") },
+    { value: "bucket", label: text("usage.dimensions.bucket") },
+  ];
 }
 
 const initialDraft: UsageDraft = { groupBy: "tool", from: "", to: "" };
@@ -29,7 +45,7 @@ const initialDraft: UsageDraft = { groupBy: "tool", from: "", to: "" };
 export function UsagePage() {
   const [draft, setDraft] = useState(initialDraft);
   const [applied, setApplied] = useState(initialDraft);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [timeInvalid, setTimeInvalid] = useState(false);
   const load = usePageLoad(
     (signal) =>
       getUsage(
@@ -45,10 +61,10 @@ export function UsagePage() {
 
   function apply(next: UsageDraft) {
     if (invalidTime(next.from) || invalidTime(next.to)) {
-      setFormError("时间格式无效");
+      setTimeInvalid(true);
       return;
     }
-    setFormError(null);
+    setTimeInvalid(false);
     setDraft(next);
     setApplied(next);
   }
@@ -60,29 +76,33 @@ export function UsagePage() {
 
   return (
     <section className="page">
-      <h2>用量</h2>
+      <h2>{text("shell.routes.usage")}</h2>
       <form className="toolbar" onSubmit={onSubmit}>
         <Select
-          label="维度"
+          label={text("usage.dimension")}
           value={draft.groupBy}
-          items={dimensions}
-          onValueChange={(groupBy) => apply({ ...draft, groupBy: groupBy ?? "tool" })}
+          items={dimensionItems()}
+          onValueChange={(groupBy) => {
+            if (isUsageGroup(groupBy)) {
+              apply({ ...draft, groupBy });
+            }
+          }}
         />
         <Input
-          label="起始时间"
+          label={text("usage.from")}
           type="datetime-local"
           value={draft.from}
           onChange={(event) => setDraft({ ...draft, from: event.target.value })}
         />
         <Input
-          label="结束时间"
+          label={text("usage.to")}
           type="datetime-local"
           value={draft.to}
           onChange={(event) => setDraft({ ...draft, to: event.target.value })}
         />
-        <Button type="submit">查询</Button>
+        <Button type="submit">{text("common.query")}</Button>
       </form>
-      {formError === null ? null : <FormMessage tone="error">{formError}</FormMessage>}
+      {timeInvalid ? <FormMessage tone="error">{text("usage.invalidTime")}</FormMessage> : null}
       <UsageBody groupBy={applied.groupBy} load={load} />
     </section>
   );
@@ -145,8 +165,10 @@ function UsageChart({ rows, bucket }: { rows: OutputUsageSummaryResponse[]; buck
               </div>
             </div>
             <span className="bar-num">
-              {row.request_count}
-              {row.error_count === 0 ? "" : ` (${row.error_count} 错)`}
+              {formatCount(row.request_count)}
+              {row.error_count === 0
+                ? ""
+                : text("usage.errorSuffix", { count: formatCount(row.error_count) })}
             </span>
           </div>
         );
@@ -162,13 +184,13 @@ function UsageTable({ rows }: { rows: OutputUsageSummaryResponse[] }) {
       <Table>
         <Table.Header variant="compact">
           <Table.Row>
-            {showKind ? <Table.Head>类型</Table.Head> : null}
-            <Table.Head>维度</Table.Head>
-            <Table.Head>请求数</Table.Head>
-            <Table.Head>错误数</Table.Head>
-            <Table.Head>总单元</Table.Head>
-            <Table.Head>平均延迟(ms)</Table.Head>
-            <Table.Head>限流命中</Table.Head>
+            {showKind ? <Table.Head>{text("usage.columns.kind")}</Table.Head> : null}
+            <Table.Head>{text("usage.columns.dimension")}</Table.Head>
+            <Table.Head>{text("usage.columns.requests")}</Table.Head>
+            <Table.Head>{text("usage.columns.errors")}</Table.Head>
+            <Table.Head>{text("usage.columns.units")}</Table.Head>
+            <Table.Head>{text("usage.columns.latency")}</Table.Head>
+            <Table.Head>{text("usage.columns.rateLimit")}</Table.Head>
           </Table.Row>
         </Table.Header>
         <Table.Body>
@@ -176,11 +198,11 @@ function UsageTable({ rows }: { rows: OutputUsageSummaryResponse[] }) {
             <Table.Row key={rowKey(row)}>
               {showKind ? <Table.Cell>{formatRequestKind(row.request_kind)}</Table.Cell> : null}
               <Table.Cell>{row.dimension_value}</Table.Cell>
-              <Table.Cell>{row.request_count}</Table.Cell>
-              <Table.Cell>{row.error_count}</Table.Cell>
-              <Table.Cell>{row.total_units}</Table.Cell>
+              <Table.Cell>{formatCount(row.request_count)}</Table.Cell>
+              <Table.Cell>{formatCount(row.error_count)}</Table.Cell>
+              <Table.Cell>{formatCount(row.total_units)}</Table.Cell>
               <Table.Cell>{formatAverage(row.avg_latency_ms)}</Table.Cell>
-              <Table.Cell>{row.rate_limit_hits}</Table.Cell>
+              <Table.Cell>{formatCount(row.rate_limit_hits)}</Table.Cell>
             </Table.Row>
           ))}
         </Table.Body>

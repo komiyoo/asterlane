@@ -1,5 +1,6 @@
 import { isStaleOrAborted, listMcpServers, listResources, listTools } from "../../api/index.ts";
 import type { CallInit } from "../../api/index.ts";
+import { text } from "../../i18n/locale.ts";
 
 export interface ScopeServer {
   id: string;
@@ -24,10 +25,10 @@ export interface ScopePiece<T> {
 
 export async function loadScopeOptions(init?: CallInit): Promise<ScopeOptions> {
   const [resources, mcp, tools] = await Promise.all([
-    readOptional("资源列表", listResources(init)),
-    readOptional("MCP 服务列表", listMcpServers(init)),
+    readOptional(text("proxyKeys.scope.resources"), listResources(init)),
+    readOptional(text("proxyKeys.scope.mcp"), listMcpServers(init)),
     readOptional(
-      "工具列表",
+      text("proxyKeys.scope.tools"),
       listTools(init).then((catalog) =>
         catalog.tools.map((tool) => ({ name: tool.name, resourceId: tool.resource_id })),
       ),
@@ -106,12 +107,12 @@ export function matchingTools(
 
 export function serverLabel(server: ScopeServer): string {
   if (server.kind === "api") {
-    return `${server.id}（api）`;
+    return text("proxyKeys.scope.api", { id: server.id });
   }
   if (server.kind === "mcp") {
-    return `${server.id}（mcp）`;
+    return text("proxyKeys.scope.mcpServer", { id: server.id });
   }
-  return `${server.id}（已保存）`;
+  return text("proxyKeys.scope.saved", { id: server.id });
 }
 
 async function readOptional<T>(label: string, request: Promise<T>): Promise<ScopePiece<T>> {
@@ -121,7 +122,7 @@ async function readOptional<T>(label: string, request: Promise<T>): Promise<Scop
     if (isStaleOrAborted(error)) {
       throw error;
     }
-    return { value: null, warning: `${label}不可用，已有范围会保留。` };
+    return { value: null, warning: text("proxyKeys.scope.unavailable", { label }) };
   }
 }
 

@@ -2,6 +2,7 @@ import { Button } from "@cloudflare/kumo";
 import { useRef, useState } from "react";
 import { isStaleOrAborted, putToolDefault } from "../../api/index.ts";
 import { FormMessage } from "../../components/form-message.tsx";
+import { text } from "../../i18n/locale.ts";
 import { eventDefaultArgs } from "./args.ts";
 import { describeStoreFailure } from "./feedback.ts";
 
@@ -32,11 +33,11 @@ export function SaveDefaultControl({
     try {
       await putToolDefault(toolName, args);
       setError(false);
-      setMessage(`已存为 ${toolName} 的默认参数`);
+      setMessage(text("tools.saveDefault.saved", { name: toolName }));
     } catch (caught) {
       if (!isStaleOrAborted(caught)) {
         setError(true);
-        setMessage(describeStoreFailure(caught, "保存默认参数"));
+        setMessage(describeStoreFailure(caught, text("tools.saveDefault.action")));
       }
     } finally {
       lock.current = false;
@@ -47,7 +48,7 @@ export function SaveDefaultControl({
   return (
     <div>
       <Button type="button" disabled={pending} onClick={() => void onSave()}>
-        存为默认参数
+        {text("tools.saveDefault.button")}
       </Button>
       {message === null ? null : (
         <FormMessage tone={error ? "error" : "info"}>{message}</FormMessage>

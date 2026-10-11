@@ -7,6 +7,8 @@ import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LimitNote } from "../../components/limit-note.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
+import { text } from "../../i18n/locale.ts";
+import { formatTimestamp } from "../format.ts";
 import { detailText, jsonText } from "../json-value.ts";
 import { parseLimit } from "../time.ts";
 
@@ -17,16 +19,14 @@ interface AuditQuery {
 
 const initialQuery: AuditQuery = { kind: "admin_audit", limit: 100 };
 
-/** 空串表示全部类型。 */
-const kindItems = [
-  { value: "admin_audit", label: "admin_audit" },
-  { value: "", label: "全部类型" },
-];
-
 export function AuditPage() {
   const [draft, setDraft] = useState({ kind: "admin_audit", limitText: "100" });
   const [applied, setApplied] = useState(initialQuery);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formInvalid, setFormInvalid] = useState(false);
+  const kindItems = [
+    { value: "admin_audit", label: "admin_audit" },
+    { value: "", label: text("audit.all") },
+  ];
   const load = usePageLoad(
     (signal) =>
       listAuditEvents(
@@ -43,19 +43,19 @@ export function AuditPage() {
     event.preventDefault();
     const limit = parseLimit(draft.limitText, 100, 200);
     if (limit === undefined) {
-      setFormError("limit 为 1 到 200 的整数。");
+      setFormInvalid(true);
       return;
     }
-    setFormError(null);
+    setFormInvalid(false);
     setApplied({ kind: draft.kind, limit });
   }
 
   return (
     <section className="page">
-      <h2>审计</h2>
+      <h2>{text("shell.routes.audit")}</h2>
       <form className="toolbar" onSubmit={onSubmit}>
         <Select
-          label="类型"
+          label={text("audit.kind")}
           value={draft.kind}
           items={kindItems}
           onValueChange={(kind) => setDraft({ ...draft, kind: kind ?? "" })}
@@ -66,9 +66,9 @@ export function AuditPage() {
           inputMode="numeric"
           onChange={(event) => setDraft({ ...draft, limitText: event.target.value })}
         />
-        <Button type="submit">查询</Button>
+        <Button type="submit">{text("common.query")}</Button>
       </form>
-      {formError === null ? null : <FormMessage tone="error">{formError}</FormMessage>}
+      {formInvalid ? <FormMessage tone="error">{text("audit.invalidLimit")}</FormMessage> : null}
       <AuditResults limit={applied.limit} load={load} />
     </section>
   );
@@ -102,18 +102,18 @@ function AuditTable({ rows }: { rows: OutputSecurityEventResponse[] }) {
       <Table>
         <Table.Header variant="compact">
           <Table.Row>
-            <Table.Head>时间</Table.Head>
-            <Table.Head>类型</Table.Head>
-            <Table.Head>管理员</Table.Head>
-            <Table.Head>操作</Table.Head>
-            <Table.Head>目标</Table.Head>
-            <Table.Head>详情</Table.Head>
+            <Table.Head>{text("audit.columns.time")}</Table.Head>
+            <Table.Head>{text("audit.columns.kind")}</Table.Head>
+            <Table.Head>{text("audit.columns.admin")}</Table.Head>
+            <Table.Head>{text("audit.columns.action")}</Table.Head>
+            <Table.Head>{text("audit.columns.target")}</Table.Head>
+            <Table.Head>{text("audit.columns.details")}</Table.Head>
           </Table.Row>
         </Table.Header>
         <Table.Body>
           {rows.map((row, index) => (
             <Table.Row key={`${row.timestamp}-${index}`}>
-              <Table.Cell>{row.timestamp}</Table.Cell>
+              <Table.Cell>{formatTimestamp(row.timestamp) || row.timestamp}</Table.Cell>
               <Table.Cell>{row.kind}</Table.Cell>
               <Table.Cell>{detailText(row.details, "admin_key_id")}</Table.Cell>
               <Table.Cell>{detailText(row.details, "action")}</Table.Cell>

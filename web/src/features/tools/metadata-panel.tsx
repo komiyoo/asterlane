@@ -7,6 +7,7 @@ import {
   putToolMetadata,
 } from "../../api/index.ts";
 import { FormMessage } from "../../components/form-message.tsx";
+import { text } from "../../i18n/locale.ts";
 import { describeStoreFailure } from "./feedback.ts";
 
 export function ToolMetadataPanel({
@@ -20,7 +21,7 @@ export function ToolMetadataPanel({
   initialOverride: string;
   onSaved: () => void | Promise<void>;
 }) {
-  const [text, setText] = useState(initialOverride);
+  const [overrideText, setOverrideText] = useState(initialOverride);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [pending, setPending] = useState(false);
@@ -30,10 +31,10 @@ export function ToolMetadataPanel({
     if (lock.current) {
       return;
     }
-    const description = text.trim();
+    const description = overrideText.trim();
     if (description === "") {
       setError(true);
-      setMessage("介绍不能为空；恢复原始描述请用「清除覆盖」");
+      setMessage(text("tools.metadata.empty"));
       return;
     }
     lock.current = true;
@@ -42,12 +43,12 @@ export function ToolMetadataPanel({
     try {
       await putToolMetadata(toolName, { description });
       setError(false);
-      setMessage("已保存");
+      setMessage(text("tools.metadata.saved"));
       await onSaved();
     } catch (caught) {
       if (!isStaleOrAborted(caught)) {
         setError(true);
-        setMessage(describeStoreFailure(caught, "保存介绍"));
+        setMessage(describeStoreFailure(caught, text("tools.metadata.saveAction")));
       }
     } finally {
       lock.current = false;
@@ -64,17 +65,17 @@ export function ToolMetadataPanel({
     setMessage(null);
     try {
       await deleteToolMetadata(toolName);
-      setText("");
+      setOverrideText("");
       setError(false);
-      setMessage("已清除");
+      setMessage(text("tools.metadata.cleared"));
       await onSaved();
     } catch (caught) {
       if (!isStaleOrAborted(caught)) {
         setError(true);
         setMessage(
           isApiError(caught) && caught.status === 404
-            ? "没有可清除的介绍覆盖。"
-            : describeStoreFailure(caught, "清除介绍"),
+            ? text("tools.metadata.nothing")
+            : describeStoreFailure(caught, text("tools.metadata.clearAction")),
         );
       }
     } finally {
@@ -84,22 +85,26 @@ export function ToolMetadataPanel({
   }
 
   return (
-    <section aria-label={`介绍 ${toolName}`} className="detail">
-      <p className="hint">介绍覆盖会代替上游描述。原始：{original || "（无）"}</p>
+    <section aria-label={text("tools.metadata.region", { name: toolName })} className="detail">
+      <p className="hint">
+        {text("tools.metadata.hint", {
+          original: original || text("tools.metadata.noOriginal"),
+        })}
+      </p>
       <Textarea
-        label="介绍覆盖"
+        label={text("tools.metadata.label")}
         className="code-input"
         rows={3}
         spellCheck={false}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
+        value={overrideText}
+        onChange={(event) => setOverrideText(event.target.value)}
       />
       <div className="toolbar">
         <Button type="button" disabled={pending} onClick={() => void onSave()}>
-          保存
+          {text("common.save")}
         </Button>
         <Button type="button" disabled={pending} onClick={() => void onClear()}>
-          清除覆盖
+          {text("tools.metadata.clear")}
         </Button>
       </div>
       {message === null ? null : (

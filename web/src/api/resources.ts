@@ -1,3 +1,4 @@
+import { text } from "../i18n/locale.ts";
 import { getApiClient, type CallInit } from "./client.ts";
 import type {
   InputResourceWriteParams,
@@ -43,14 +44,14 @@ export async function deleteResource(id: string, init?: CallInit): Promise<Outpu
 
 function requiredCreated(value: OutputCreatedResponse | undefined): OutputCreatedResponse {
   if (value === undefined || value.created.trim() === "") {
-    throw new Error("创建响应不完整");
+    throw new Error(text("api.resources.createIncomplete"));
   }
   return value;
 }
 
 function requiredDeleted(value: OutputDeletedResponse | undefined): OutputDeletedResponse {
   if (value === undefined || value.deleted.trim() === "") {
-    throw new Error("删除响应不完整");
+    throw new Error(text("api.resources.deleteIncomplete"));
   }
   return value;
 }
