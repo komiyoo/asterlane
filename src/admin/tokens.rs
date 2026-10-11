@@ -4,9 +4,9 @@
 //! 安全红线：token 明文只出现在签发响应体中一次；内存与 DB 只保留 SHA-256
 //! 摘要；审计事件与日志不含任何 token 材料。
 //!
-//! 写路径与 CRUD 同构：改配置快照 → `swap_config_and_catalog` 原子替换
-//! （内部从新快照重建 GatewayAuth，旧摘要即时失效）→ DB upsert（best-effort）
-//! → `AdminAudit`。
+//! 写路径与 CRUD 同构：读快照前取得管理写锁 → 改配置快照 →
+//! `swap_config_and_catalog` 原子替换（内部从新快照重建 GatewayAuth，旧摘要
+//! 即时失效）→ DB upsert（best-effort）→ `AdminAudit`。锁持有到落库结束。
 
 use axum::Extension;
 use axum::Json;
@@ -38,6 +38,7 @@ pub(super) async fn issue_token(
     body: Bytes,
 ) -> Result<Json<TokenIssueResponse>, AsterlaneError> {
     let expires_at = parse_expires_at(&body)?;
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     let key = config
         .proxy_keys
@@ -80,6 +81,7 @@ pub(super) async fn revoke_token(
     Extension(admin): Extension<AdminKeyId>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AsterlaneError> {
+    let _guard = state.lock_admin_write().await;
     let config = state.config_snapshot().await;
     if !config.proxy_keys.iter().any(|k| k.id == id) {
         return Err(not_found(&id));

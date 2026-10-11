@@ -86,11 +86,15 @@ pub(super) async fn put_metadata(
     let repo = require_store(&state)?;
     repo.set_tool_metadata(&name, &description, Some(&admin.0))
         .await?;
-    state
-        .catalog
-        .write()
-        .await
-        .set_description_override(&name, &description);
+    // 落库在锁外。只在写 catalog 时排队，避免和配置替换互相盖掉介绍覆盖。
+    {
+        let _guard = state.lock_admin_write().await;
+        state
+            .catalog
+            .write()
+            .await
+            .set_description_override(&name, &description);
+    }
     record_audit(&state, &admin.0, "set", "tool_metadata", &name).await;
     Ok(Json(UpdatedResponse { updated: name }))
 }
@@ -106,11 +110,14 @@ pub(super) async fn delete_metadata(
     if !repo.delete_tool_metadata(&name).await? {
         return Err(not_found(&name));
     }
-    state
-        .catalog
-        .write()
-        .await
-        .remove_description_override(&name);
+    {
+        let _guard = state.lock_admin_write().await;
+        state
+            .catalog
+            .write()
+            .await
+            .remove_description_override(&name);
+    }
     record_audit(&state, &admin.0, "delete", "tool_metadata", &name).await;
     Ok(Json(DeletedResponse { deleted: name }))
 }
