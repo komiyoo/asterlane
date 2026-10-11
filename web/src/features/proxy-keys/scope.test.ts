@@ -2,7 +2,6 @@ import { expect, test } from "vite-plus/test";
 import {
   assembleScope,
   matchingTools,
-  mergeVisibleSelection,
   serverChoices,
   toolChoices,
 } from "./scope.ts";
@@ -33,16 +32,7 @@ test("saved servers and tool names stay selectable when the catalog omits them",
   ]);
 });
 
-test("filtering only changes the visible tool selection", () => {
-  const visible = matchingTools([search, mail], "mail", "").map((tool) => tool.name);
-  expect(visible).toEqual(["mail__send"]);
-  expect(mergeVisibleSelection(["search__web", "search__keep"], visible, ["mail__send"])).toEqual([
-    "search__web",
-    "search__keep",
-    "mail__send",
-  ]);
-  expect(
-    mergeVisibleSelection(["search__web", "mail__send"], ["search__web", "mail__send"], []),
-  ).toEqual([]);
+test("matchingTools filters by name and server", () => {
+  expect(matchingTools([search, mail], "mail", "").map((tool) => tool.name)).toEqual(["mail__send"]);
   expect(matchingTools([search, mail], "", "search")).toEqual([search]);
 });

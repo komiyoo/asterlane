@@ -104,23 +104,6 @@ export function matchingTools(
   });
 }
 
-// 过滤只替换当前看得到的选项。列表没返回的已选工具留在结果里，避免把 scope 清掉。
-export function mergeVisibleSelection(
-  previous: readonly string[],
-  visible: readonly string[],
-  picked: readonly string[],
-): string[] {
-  const visibleSet = new Set(visible);
-  const pickedSet = new Set(picked);
-  const next = previous.filter((name) => !visibleSet.has(name) || pickedSet.has(name));
-  for (const name of picked) {
-    if (!next.includes(name)) {
-      next.push(name);
-    }
-  }
-  return next;
-}
-
 export function serverLabel(server: ScopeServer): string {
   if (server.kind === "api") {
     return `${server.id}（api）`;
