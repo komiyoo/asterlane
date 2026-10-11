@@ -79,9 +79,9 @@ pub(super) async fn connect(
     let store = oauth.credential_store(id)?;
     preflight(&store, id).await?;
 
-    let mut manager = AuthorizationManager::new(server.url.as_str())
-        .await
-        .map_err(|e| setup_failure(id, "client setup", &e))?;
+    let mut manager = oauth
+        .authorization_manager(id, server.url.as_str())
+        .await?;
     store.install(&mut manager);
     match manager.initialize_from_store().await {
         Ok(true) => {}

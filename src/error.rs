@@ -61,6 +61,8 @@ pub enum ErrorCode {
     ProxyUpstreamError,
     /// 上游连接失败。
     ProxyConnectionFailed,
+    /// 出站地址校验拒绝（私网、回环、云元数据等）。消息固定，不含解析出的地址。
+    ProxyEgressBlocked,
 
     // ── limit ──
     /// 配额耗尽。
@@ -124,6 +126,7 @@ impl ErrorCode {
             Self::ProxyRetryExhausted => "proxy.retry_exhausted",
             Self::ProxyUpstreamError => "proxy.upstream_error",
             Self::ProxyConnectionFailed => "proxy.connection_failed",
+            Self::ProxyEgressBlocked => "proxy.egress_blocked",
             Self::LimitQuotaExceeded => "limit.quota_exceeded",
             Self::LimitQueueFull => "limit.queue_full",
             Self::LimitQueueTimeout => "limit.queue_timeout",
@@ -161,7 +164,8 @@ impl ErrorCode {
             Self::ProxyUpstreamTimeout
             | Self::ProxyRetryExhausted
             | Self::ProxyUpstreamError
-            | Self::ProxyConnectionFailed => "proxy",
+            | Self::ProxyConnectionFailed
+            | Self::ProxyEgressBlocked => "proxy",
             Self::LimitQuotaExceeded
             | Self::LimitQueueFull
             | Self::LimitQueueTimeout
@@ -190,7 +194,8 @@ impl Display for ErrorCode {
 ///
 /// 通过 `#[from]` 聚合批1 已有模块错误。批2模块（store/proxy/limit/mcp/secrets）
 /// 通过 [`AsterlaneError::internal`] 构造 [`Self::Internal`] 变体接入，
-/// 在自己模块 `impl From<ModuleError> for AsterlaneError` 中映射，无需修改本文件。
+/// 在自己模块 `impl From<ModuleError> for AsterlaneError` 中映射。
+/// 新增错误码（如 `proxy.egress_blocked`）仍在本文件的 [`ErrorCode`] 登记。
 ///
 /// `Display` 输出为安全消息，不含 Authorization header、Bearer token、
 /// `x-api-key` 值、上游响应体、secret ref 完整 URI 或 upstream key 明文。
@@ -318,6 +323,7 @@ impl AsterlaneError {
             | ErrorCode::ProxyRetryExhausted
             | ErrorCode::ProxyUpstreamError
             | ErrorCode::ProxyConnectionFailed
+            | ErrorCode::ProxyEgressBlocked
             | ErrorCode::McpUpstreamMcpFailure
             | ErrorCode::McpUpstreamAuthRequired
             | ErrorCode::LimitQuotaExceeded
@@ -397,7 +403,7 @@ fn http_status_for(code: ErrorCode) -> u16 {
         ErrorCode::AuthMissingGatewayKey
         | ErrorCode::AuthInvalidGatewayKey
         | ErrorCode::AuthExpiredGatewayKey => 401,
-        ErrorCode::AuthForbiddenTool => 403,
+        ErrorCode::AuthForbiddenTool | ErrorCode::ProxyEgressBlocked => 403,
         ErrorCode::AuthMissingUpstreamSecret => 503,
         ErrorCode::CatalogUnknownTool => 404,
         ErrorCode::McpUpstreamMcpFailure | ErrorCode::McpUpstreamAuthRequired => 502,
@@ -488,6 +494,10 @@ mod tests {
             "proxy.connection_failed"
         );
         assert_eq!(
+            ErrorCode::ProxyEgressBlocked.as_str(),
+            "proxy.egress_blocked"
+        );
+        assert_eq!(
             ErrorCode::LimitQuotaExceeded.as_str(),
             "limit.quota_exceeded"
         );
@@ -551,6 +561,7 @@ mod tests {
         assert_eq!(ErrorCode::ProxyRetryExhausted.category(), "proxy");
         assert_eq!(ErrorCode::ProxyUpstreamError.category(), "proxy");
         assert_eq!(ErrorCode::ProxyConnectionFailed.category(), "proxy");
+        assert_eq!(ErrorCode::ProxyEgressBlocked.category(), "proxy");
         assert_eq!(ErrorCode::LimitQuotaExceeded.category(), "limit");
         assert_eq!(ErrorCode::LimitQueueFull.category(), "limit");
         assert_eq!(ErrorCode::LimitQueueTimeout.category(), "limit");
@@ -571,6 +582,22 @@ mod tests {
     fn error_code_display_matches_as_str() {
         let code = ErrorCode::AuthForbiddenTool;
         assert_eq!(code.to_string(), code.as_str());
+    }
+
+    #[test]
+    fn egress_blocked_is_forbidden_and_a_tool_error() {
+        let err = AsterlaneError::internal(
+            ErrorCode::ProxyEgressBlocked,
+            "upstream address is not allowed",
+        );
+        assert_eq!(err.http_response().status, 403);
+        assert_eq!(err.exit_code(), 6);
+        assert!(matches!(
+            err.mcp_error(),
+            McpErrorForm::ToolResultIsError(ref message)
+                if message == "upstream address is not allowed"
+        ));
+        assert!(!err.to_string().contains("127.0.0.1"));
     }
 
     // ── error_code mapping from module errors ──

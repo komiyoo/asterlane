@@ -23,10 +23,11 @@ use rmcp::model::{
 use rmcp::service::{ClientInitializeError, ServiceError};
 use rmcp::transport::streamable_http_client::{
     AuthRequiredError, StreamableHttpClient, StreamableHttpClientTransportConfig,
+    StreamableHttpError,
 };
 use rmcp::transport::{AuthError, StreamableHttpClientTransport};
 use rmcp::{ClientLifecycleMode, ClientServiceExt, RoleClient, ServiceExt};
-use tracing::warn;
+use tracing::{debug, warn};
 
 pub type McpFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -180,8 +181,8 @@ impl RmcpRemoteMcpPeer {
                 auth_required_on_401,
             )),
             Err(auto_error) => {
-                if auth_required_on_401 && auto_error.is_authorization_required() {
-                    return Err(McpError::UpstreamAuthRequired);
+                if let Some(error) = classify_connect_error(&auto_error, auth_required_on_401) {
+                    return Err(error);
                 }
                 warn!(
                     error = %auto_error,
@@ -190,13 +191,11 @@ impl RmcpRemoteMcpPeer {
                 let client = serve_upstream(make_transport(), false, handler)
                     .await
                     .map_err(|legacy_error| {
-                        if auth_required_on_401 && legacy_error.is_authorization_required() {
-                            McpError::UpstreamAuthRequired
-                        } else {
-                            McpError::upstream_failure(format!(
-                                "failed to connect remote MCP server: {legacy_error} (discover failed: {auto_error})"
-                            ))
-                        }
+                        map_legacy_connect_error(
+                            &legacy_error,
+                            &auto_error,
+                            auth_required_on_401,
+                        )
                     })?;
                 Ok(Self::with_listen(
                     client,
@@ -257,6 +256,85 @@ fn is_auth_required(error: &ServiceError) -> bool {
             return true;
         }
         source = current.source();
+    }
+    false
+}
+
+/// 有 `UpstreamOAuth` 时复用它的 HTTP client（开关打开时已带 DNS 过滤）。
+/// 没有时仍走 `from_config` 的私有 client。
+async fn connect_with_optional_client(
+    http: Option<reqwest::Client>,
+    transport: StreamableHttpClientTransportConfig,
+    server_id: &str,
+    notify: UpstreamListChanged,
+) -> Result<RmcpRemoteMcpPeer, McpError> {
+    if let Some(http) = http {
+        // 握手可能调用两次工厂，每次都要一份新的 transport 配置。
+        let attempts = transport.clone();
+        RmcpRemoteMcpPeer::connect_with(
+            move || StreamableHttpClientTransport::with_client(http.clone(), attempts.clone()),
+            server_id,
+            notify,
+            false,
+        )
+        .await
+    } else {
+        RmcpRemoteMcpPeer::connect_transport(transport, server_id, notify).await
+    }
+}
+
+fn ensure_mcp_url_allowed(url: &str) -> Result<(), McpError> {
+    match crate::egress::check_url(url, true) {
+        Ok(()) => Ok(()),
+        Err(blocked) => {
+            debug!(reason = blocked.reason_name(), "egress blocked MCP connect");
+            Err(McpError::egress_blocked())
+        }
+    }
+}
+
+/// 授权要求与出站拒绝都在打日志、格式化错误之前返回。后者的 Display 含请求 URL。
+fn classify_connect_error(
+    error: &ClientInitializeError,
+    auth_required_on_401: bool,
+) -> Option<McpError> {
+    if auth_required_on_401 && error.is_authorization_required() {
+        return Some(McpError::UpstreamAuthRequired);
+    }
+    initialize_error_is_blocked(error).then(McpError::egress_blocked)
+}
+
+fn map_legacy_connect_error(
+    legacy_error: &ClientInitializeError,
+    auto_error: &ClientInitializeError,
+    auth_required_on_401: bool,
+) -> McpError {
+    if let Some(error) = classify_connect_error(legacy_error, auth_required_on_401) {
+        return error;
+    }
+    McpError::upstream_failure(format!(
+        "failed to connect remote MCP server: {legacy_error} (discover failed: {auto_error})"
+    ))
+}
+
+/// `StreamableHttpError::Client` 没有 `source`，要单独下钻到 reqwest 错误。
+fn initialize_error_is_blocked(error: &ClientInitializeError) -> bool {
+    let ClientInitializeError::TransportError { error, .. } = error else {
+        return false;
+    };
+    let mut current = Some(error.error.as_ref());
+    while let Some(err) = current {
+        if crate::egress::find_blocked(err).is_some() {
+            return true;
+        }
+        if let Some(StreamableHttpError::Client(inner)) =
+            err.downcast_ref::<StreamableHttpError<reqwest::Error>>()
+        {
+            if crate::egress::find_blocked(inner).is_some() {
+                return true;
+            }
+        }
+        current = err.source();
     }
     false
 }
@@ -342,9 +420,18 @@ impl PeerConnector for RmcpConnector {
         transport: StreamableHttpClientTransportConfig,
     ) -> McpFuture<'a, Result<Arc<dyn RemoteMcpPeer>, McpError>> {
         let server_id = config.id.clone();
+        let server_url = config.url.clone();
         let notify = self.notify.clone();
+        let http = self.oauth.as_ref().map(|oauth| oauth.mcp_http());
+        let block_private = self
+            .oauth
+            .as_ref()
+            .is_some_and(|oauth| oauth.blocks_private());
         Box::pin(async move {
-            let peer = RmcpRemoteMcpPeer::connect_transport(transport, &server_id, notify).await?;
+            if block_private {
+                ensure_mcp_url_allowed(&server_url)?;
+            }
+            let peer = connect_with_optional_client(http, transport, &server_id, notify).await?;
             Ok(Arc::new(peer) as Arc<dyn RemoteMcpPeer>)
         })
     }

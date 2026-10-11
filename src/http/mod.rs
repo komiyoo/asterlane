@@ -160,6 +160,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: vec![
                 ApiResource {
                     id: "tavily".to_string(),
@@ -273,6 +274,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: vec![ApiResource {
                 id: "mock".to_string(),
                 domain: "search".to_string(),
@@ -325,6 +327,7 @@ mod tests {
             mcp: Default::default(),
             builtin_mcp: Vec::new(),
             oauth: None,
+            egress: Default::default(),
             api_resources: Vec::new(),
             mcp_servers: vec![McpServerConfig {
                 id: "remote".to_string(),

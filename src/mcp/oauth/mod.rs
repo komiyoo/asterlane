@@ -19,6 +19,7 @@ mod authorization_code;
 mod authorize;
 mod client_credentials;
 mod credential_store;
+mod http_client;
 mod pending;
 mod resource;
 
@@ -32,7 +33,7 @@ use rmcp::transport::{
     AuthClient, AuthorizationManager, AuthorizationSession, InMemoryCredentialStore,
 };
 use secrecy::ExposeSecret;
-use tracing::warn;
+use tracing::{error, warn};
 
 pub use authorization_code::CredentialSummary;
 pub use authorize::{AuthorizationStart, AuthorizeError, CallbackError, CallbackParams};
@@ -43,7 +44,7 @@ use pending::PendingStore;
 /// 授权发起后，管理员需要在这段时间内完成浏览器授权；state 到期失效且只能用一次。
 const AUTHORIZATION_TTL: Duration = Duration::from_secs(10 * 60);
 
-use crate::config::{McpServerConfig, OAuthConfig, OAuthGrant};
+use crate::config::{EgressConfig, McpServerConfig, OAuthConfig, OAuthGrant};
 use crate::error::{AsterlaneError, ErrorCode};
 use crate::mcp::error::McpError;
 use crate::secrets::{SecretRef, SecretStore, SecretString, TokenEncryptionKey};
@@ -60,9 +61,13 @@ pub struct UpstreamOAuth {
     memory: Mutex<HashMap<String, InMemoryCredentialStore>>,
     /// 顶层 `oauth.redirect_base_url`。
     redirect_base_url: Option<String>,
-    /// 与 rmcp 默认的 transport client 一致：不复用空闲连接、不跟随重定向，
-    /// 避免请求头被带到重定向目标。
+    /// MCP 传输用的 HTTP client。开关关闭时不复用空闲连接、不跟随重定向。
+    /// 开关打开时换成带 DNS 过滤的 client，仍然不跟随重定向、不设超时。
     http: reqwest::Client,
+    /// 开关打开时，OAuth 元数据与 token 请求走它。关闭时为 `None`，由 rmcp 自建 client。
+    oauth_http: Option<Arc<http_client::GuardedOAuthHttpClient>>,
+    /// `egress.block_private_addresses`。打开且 client 没建成时直接失败，不留下半套服务。
+    block_private: bool,
     /// 已发起、等待浏览器回调的授权（state → 授权会话）。
     pending: PendingStore<AuthorizationSession>,
 }
@@ -105,6 +110,7 @@ impl UpstreamOAuth {
         oauth: Option<&OAuthConfig>,
         secrets: &S,
         repository: Option<Arc<SqliteRequestEventRepository>>,
+        egress: &EgressConfig,
     ) -> Result<Self, AsterlaneError> {
         let key = match oauth.and_then(|o| o.token_encryption_key_ref.as_deref()) {
             Some(reference) => {
@@ -120,30 +126,78 @@ impl UpstreamOAuth {
             None => None,
         };
         let redirect_base_url = oauth.and_then(|o| o.redirect_base_url.clone());
-        Ok(Self::new(key, repository, redirect_base_url)?)
+        Ok(Self::with_egress(key, repository, redirect_base_url, egress)?)
     }
 
-    /// 直接用已有的密钥与存储构造。
+    /// 直接用已有的密钥与存储构造。出站校验关闭，与未写 `egress` 时相同。
     pub fn new(
         key: Option<TokenEncryptionKey>,
         repository: Option<Arc<SqliteRequestEventRepository>>,
         redirect_base_url: Option<String>,
     ) -> Result<Self, McpError> {
-        let http = reqwest::Client::builder()
-            .pool_max_idle_per_host(0)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|e| {
-                McpError::upstream_failure(format!("failed to build OAuth HTTP client: {e}"))
-            })?;
+        Self::with_egress(key, repository, redirect_base_url, &EgressConfig::default())
+    }
+
+    fn with_egress(
+        key: Option<TokenEncryptionKey>,
+        repository: Option<Arc<SqliteRequestEventRepository>>,
+        redirect_base_url: Option<String>,
+        egress: &EgressConfig,
+    ) -> Result<Self, McpError> {
+        let (http, oauth_http) = oauth_clients(egress)?;
         Ok(Self {
             key: key.map(Arc::new),
             repository,
             memory: Mutex::new(HashMap::new()),
             redirect_base_url,
             http,
+            oauth_http,
+            block_private: egress.block_private_addresses,
             pending: PendingStore::new(AUTHORIZATION_TTL),
         })
+    }
+
+    /// MCP Streamable HTTP 传输用的 client。调用方在闭包里 clone，握手可能建两次。
+    pub(super) fn mcp_http(&self) -> reqwest::Client {
+        self.http.clone()
+    }
+
+    pub(super) fn blocks_private(&self) -> bool {
+        self.block_private
+    }
+
+    /// 按开关创建授权管理器。打开时先校验 server URL，再用受控 HTTP client。
+    pub(super) async fn authorization_manager(
+        &self,
+        server_id: &str,
+        server_url: &str,
+    ) -> Result<AuthorizationManager, McpError> {
+        self.ensure_outbound_allowed(server_url)?;
+        match &self.oauth_http {
+            Some(client) => AuthorizationManager::new_with_oauth_http_client(
+                server_url,
+                client.handle(),
+            )
+            .await
+            .map_err(|e| setup_failure(server_id, "client setup", &e)),
+            None => AuthorizationManager::new(server_url)
+                .await
+                .map_err(|e| setup_failure(server_id, "client setup", &e)),
+        }
+    }
+
+    /// 受控 client 已建成时 `dns_pinned` 为 true：主机名交给解析器，字面量在这里拒绝。
+    fn ensure_outbound_allowed(&self, url: &str) -> Result<(), McpError> {
+        if !self.block_private {
+            return Ok(());
+        }
+        match crate::egress::check_url(url, true) {
+            Ok(()) => Ok(()),
+            Err(blocked) => {
+                tracing::debug!(reason = blocked.reason_name(), "egress blocked OAuth base URL");
+                Err(McpError::egress_blocked())
+            }
+        }
     }
 
     /// 改变授权 state 的有效期（缺省 10 分钟）。测试用：置为 `Duration::ZERO`
@@ -230,6 +284,33 @@ impl UpstreamOAuth {
     }
 }
 
+/// 开关关闭时沿用原来的 client（不复用空闲连接、不跟随重定向）。
+/// 打开时 MCP 传输与 OAuth 各用受控 client；任一构建失败则启动失败，不退回未校验的 client。
+fn oauth_clients(
+    egress: &EgressConfig,
+) -> Result<(reqwest::Client, Option<Arc<http_client::GuardedOAuthHttpClient>>), McpError> {
+    if !egress.block_private_addresses {
+        let http = reqwest::Client::builder()
+            .pool_max_idle_per_host(0)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| {
+                McpError::upstream_failure(format!("failed to build OAuth HTTP client: {e}"))
+            })?;
+        return Ok((http, None));
+    }
+    let http = crate::egress::guarded_client(crate::egress::RedirectMode::None, Some(0), None)
+        .map_err(|build_error| {
+            error!(%build_error, "failed to build egress-guarded MCP HTTP client");
+            McpError::upstream_failure("failed to build OAuth HTTP client")
+        })?;
+    let oauth_http = http_client::GuardedOAuthHttpClient::new().map_err(|build_error| {
+        error!(%build_error, "failed to build egress-guarded OAuth HTTP client");
+        McpError::upstream_failure("failed to build OAuth HTTP client")
+    })?;
+    Ok((http, Some(Arc::new(oauth_http))))
+}
+
 /// 授权服务器的端点必须是 https（本机 loopback 联调除外），避免 client secret 与
 /// token 走明文链路。`endpoint` 来自上游发布的元数据，不可信。
 fn secure_endpoint(endpoint: &str) -> Result<(), &'static str> {
@@ -258,6 +339,7 @@ fn auth_required(server_id: &str, reason: &'static str) -> McpError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::EgressConfig;
     use crate::secrets::SecretError;
     use base64::Engine;
     use rmcp::transport::CredentialStore;
@@ -289,7 +371,8 @@ mod tests {
 
     #[tokio::test]
     async fn from_config_without_oauth_section_has_no_key() {
-        let service = UpstreamOAuth::from_config(None, &FixedSecret(None), None)
+        let service =
+            UpstreamOAuth::from_config(None, &FixedSecret(None), None, &EgressConfig::default())
             .await
             .unwrap();
         assert!(service.key.is_none());
@@ -300,7 +383,12 @@ mod tests {
     async fn from_config_resolves_the_encryption_key_and_redirect_uri() {
         let key = base64::engine::general_purpose::STANDARD.encode([5u8; 32]);
         let service =
-            UpstreamOAuth::from_config(Some(&oauth_config()), &FixedSecret(Some(key)), None)
+            UpstreamOAuth::from_config(
+                Some(&oauth_config()),
+                &FixedSecret(Some(key)),
+                None,
+                &EgressConfig::default(),
+            )
                 .await
                 .unwrap();
         assert!(service.key.is_some());
@@ -314,7 +402,12 @@ mod tests {
     async fn from_config_fails_fast_on_bad_key_material() {
         let short = base64::engine::general_purpose::STANDARD.encode([5u8; 16]);
         for secret in [Some(short), Some("not base64!".to_string())] {
-            let err = UpstreamOAuth::from_config(Some(&oauth_config()), &FixedSecret(secret), None)
+            let err = UpstreamOAuth::from_config(
+                Some(&oauth_config()),
+                &FixedSecret(secret),
+                None,
+                &EgressConfig::default(),
+            )
                 .await
                 .unwrap_err();
             assert_eq!(err.error_code(), ErrorCode::ConfigInvalidYaml);
@@ -322,7 +415,12 @@ mod tests {
         }
         // 引用解析失败
         assert!(
-            UpstreamOAuth::from_config(Some(&oauth_config()), &FixedSecret(None), None)
+            UpstreamOAuth::from_config(
+                Some(&oauth_config()),
+                &FixedSecret(None),
+                None,
+                &EgressConfig::default(),
+            )
                 .await
                 .is_err()
         );

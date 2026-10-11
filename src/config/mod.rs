@@ -7,7 +7,7 @@
 //! - `upstream`：`api_resources` 与 `mcp_servers`，及其附属配置（key 池、discovery、
 //!   限额、测活、安全）。
 //! - `proxy_key`：`proxy_keys` 与 per-key 限额。
-//! - `admin` / `secrets` / `semantic_search` / `runtime`：各顶层运行时节。
+//! - `admin` / `secrets` / `semantic_search` / `runtime` / `egress`：各顶层运行时节。
 //! - `post_load`：反序列化之后的校验与 builtin preset 展开。
 //!
 //! serde 形状即 YAML 契约（见 docs/runtime/config-schema.md）：字段名、缺省值、
@@ -15,6 +15,7 @@
 
 mod admin;
 mod auth;
+mod egress;
 mod oauth;
 mod post_load;
 mod proxy_key;
@@ -29,6 +30,7 @@ use crate::render::ResponseFormat;
 
 pub use admin::{AdminConfig, AdminKey};
 pub use auth::{OAuthGrant, UpstreamAuth};
+pub use egress::EgressConfig;
 pub use oauth::OAuthConfig;
 pub use proxy_key::{KeyLimits, ProxyKey};
 pub use runtime::{HttpServerConfig, McpFailureMode, McpRuntimeConfig, ObservabilityConfig};
@@ -66,6 +68,9 @@ pub struct GatewayConfig {
     /// `authorization_code` 时必填（见 docs/runtime/config-schema.md「OAuth」）。
     #[serde(default)]
     pub oauth: Option<OAuthConfig>,
+    /// 出站地址校验。缺省关闭（见 docs/runtime/config-schema.md「Egress」）。
+    #[serde(default)]
+    pub egress: EgressConfig,
     #[serde(default)]
     pub api_resources: Vec<ApiResource>,
     /// 平台内置 MCP preset 启用列表，加载后展开进 `mcp_servers`

@@ -300,9 +300,10 @@ async fn assemble_state(
             config.oauth.as_ref(),
             secrets.as_ref(),
             event_repo.clone(),
+            &config.egress,
         )
         .await
-        .context("invalid oauth.token_encryption_key_ref")?,
+        .context("failed to assemble upstream OAuth")?,
     );
     let registry = asterlane::mcp::McpServerRegistry::connect_all_with_oauth(
         &config.mcp_servers,

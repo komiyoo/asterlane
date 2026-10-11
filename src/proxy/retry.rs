@@ -173,6 +173,10 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
                     cool_key(pool, key_guard.as_ref(), retry_after);
                 }
                 AttemptOutcome::Transport(proxy_error) => {
+                    // 地址校验拒绝不重试，也不冷却 key：请求没有发到上游。
+                    if matches!(proxy_error, ProxyError::EgressBlocked) {
+                        return Err(progress.fail(proxy_error, None));
+                    }
                     // 超时与连接失败无论是否还能重试都冷却当前 key
                     cool_key(pool, key_guard.as_ref(), None);
                     if !can_retry {
@@ -202,6 +206,9 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         url: &str,
         secret: Option<&SecretString>,
     ) -> AttemptOutcome {
+        if let Some(blocked) = self.egress_block(url) {
+            return AttemptOutcome::Transport(blocked);
+        }
         let is_get = request.http_method == HttpMethod::Get;
         let mut builder = self.http.request(request.http_method.to_reqwest(), url);
         builder = apply_auth(request.auth, secret, builder);
@@ -216,6 +223,10 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
         let response = match tokio::time::timeout(self.request_timeout, builder.send()).await {
             Err(_elapsed) => return timeout(),
             Ok(Err(e)) if e.is_timeout() => return timeout(),
+            // 解析器或重定向策略拒绝时不重试，也不把 reqwest 的错误文本（可能含 URL）交出去。
+            Ok(Err(error)) if crate::egress::find_blocked(&error).is_some() => {
+                return AttemptOutcome::Transport(ProxyError::EgressBlocked);
+            }
             // 连接失败（DNS/TCP/TLS）或其他请求错误
             Ok(Err(_)) => return AttemptOutcome::Transport(ProxyError::ConnectionFailed),
             Ok(Ok(response)) => response,
@@ -262,6 +273,23 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
             upstream_latency_ms: duration_ms(latency),
         };
         AttemptOutcome::Success { response, latency }
+    }
+
+    /// 开关关闭时不检查。打开且受控 client 没建成时，`check_url` 拒绝全部 URL。
+    fn egress_block(&self, url: &str) -> Option<ProxyError> {
+        if !self.block_private {
+            return None;
+        }
+        match crate::egress::check_url(url, self.egress_dns_pinned) {
+            Ok(()) => None,
+            Err(blocked) => {
+                tracing::debug!(
+                    reason = blocked.reason_name(),
+                    "egress blocked upstream request"
+                );
+                Some(ProxyError::EgressBlocked)
+            }
+        }
     }
 }
 
