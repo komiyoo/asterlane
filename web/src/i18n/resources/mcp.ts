@@ -245,7 +245,8 @@ export const en = {
     identity: "Domain, provider, and URL are required",
     url: "URL must start with http:// or https://",
     authRequired: "Choose an auth mode for a new server",
-    keepSecret: "Keep unchanged is selected. Clear the secret reference, or switch to Bearer, Header, or OAuth",
+    keepSecret:
+      "Keep unchanged is selected. Clear the secret reference, or switch to Bearer, Header, or OAuth",
     secretRef: "Only secret:// references are accepted, not raw secrets",
     headerName: "Header name is required",
     clientId: "client_credentials requires client_id",

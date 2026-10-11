@@ -1,16 +1,12 @@
+import i18next from "i18next";
+import { initReactI18next } from "react-i18next";
 import { en, zh } from "./resources/index.ts";
 
 export type AppLocale = "zh" | "en";
 
 const STORAGE_KEY = "asterlane.locale";
 
-type CatalogNode = string | { [key: string]: CatalogNode };
-
 type Listener = () => void;
-
-const listeners = new Set<Listener>();
-
-const PLACEHOLDER = /\{\{([A-Za-z0-9_]+)\}\}/g;
 
 function readStored(): AppLocale | null {
   try {
@@ -67,43 +63,35 @@ export function detectLocale(): AppLocale {
   return "zh";
 }
 
-let active: AppLocale = detectLocale();
+/** 控制台唯一的 i18next 实例。资源内联，初始化同步完成，模块加载后即可调用 `text`。 */
+export const i18n = i18next.createInstance();
+
+void i18n.use(initReactI18next).init({
+  resources: {
+    zh: { translation: zh },
+    en: { translation: en },
+  },
+  lng: detectLocale(),
+  fallbackLng: "zh",
+  supportedLngs: ["zh", "en"],
+  initAsync: false,
+  interpolation: { escapeValue: false },
+});
 
 export function currentLocale(): AppLocale {
-  return active;
+  return i18n.language === "en" ? "en" : "zh";
 }
 
 export function intlLocale(): string {
-  return active === "zh" ? "zh-CN" : "en";
+  return currentLocale() === "zh" ? "zh-CN" : "en";
 }
 
-function lookup(root: CatalogNode, key: string): CatalogNode | undefined {
-  let current: CatalogNode | undefined = root;
-  for (const part of key.split(".")) {
-    if (typeof current !== "object") {
-      return undefined;
-    }
-    current = current[part];
-  }
-  return current;
-}
-
+/** 组件外（API 客户端、格式化函数）取文案；组件里同样可用，切换语言时由 LocaleFrame 触发重渲染。 */
 export function text(key: string, values?: Record<string, string | number>): string {
-  const catalog: CatalogNode = active === "en" ? en : zh;
-  const node = lookup(catalog, key);
-  if (typeof node !== "string") {
-    return key;
-  }
-  if (values === undefined) {
-    return node;
-  }
-  return node.replace(PLACEHOLDER, (match, name: string) => {
-    const value = values[name];
-    return value === undefined ? match : String(value);
-  });
+  return i18n.t(key, values);
 }
 
-export function applyDocumentLanguage(locale: AppLocale = active): void {
+export function applyDocumentLanguage(locale: AppLocale = currentLocale()): void {
   if (typeof document === "undefined") {
     return;
   }
@@ -112,22 +100,16 @@ export function applyDocumentLanguage(locale: AppLocale = active): void {
 }
 
 export function subscribeLocale(listener: Listener): () => void {
-  listeners.add(listener);
+  i18n.on("languageChanged", listener);
   return () => {
-    listeners.delete(listener);
+    i18n.off("languageChanged", listener);
   };
 }
 
 export function applyLocale(locale: AppLocale): void {
   writeStored(locale);
-  if (locale === active) {
-    return;
-  }
-  active = locale;
-  applyDocumentLanguage(locale);
-  for (const listener of [...listeners]) {
-    listener();
-  }
+  void i18n.changeLanguage(locale);
 }
 
-applyDocumentLanguage(active);
+subscribeLocale(() => applyDocumentLanguage());
+applyDocumentLanguage();

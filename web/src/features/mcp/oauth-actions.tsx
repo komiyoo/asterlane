@@ -61,9 +61,7 @@ export function OAuthActions({
     } catch (caught) {
       setStart(null);
       if (!isStaleOrAborted(caught)) {
-        setError(
-          isApiError(caught) ? formatApiError(caught) : text("api.mcp.authorizeInvalid"),
-        );
+        setError(isApiError(caught) ? formatApiError(caught) : text("api.mcp.authorizeInvalid"));
       }
     } finally {
       lock.current = false;

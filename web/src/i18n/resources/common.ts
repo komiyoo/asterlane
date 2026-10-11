@@ -15,8 +15,7 @@ export const zh = {
   on: "开",
   off: "关",
   none: "无",
-  limitNote:
-    "本次查询 limit 为 {{limit}}，返回 {{count}} 条。服务端没有总页数，这不是全部历史。",
+  limitNote: "本次查询 limit 为 {{limit}}，返回 {{count}} 条。服务端没有总页数，这不是全部历史。",
 };
 
 export const en = {

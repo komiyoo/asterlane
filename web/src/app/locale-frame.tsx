@@ -1,9 +1,8 @@
 import { KumoLocaleProvider } from "@cloudflare/kumo";
 import { useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { I18nextProvider, useTranslation } from "react-i18next";
-import { i18n } from "../i18n/index.ts";
 import { kumoTranslations } from "../i18n/kumo.ts";
-import { applyDocumentLanguage, currentLocale, subscribeLocale } from "../i18n/locale.ts";
+import { applyDocumentLanguage, currentLocale, i18n, subscribeLocale } from "../i18n/locale.ts";
 
 export function LocaleFrame({ children }: { children: ReactNode }) {
   return (

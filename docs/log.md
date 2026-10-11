@@ -1,5 +1,9 @@
 # Documentation Update Log
 
+## 2026-10-11（Phase 11 PR4：中英双语）
+
+- **控制台与文档**：控制台用 `i18next` 加 `react-i18next` 做中英切换（依赖说明见 `web/README.md`）；OAuth 回调页中英并列。[Documentation Conventions](engineering/documentation-conventions.md) 定下 `docs/` 英文版命名，新增 [Running the Gateway](admin/running.en.md) 与 [Config Schema（英文）](runtime/config-schema.en.md)。[开源就绪计划](plans/2026/10-10/w0-00-开源就绪与首次发布.md) PR4 勾选。
+
 ## 2026-10-11（Phase 13 PR6：出站地址校验）
 
 - **运行时**：新增 `egress.block_private_addresses` 与错误码 `proxy.egress_blocked`，见 [Config Schema](runtime/config-schema.md) 与 [Error Model](architecture/error-model.md)。[多租户数据面](plans/2026/10-10/w1-02-多租户数据面.md) PR6 勾选；SaaS 默认开启待 SaaS 部署形态确定。

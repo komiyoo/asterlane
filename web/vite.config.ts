@@ -44,5 +44,7 @@ export default defineConfig({
       "scripts/**/*.test.ts",
     ],
     exclude: ["e2e/**", "node_modules/**", "dist/**"],
+    // Node 的 navigator.language 随系统，单测断言的是中文文案。
+    setupFiles: ["src/i18n/test-setup.ts"],
   },
 });

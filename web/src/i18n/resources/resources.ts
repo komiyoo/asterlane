@@ -87,7 +87,8 @@ export const en = {
     tokenRef: "Token reference {{detail}}",
     headerRef: "Header reference {{detail}}",
     poolRef: "Key pool reference {{detail}}",
-    poolAuth: "A key pool needs bearer or header auth so the gateway knows how to send the credential",
+    poolAuth:
+      "A key pool needs bearer or header auth so the gateway knows how to send the credential",
   },
   notice: {
     created: "Created {{id}}",

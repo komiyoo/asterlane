@@ -183,8 +183,10 @@ export const en = {
     rotate: "Rotate",
     title: "{{action}} token · {{id}}",
     once: "Shown only once. It cannot be viewed again after you close this dialog. Save it now.",
-    rotateHint: "This key already has a token. Rotating it invalidates the old token immediately. The plaintext appears only in this dialog.",
-    issueHint: "The plaintext token appears once after issuance. It is not kept after you close, log out, or leave the page.",
+    rotateHint:
+      "This key already has a token. Rotating it invalidates the old token immediately. The plaintext appears only in this dialog.",
+    issueHint:
+      "The plaintext token appears once after issuance. It is not kept after you close, log out, or leave the page.",
     issuedLabel: "Issued gateway token",
     expires: "Expires: {{time}}",
     never: "Never expires",
@@ -196,8 +198,11 @@ export const en = {
     issuing: "Issuing. This dialog stays open until it finishes.",
     badFormat: "Expiry time format is invalid",
     notFuture: "Expiry time must be later than now",
-    missingToken: "The response has no token. This issuance may already have run and will not be retried automatically.",
-    emptyResponse: "The issuance response was empty. This issuance may already have run and will not be retried automatically.",
-    uncertain: "Connection failed. This issuance may already have run and will not be retried automatically.",
+    missingToken:
+      "The response has no token. This issuance may already have run and will not be retried automatically.",
+    emptyResponse:
+      "The issuance response was empty. This issuance may already have run and will not be retried automatically.",
+    uncertain:
+      "Connection failed. This issuance may already have run and will not be retried automatically.",
   },
 } satisfies typeof zh;

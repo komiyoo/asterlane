@@ -23,10 +23,13 @@
 - `GET /admin/mcp-servers` 与详情响应新增 `oauth` 字段（OAuth server 为 `{grant, status, expires_at, client_id, client_secret_ref, scopes}`，其余为 `null`）：`status` 为 `authorized`、`authorization_required` 或 `automatic`（client_credentials），`expires_at`（access token 到期时间）取不到则省略；`client_secret_ref` 只是引用；不含 client secret、access token、refresh token 与授权 code。
 - 发布：tag 触发的流水线同时推送控制台镜像 `ghcr.io/komiyoo/asterlane-web`（多架构，与网关镜像同版本）；新增 `compose.release.yaml`，直接拉取发布镜像启动网关与控制台。
 - 出站地址校验：新增顶层 `egress.block_private_addresses`（缺省 `false`，行为不变）。打开后 HTTP 上游、MCP 上游连接与上游 OAuth 请求拒绝回环、私网、链路本地、CGNAT、组播、保留与云元数据地址；主机名在 DNS 解析后按地址过滤，重定向逐跳校验。拒绝时返回新错误码 `proxy.egress_blocked`（HTTP 403 / MCP tool result `isError`），消息固定，不含地址，不重试也不冷却 key。
+- 控制台中英双语：顶栏切换语言，缺省跟随浏览器，不支持的语言回退中文，选择记在浏览器本地。日期与数字按当前语言格式化。网关返回的错误码与错误消息不翻译。
+- 文档：`docs/admin/running.en.md` 与 `docs/runtime/config-schema.en.md` 提供英文版，`docs/` 内英文版的命名与同步规则见 Documentation Conventions。
 - 部署：`deploy/k8s/` 提供 kustomize 清单（网关单副本加 PVC、控制台、Ingress 与 admin token Secret 示例），CI 检查清单能渲染。
 
 ### Changed
 
+- 上游 OAuth 回调页（`GET /oauth/callback`）的成功与失败页改为中英并列，状态码与安全约束不变。
 - Docker Compose 在仓库根执行 `docker compose up -d --build` 即可启动。`run.yaml` 自带可运行配置；管理口令、本机端口和镜像提交号的缺省值在 `.env.schema`，与 `compose.yaml` 的 `${VAR:-缺省}` 相同。二进制仍不读取该文件。
 - `asl__batch` 的工具描述、参数说明和 `asterlane_tool_workflow` 写明既有批量契约：按输入顺序对齐结果；后一项不能使用前一项的返回值，也不能假定前一项的上游副作用已经可见；单项失败不中止其余项，也不回滚已成功的上游调用。执行行为不变。
 - **破坏性变更**：网关自身的 meta-tool 改名为 `asl__status`、`asl__search`、`asl__describe`、`asl__call`、`asl__batch`、`asl__fetch`，不保留旧名 alias。REST 路径 `/v1/tools/{name}/invoke` 中的 meta-tool 名与 CLI 同步变更。上游工具的暴露名不得以 `asl__` 开头。

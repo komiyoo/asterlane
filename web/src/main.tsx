@@ -4,7 +4,6 @@ import "@cloudflare/kumo/styles/standalone";
 import { App } from "./app/app.tsx";
 import { LocaleFrame } from "./app/locale-frame.tsx";
 import "./build-label.ts";
-import "./i18n/index.ts";
 import "./styles.css";
 
 const colorMode = window.matchMedia("(prefers-color-scheme: dark)");
