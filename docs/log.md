@@ -1,5 +1,9 @@
 # Documentation Update Log
 
+## 2026-10-11（Postgres 暂缓）
+
+- **决定**：维护者决定存储先用 SQLite，Postgres 后端暂缓。[Roadmap](product/roadmap.md#产品决策) 与 [多租户数据面](plans/2026/10-10/w1-02-多租户数据面.md) 的 PR1 已标注；多副本部署要等恢复这一项。
+
 ## 2026-10-11（Phase 11：并发写入修复、控制台 OAuth 授权与收尾、K8s 清单、控制台发布镜像）
 
 - **并发写入**：管理写入在本进程内串行化，修复 2026-10-10 发现的互相覆盖。回归测试在修复前稳定失败、修复后稳定通过。现状见 [开源版与 SaaS 双形态 · 前置条件](architecture/open-source-and-saas.md#前置条件)，多副本仍待 Phase 13。

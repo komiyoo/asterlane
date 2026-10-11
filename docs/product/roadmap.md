@@ -218,7 +218,7 @@ timestamp: 2026-10-10T00:00:00Z
 
 **目标**：一套部署安全地服务多个组织。设计见 [开源版与 SaaS 双形态 · 多租户数据面](../architecture/open-source-and-saas.md#多租户数据面)。
 
-- Postgres 存储后端与共享状态（从 Phase 9 移入）：限流计数、配额、key pool 冷却与 result cache 放到 Valkey / Redis；单机 SQLite 仍是开源版默认
+- Postgres 存储后端与共享状态（从 Phase 9 移入；2026-10-11 维护者决定 Postgres 暂缓，先用 SQLite）：限流计数、配额、key pool 冷却与 result cache 放到 Valkey / Redis；单机 SQLite 仍是开源版默认
 - 配置以数据库为准：管理写入走事务，各副本按版本号重新加载
 - 租户标识贯穿配置、目录、事件、用量、审计、缓存与限流；仓储层强制加租户条件，Postgres 行级安全可选
 - 租户上游凭据：不允许 `secret://env` 与 `secret://file`，按租户信封加密（KMS）
@@ -266,7 +266,7 @@ timestamp: 2026-10-10T00:00:00Z
 | **是否代理 tools 之外的 MCP primitive** | 2026-10-02：已交付 resources + prompts | 仅远程上游。key 可见范围沿用工具 scope（`domain__provider__<上游名称>`），不新增配置字段；下游 URI 为 `asterlane://{server_id}/{上游原 URI}`。`prompts/get` 与 `resources/read` 起初不写 `request_events`、不计入调用配额，2026-10-09 改为与 `tools/call` 同口径 |
 | **上游 OAuth 是否另开用户委托模式** | 2026-10-01：只做网关持有 | 支持 client-credentials，以及管理员发起一次授权码（PKCE，必要时 DCR）后由网关保存并刷新 token。整个网关共用一个上游身份（SaaS 下每个租户一个）；按用户委托仍不做 |
 | **成本核算的计量口径** | 2026-10-01：暂缓；2026-10-10：SaaS 按量计费前须定调 | `request_units` 维持恒为 1，Phase 15 之前定口径 |
-| **Postgres 与共享状态** | 2026-10-01：本轮不做；2026-10-10：随多租户进入 Phase 13 | SQLite 仍是开源版默认 |
+| **Postgres 与共享状态** | 2026-10-01：本轮不做；2026-10-10：随多租户进入 Phase 13；2026-10-11：Postgres 暂缓，先用 SQLite | SQLite 仍是开源版默认，Phase 13 其余各项先在 SQLite 上做 |
 | **未接线的限流维度（IP / UpstreamKey / GatewayPrincipal）** | 2026-10-01：先出设计，暂不删除；2026-10-09：不做，已删除 | `X-Forwarded-For` 信任边界不再需要决定 |
 | **工具改名是否保留旧名 alias** | 2026-10-09：不保留 | agent 实时加载工具，改名直接切换，同步网关自己的 prompt 与文档即可，见 [Compatibility Policy](../architecture/compatibility-policy.md#mcp-工具名兼容性) |
 | **上游 multipart / form / 流式响应** | 2026-10-09：暂不做 | 出现具体上游需求时再排期 |
