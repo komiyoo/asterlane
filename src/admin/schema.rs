@@ -11,7 +11,7 @@ use crate::error::HttpErrorEnvelope;
 
 use super::types::{
     ConfigValidateResponse, CreatedResponse, DeletedResponse, EventsListParams, HealthResponse,
-    JsonObject, KeyPoolResponse, McpHealthResponse, McpPresetResponse, McpServerDetailResponse,
+    JsonObject, KeyPoolResponse, McpHealthResponse, McpOAuthAuthorizeResponse, McpPresetResponse, McpServerDetailResponse,
     McpServerResponse, McpServerWriteParams, ProxyKeyResponse, ProxyKeyWriteParams,
     RequestEventResponse, ResourceSummaryResponse, ResourceWriteParams, SecurityEventResponse,
     SecurityEventsListParams, StatsResponse, TokenIssueParams, TokenIssueResponse,
@@ -95,6 +95,8 @@ struct AdminOutputs {
     mcp_server: McpServerDetailResponse,
     /// `POST /admin/mcp-servers/{id}/probe`
     mcp_health: McpHealthResponse,
+    /// `POST /admin/mcp-servers/{id}/oauth/authorize`
+    mcp_oauth_authorize: McpOAuthAuthorizeResponse,
     /// `GET /admin/mcp-presets`
     mcp_presets: Vec<McpPresetResponse>,
     /// `GET /admin/config/validate`。`GET /admin/config/export` 是 text/yaml，不是此对象。

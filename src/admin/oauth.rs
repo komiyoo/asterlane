@@ -17,7 +17,6 @@ use axum::response::IntoResponse;
 use axum::routing::{delete, post};
 use axum::{Extension, Json, Router};
 use chrono::SecondsFormat;
-use serde_json::json;
 
 use crate::config::{GatewayConfig, McpServerConfig, OAuthGrant, UpstreamAuth};
 use crate::error::{AsterlaneError, ErrorCode};
@@ -27,7 +26,7 @@ use crate::mcp::{HealthStatus, McpError, ServerHealth, UpstreamOAuth};
 use super::auth::AdminKeyId;
 use super::crud::record_audit;
 use super::mcp::server_json;
-use super::types::{McpOAuthResponse, McpServerResponse};
+use super::types::{McpOAuthAuthorizeResponse, McpOAuthResponse, McpServerResponse};
 
 /// 本模块的 admin 路由；由 [`super::router`] 合并，位于 admin 认证 middleware 之下。
 pub(super) fn router() -> Router<AppState> {
@@ -56,10 +55,10 @@ pub(super) async fn authorize(
     // 授权 URL 含一次性的 state，不让浏览器或中间代理缓存这个响应
     Ok((
         [(CACHE_CONTROL, "no-store")],
-        Json(json!({
-            "authorization_url": start.authorization_url,
-            "expires_in": start.expires_in.as_secs(),
-        })),
+        Json(McpOAuthAuthorizeResponse {
+            authorization_url: start.authorization_url,
+            expires_in: start.expires_in.as_secs(),
+        }),
     ))
 }
 

@@ -2,6 +2,7 @@ import { getApiClient, type CallInit } from "./client.ts";
 import type {
   InputMcpServerWriteParams,
   OutputMcpHealthResponse,
+  OutputMcpOAuthAuthorizeResponse,
   OutputMcpPresetResponse,
   OutputMcpServerDetailResponse,
   OutputMcpServerResponse,
@@ -67,27 +68,22 @@ export async function probeMcpServer(
   return expectBody(value, "探测响应为空");
 }
 
-/**
- * `POST /admin/mcp-servers/{id}/oauth/authorize` 的响应。
- * 生成类型里没有这个形状，字段以 Admin Console C7 为准。
- * `authorization_url` 含一次性 state，调用方只放进链接，不要写进日志或错误文案。
- */
-export interface McpAuthorizeStart {
-  authorization_url: string;
-  expires_in: number;
-}
-
 export async function authorizeMcpServer(
   id: string,
   init?: CallInit,
-): Promise<McpAuthorizeStart> {
-  const value = await getApiClient().sendJson<unknown>(
+): Promise<OutputMcpOAuthAuthorizeResponse> {
+  const value = await getApiClient().sendJson<OutputMcpOAuthAuthorizeResponse>(
     "POST",
     mcpServerPath(id, "/oauth/authorize"),
     undefined,
     init,
   );
-  return readAuthorizeStart(value);
+  const start = expectBody(value, "授权响应为空");
+  // 授权 URL 会渲染成链接。只接受 http(s)，失败文案不含 URL，避免把一次性 state 带进界面。
+  if (!isAuthorizationUrl(start.authorization_url)) {
+    throw new Error("授权响应无效");
+  }
+  return start;
 }
 
 export async function deauthorizeMcpServer(
@@ -110,22 +106,6 @@ function expectBody<T>(value: T | undefined, message: string): T {
   return value;
 }
 
-/** 校验授权响应。失败时抛出的文案不含 URL，避免把一次性 state 带进界面。 */
-function readAuthorizeStart(value: unknown): McpAuthorizeStart {
-  if (!isRecord(value)) {
-    throw new Error("授权响应无效");
-  }
-  const url = value.authorization_url;
-  const expiresIn = value.expires_in;
-  if (typeof url !== "string" || !isAuthorizationUrl(url)) {
-    throw new Error("授权响应无效");
-  }
-  if (typeof expiresIn !== "number" || !Number.isSafeInteger(expiresIn) || expiresIn < 0) {
-    throw new Error("授权响应无效");
-  }
-  return { authorization_url: url, expires_in: expiresIn };
-}
-
 function isAuthorizationUrl(value: string): boolean {
   if (value.length === 0 || value.length > 16_384 || /[\s\u0000-\u001f]/.test(value)) {
     return false;
@@ -140,8 +120,4 @@ function isAuthorizationUrl(value: string): boolean {
     return false;
   }
   return url.protocol === "https:" || url.protocol === "http:";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }

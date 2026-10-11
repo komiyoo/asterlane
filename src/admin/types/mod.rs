@@ -10,7 +10,7 @@ mod tools;
 
 pub(crate) use config::{ConfigIssueLevel, ConfigIssueResponse, ConfigValidateResponse};
 pub(crate) use mcp::{
-    McpHealthResponse, McpOAuthResponse, McpPresetResponse, McpServerDetailResponse,
+    McpHealthResponse, McpOAuthAuthorizeResponse, McpOAuthResponse, McpPresetResponse, McpServerDetailResponse,
     McpServerResponse, McpServerToolResponse, McpServerWriteParams,
 };
 pub(crate) use observability::{
