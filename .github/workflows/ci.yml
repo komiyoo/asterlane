@@ -72,10 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: 安装 kubectl
-        uses: azure/setup-kubectl@v5.1.0
-        with:
-          version: v1.37.1
+      # ubuntu runner 自带 kubectl，kustomize 内置在 kubectl 里。只渲染，不连集群。
       - name: 渲染 K8s 清单
         run: |
           set -euo pipefail
@@ -88,5 +85,3 @@ jobs:
             echo "::error::清单使用了 latest 标签"
             exit 1
           fi
-          kubectl apply --dry-run=client -f deploy/k8s/admin-token-secret.example.yaml
-          kubectl apply --dry-run=client -f deploy/k8s/ingress.example.yaml
