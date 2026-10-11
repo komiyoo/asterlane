@@ -34,7 +34,7 @@ Before the first tagged release, `ghcr.io/komiyoo/asterlane` and `ghcr.io/komiyo
 docker compose -f compose.release.yaml up -d
 ```
 
-The gateway listens on `127.0.0.1:3721` and the console on `127.0.0.1:3722`. `run.yaml` is already a working config. Log in with the `ASTERLANE_ADMIN_TOKEN` default. Both images use `ASTERLANE_VERSION`, which defaults to `0.1.0`. To change the version, token, or ports, export the same names before starting. Point an agent at `http://127.0.0.1:3721/mcp`. Production setup is described in [Deployment](docs/admin/deployment.md).
+The gateway listens on `127.0.0.1:3721` and the console on `127.0.0.1:3722`. No compilation is needed, but you need `compose.release.yaml` and `run.yaml` (the gateway config, ready to start) from the repository. Log in with the `ASTERLANE_ADMIN_TOKEN` default. Both images use `ASTERLANE_VERSION`, which defaults to `0.1.0`. To change the version, token, or ports, export the same names before starting. Point an agent at `http://127.0.0.1:3721/mcp`. Production setup is described in [Deployment](docs/admin/deployment.md).
 
 **Build from source**
 

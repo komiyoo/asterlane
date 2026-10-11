@@ -21,6 +21,8 @@
 - 日志安全：rmcp 的 OAuth 实现在 `debug` 级会打印授权 code，`serve` 的 tracing 初始化为其加了固定的 `info` 级上限，即使 `RUST_LOG=debug` 也不输出；回调请求的请求日志只记路径，不记 query；网关自己的日志不记录 code、state、授权 URL 与 token。
 - 新健康状态 `auth_required`：授权码类上游没有凭据、凭据无法解密或刷新被拒时出现；FailClosed 下与 `unreachable` 同样拒绝 `tools/list`，控制台以橙色状态灯显示。新错误码 `mcp.upstream_auth_required`（HTTP 502 / MCP tool result `isError`）。
 - `GET /admin/mcp-servers` 与详情响应新增 `oauth` 字段（OAuth server 为 `{grant, status, expires_at, client_id, client_secret_ref, scopes}`，其余为 `null`）：`status` 为 `authorized`、`authorization_required` 或 `automatic`（client_credentials），`expires_at`（access token 到期时间）取不到则省略；`client_secret_ref` 只是引用；不含 client secret、access token、refresh token 与授权 code。
+- 发布：tag 触发的流水线同时推送控制台镜像 `ghcr.io/komiyoo/asterlane-web`（多架构，与网关镜像同版本）；新增 `compose.release.yaml`，直接拉取发布镜像启动网关与控制台。
+- 部署：`deploy/k8s/` 提供 kustomize 清单（网关单副本加 PVC、控制台、Ingress 与 admin token Secret 示例），CI 检查清单能渲染。
 
 ### Changed
 

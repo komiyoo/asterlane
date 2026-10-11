@@ -34,7 +34,7 @@
 docker compose -f compose.release.yaml up -d
 ```
 
-网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。`run.yaml` 已是一份可启动的配置。用 `ASTERLANE_ADMIN_TOKEN` 的缺省值登录。两个镜像的版本缺省都是 `ASTERLANE_VERSION`（`0.1.0`）。要改版本、口令或端口，先 export 同名变量再启动。代理把 `http://127.0.0.1:3721/mcp` 当作 MCP server 接入。线上部署见 [线上部署](docs/admin/deployment.md)。
+网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。不需要编译，但要有仓库里的 `compose.release.yaml` 和 `run.yaml`（网关配置，已可启动）。用 `ASTERLANE_ADMIN_TOKEN` 的缺省值登录。两个镜像的版本缺省都是 `ASTERLANE_VERSION`（`0.1.0`）。要改版本、口令或端口，先 export 同名变量再启动。代理把 `http://127.0.0.1:3721/mcp` 当作 MCP server 接入。线上部署见 [线上部署](docs/admin/deployment.md)。
 
 **从源码构建**
 

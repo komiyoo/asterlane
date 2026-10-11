@@ -21,7 +21,7 @@ timestamp: 2026-10-11T00:00:00Z
 docker compose -f compose.release.yaml up -d
 ```
 
-网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。登录用 `ASTERLANE_ADMIN_TOKEN` 的缺省值。版本缺省是 `ASTERLANE_VERSION`（`0.1.0`）。要改版本、口令或端口，先 export 再启动。与 `compose.yaml` 在同一目录启动时，`gateway-data` 卷可以沿用。
+网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。不需要编译，但要有仓库里的 `compose.release.yaml` 和 `run.yaml`。登录用 `ASTERLANE_ADMIN_TOKEN` 的缺省值。版本缺省是 `ASTERLANE_VERSION`（`0.1.0`）。要改版本、口令或端口，先 export 再启动。与 `compose.yaml` 在同一目录启动时，`gateway-data` 卷可以沿用。
 
 首个版本发布前，这两个镜像还没有 tag，这条命令会失败。请改用下一节，或执行 `docker compose up -d --build` 从源码构建。
 

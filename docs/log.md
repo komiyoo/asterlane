@@ -1,5 +1,12 @@
 # Documentation Update Log
 
+## 2026-10-11（Phase 11：并发写入修复、K8s 清单、控制台发布镜像）
+
+- **并发写入**：管理写入在本进程内串行化，修复 2026-10-10 发现的互相覆盖。回归测试在修复前稳定失败、修复后稳定通过。现状见 [开源版与 SaaS 双形态 · 前置条件](architecture/open-source-and-saas.md#前置条件)，多副本仍待 Phase 13。
+- **部署**：新增 `deploy/k8s/` kustomize 清单，网关固定单副本并说明原因，见 [线上部署](admin/deployment.md)；本机没有集群，清单只做了语法与渲染层面的检查，kind 上的安装验收未做。发布流水线增加控制台镜像，新增 `compose.release.yaml`，[发布流程](engineering/release-process.md)、[运行网关](admin/running.md) 与两份根 README 的快速上手同步；首个版本发布前这条路还不可用。
+- **过程**：这几个切片由多个代理在各自的 worktree 里并行编写，不在 worktree 里构建，合入前在主仓串行验证。进度记在 [开源就绪与首次发布](plans/2026/10-10/w0-00-开源就绪与首次发布.md)。
+- **验证**：`just check`；`just docs check`。
+
 ## 2026-10-10（Phase 11–14 执行计划；双形态决定同步到其余文档）
 
 - **计划**：新增四份执行计划，Roadmap 各阶段链接到对应计划：[开源就绪与首次发布](plans/2026/10-10/w0-00-开源就绪与首次发布.md)、[身份服务与管理员登录](plans/2026/10-10/w0-01-身份服务与管理员登录.md)、[多租户数据面](plans/2026/10-10/w1-02-多租户数据面.md)（依赖前者的并发写入修复）、[下游 MCP OAuth](plans/2026/10-10/w1-03-下游-mcp-oauth.md)（依赖身份服务）。Phase 15 的计划在私有仓库，不放这里。计划文件与两层索引按 `plans/README.md` 的布局手写，没有经过 `plan-docs` 脚本，脚本重新生成时以脚本输出为准。
