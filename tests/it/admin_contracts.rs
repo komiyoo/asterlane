@@ -3,6 +3,7 @@
 //! 测试值只用假凭据与 `secret://` 引用。一次性 token 只允许出现在签发响应里。
 #![allow(clippy::expect_used)]
 
+use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,7 +16,8 @@ use asterlane::mcp::McpServerRegistry;
 use asterlane::observability::{RequestEvent, RequestKind, RequestStatus};
 use asterlane::secrets::DefaultSecretStore;
 use asterlane::store::{
-    RequestEventRepository, SqliteRequestEventRepository, in_memory_pool, run_migrations,
+    McpServerRepository, ProxyKeyRepository, RequestEventRepository, ResourceRepository,
+    SqliteRequestEventRepository, in_memory_pool, run_migrations,
 };
 use asterlane::{GatewayConfig, ToolCatalog};
 use axum::body::{Body, to_bytes};
@@ -859,6 +861,163 @@ async fn events_keep_payload_strings_and_audit_details() {
     assert_eq!(audit["details"]["admin_key_id"], "ops");
     assert!(audit["timestamp"].as_str().is_some());
     assert!(audit["details"].get("token").is_none());
+}
+
+/// 并发创建资源、proxy key 和 MCP 服务后，GET 列表与 SQLite 都要留下每一行。
+///
+/// 写路径是「读快照 → 修改 → 整体替换」。没有管理写锁时，后完成的替换会盖掉
+/// 先完成的写入：内存配置缺行，数据库里却可能还有。MCP 用连不上的
+/// `127.0.0.1:9`，创建后仍保存，健康状态为 `unreachable`。
+#[tokio::test]
+async fn concurrent_creates_keep_resources_keys_and_mcp_servers() {
+    const N: usize = 8;
+    let registry = McpServerRegistry::from_peers(&[], Vec::new())
+        .await
+        .expect("empty registry");
+    let state = with_store("api_resources: []\nproxy_keys: []\nmcp_servers: []\n")
+        .await
+        .with_mcp_registry(Arc::new(registry));
+    let barrier = Arc::new(tokio::sync::Barrier::new(N * 3));
+    let mut tasks = Vec::with_capacity(N * 3);
+
+    for i in 0..N {
+        let state = state.clone();
+        let barrier = barrier.clone();
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            let created = call_json(
+                &state,
+                "POST",
+                "/admin/resources",
+                Some(serde_json::json!({
+                    "id": format!("res-{i}"),
+                    "domain": "search",
+                    "provider": "example",
+                    "base_url": "https://example.invalid",
+                    "description": "concurrent"
+                })),
+            )
+            .await;
+            assert_eq!(
+                created.status,
+                StatusCode::OK,
+                "resource res-{i}: {}",
+                created.text()
+            );
+        }));
+
+        let state = state.clone();
+        let barrier = barrier.clone();
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            let created = call_json(
+                &state,
+                "POST",
+                "/admin/proxy-keys",
+                Some(serde_json::json!({
+                    "id": format!("key-{i}"),
+                    "display_name": format!("Key {i}"),
+                    "allowed_tools": [".*"]
+                })),
+            )
+            .await;
+            assert_eq!(
+                created.status,
+                StatusCode::OK,
+                "proxy key key-{i}: {}",
+                created.text()
+            );
+        }));
+
+        let state = state.clone();
+        let barrier = barrier.clone();
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            let created = call_json(
+                &state,
+                "POST",
+                "/admin/mcp-servers",
+                Some(serde_json::json!({
+                    "id": format!("mcp-{i}"),
+                    "domain": "testing",
+                    "provider": "local",
+                    "url": format!("http://127.0.0.1:9/mcp/{i}"),
+                    "description": "unreachable"
+                })),
+            )
+            .await;
+            assert_eq!(
+                created.status,
+                StatusCode::CREATED,
+                "mcp server mcp-{i}: {}",
+                created.text()
+            );
+            assert_eq!(created.json()["id"], format!("mcp-{i}"));
+            assert_eq!(created.json()["health"]["status"], "unreachable");
+        }));
+    }
+
+    for task in tasks {
+        task.await.expect("create task");
+    }
+
+    let expect_resources: BTreeSet<_> = (0..N).map(|i| format!("res-{i}")).collect();
+    let expect_keys: BTreeSet<_> = (0..N).map(|i| format!("key-{i}")).collect();
+    let expect_servers: BTreeSet<_> = (0..N).map(|i| format!("mcp-{i}")).collect();
+
+    let resources = call_json(&state, "GET", "/admin/resources", None).await;
+    assert_eq!(resources.status, StatusCode::OK);
+    assert_eq!(json_ids(&resources.json()), expect_resources);
+
+    let keys = call_json(&state, "GET", "/admin/proxy-keys", None).await;
+    assert_eq!(keys.status, StatusCode::OK);
+    assert_eq!(json_ids(&keys.json()), expect_keys);
+
+    let servers = call_json(&state, "GET", "/admin/mcp-servers", None).await;
+    assert_eq!(servers.status, StatusCode::OK);
+    assert_eq!(json_ids(&servers.json()), expect_servers);
+    for server in servers.json().as_array().expect("mcp list") {
+        assert_eq!(
+            server["health"]["status"], "unreachable",
+            "mcp {}",
+            server["id"]
+        );
+    }
+
+    let repo = state.event_repo.as_ref().expect("store");
+    let stored_resources = repo.list_resources().await.expect("list resources");
+    let stored_keys = repo.list_proxy_keys().await.expect("list proxy keys");
+    let stored_servers = repo.list_mcp_servers().await.expect("list mcp servers");
+    assert_eq!(
+        stored_resources
+            .iter()
+            .map(|row| row.id.clone())
+            .collect::<BTreeSet<_>>(),
+        expect_resources
+    );
+    assert_eq!(
+        stored_keys
+            .iter()
+            .map(|row| row.id.clone())
+            .collect::<BTreeSet<_>>(),
+        expect_keys
+    );
+    assert_eq!(
+        stored_servers
+            .iter()
+            .map(|row| row.id.clone())
+            .collect::<BTreeSet<_>>(),
+        expect_servers
+    );
+}
+
+fn json_ids(value: &Value) -> BTreeSet<String> {
+    value
+        .as_array()
+        .expect("json list")
+        .iter()
+        .map(|item| item["id"].as_str().expect("id").to_string())
+        .collect()
 }
 
 async fn start_mock_upstream() -> SocketAddr {
