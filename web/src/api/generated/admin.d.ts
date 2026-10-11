@@ -583,6 +583,10 @@ export interface AdminOutputs {
    */
   mcp_health: OutputMcpHealthResponse;
   /**
+   * `POST /admin/mcp-servers/{id}/oauth/authorize`
+   */
+  mcp_oauth_authorize: OutputMcpOAuthAuthorizeResponse;
+  /**
    * `GET /admin/mcp-presets`
    */
   mcp_presets: OutputMcpPresetResponse[];
@@ -783,6 +787,19 @@ export interface OutputMcpHealthResponse {
   last_ok_at: string | null;
   latency_ms: number | null;
   status: OutputHealthStatus;
+}
+/**
+ * `POST /admin/mcp-servers/{id}/oauth/authorize` 的响应。
+ *
+ * `authorization_url` 含一次性 state，只给管理员在浏览器里打开，不写日志与审计。
+ * `expires_in` 是该授权请求还剩多少秒有效。
+ *
+ * This interface was referenced by `AsterlaneAdminApi`'s JSON-Schema
+ * via the `definition` "OutputMcpOAuthAuthorizeResponse".
+ */
+export interface OutputMcpOAuthAuthorizeResponse {
+  authorization_url: string;
+  expires_in: number;
 }
 /**
  * `GET /admin/mcp-presets` 的一行。

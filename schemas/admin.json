@@ -1216,6 +1216,24 @@
       ],
       "type": "object"
     },
+    "OutputMcpOAuthAuthorizeResponse": {
+      "description": "`POST /admin/mcp-servers/{id}/oauth/authorize` 的响应。\n\n`authorization_url` 含一次性 state，只给管理员在浏览器里打开，不写日志与审计。\n`expires_in` 是该授权请求还剩多少秒有效。",
+      "properties": {
+        "authorization_url": {
+          "type": "string"
+        },
+        "expires_in": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "authorization_url",
+        "expires_in"
+      ],
+      "type": "object"
+    },
     "OutputMcpOAuthResponse": {
       "description": "server 视图里的 `oauth` 段。非 OAuth server 为 `null`。\n\n`client_secret_ref` 只是引用。不含 client secret、token 或 code。\n`expires_at` 取不到时省略。",
       "properties": {
@@ -2406,6 +2424,14 @@
           ],
           "description": "`POST /admin/mcp-servers/{id}/probe`"
         },
+        "mcp_oauth_authorize": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputMcpOAuthAuthorizeResponse"
+            }
+          ],
+          "description": "`POST /admin/mcp-servers/{id}/oauth/authorize`"
+        },
         "mcp_presets": {
           "description": "`GET /admin/mcp-presets`",
           "items": {
@@ -2550,6 +2576,7 @@
         "mcp_servers",
         "mcp_server",
         "mcp_health",
+        "mcp_oauth_authorize",
         "mcp_presets",
         "config_validate",
         "http_error"
