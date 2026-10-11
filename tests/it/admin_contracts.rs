@@ -881,9 +881,10 @@ async fn concurrent_creates_keep_resources_keys_and_mcp_servers() {
     let mut tasks = Vec::with_capacity(N * 3);
 
     for i in 0..N {
-        let state = state.clone();
-        let barrier = barrier.clone();
+        let task_state = state.clone();
+        let task_barrier = barrier.clone();
         tasks.push(tokio::spawn(async move {
+            let (state, barrier) = (task_state, task_barrier);
             barrier.wait().await;
             let created = call_json(
                 &state,
@@ -906,9 +907,10 @@ async fn concurrent_creates_keep_resources_keys_and_mcp_servers() {
             );
         }));
 
-        let state = state.clone();
-        let barrier = barrier.clone();
+        let task_state = state.clone();
+        let task_barrier = barrier.clone();
         tasks.push(tokio::spawn(async move {
+            let (state, barrier) = (task_state, task_barrier);
             barrier.wait().await;
             let created = call_json(
                 &state,
@@ -929,9 +931,10 @@ async fn concurrent_creates_keep_resources_keys_and_mcp_servers() {
             );
         }));
 
-        let state = state.clone();
-        let barrier = barrier.clone();
+        let task_state = state.clone();
+        let task_barrier = barrier.clone();
         tasks.push(tokio::spawn(async move {
+            let (state, barrier) = (task_state, task_barrier);
             barrier.wait().await;
             let created = call_json(
                 &state,
