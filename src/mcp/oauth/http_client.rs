@@ -82,7 +82,10 @@ impl OAuthHttpClient for GuardedOAuthHttpClient {
             } = request;
             let uri = request.uri().to_string();
             if let Err(blocked) = crate::egress::check_url(&uri, true) {
-                tracing::debug!(reason = blocked.reason_name(), "egress blocked OAuth request");
+                tracing::debug!(
+                    reason = blocked.reason_name(),
+                    "egress blocked OAuth request"
+                );
                 return Err(Box::new(blocked) as OAuthHttpClientError);
             }
             // 未知的重定向策略按停止跟随处理，避免把请求头带到未校验的下一跳。

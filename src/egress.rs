@@ -7,7 +7,6 @@
 use std::error::Error as StdError;
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::pin::Pin;
 use std::time::Duration;
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
@@ -80,7 +79,7 @@ impl fmt::Display for EgressBlocked {
 impl StdError for EgressBlocked {}
 
 /// 沿 `source` 链查找地址拒绝。找不到时调用方按普通连接失败处理。
-pub(crate) fn find_blocked(error: &dyn StdError) -> Option<EgressBlocked> {
+pub(crate) fn find_blocked(error: &(dyn StdError + 'static)) -> Option<EgressBlocked> {
     let mut current = Some(error);
     while let Some(err) = current {
         if let Some(blocked) = err.downcast_ref::<EgressBlocked>() {
@@ -138,8 +137,8 @@ fn classify_v6(ip: Ipv6Addr) -> Option<BlockReason> {
     if seg[0] & 0xffc0 == 0xfe80 {
         return Some(BlockReason::LinkLocal);
     }
-    // fc00::/7，含已废弃的站点本地 fec0::/10。
-    if seg[0] & 0xfe00 == 0xfc00 {
+    // fc00::/7 唯一本地地址，以及已废弃的站点本地 fec0::/10（不在 fc00::/7 内）。
+    if seg[0] & 0xfe00 == 0xfc00 || seg[0] & 0xffc0 == 0xfec0 {
         return Some(BlockReason::UniqueLocal);
     }
     embedded_block(seg)
@@ -164,12 +163,7 @@ fn embedded_block(seg: [u16; 8]) -> Option<BlockReason> {
 }
 
 fn is_nat64(seg: [u16; 8]) -> bool {
-    seg[0] == 0x0064
-        && seg[1] == 0xff9b
-        && seg[2] == 0
-        && seg[3] == 0
-        && seg[4] == 0
-        && seg[5] == 0
+    seg[0] == 0x0064 && seg[1] == 0xff9b && seg[2] == 0 && seg[3] == 0 && seg[4] == 0 && seg[5] == 0
 }
 
 fn is_ipv4_compatible(seg: [u16; 8]) -> bool {
@@ -200,8 +194,8 @@ fn blocked_hostname(host: &str) -> bool {
 /// 为 false（受控 client 没建成）时拒绝包括字面量在内的全部 URL，避免用未校验的
 /// client 发出去。字面量 IP 在这里分类；解析器不会被字面量调用。
 pub(crate) fn check_url(url: &str, dns_pinned: bool) -> Result<(), EgressBlocked> {
-    let parsed = reqwest::Url::parse(url)
-        .map_err(|_| EgressBlocked::new(BlockReason::InvalidUrl))?;
+    let parsed =
+        reqwest::Url::parse(url).map_err(|_| EgressBlocked::new(BlockReason::InvalidUrl))?;
     check_parsed(&parsed, dns_pinned)
 }
 
@@ -215,25 +209,18 @@ fn check_parsed(url: &reqwest::Url, dns_pinned: bool) -> Result<(), EgressBlocke
     let Some(host) = url.host_str() else {
         return Err(EgressBlocked::new(BlockReason::InvalidUrl));
     };
-    let host = host.trim_end_matches('.');
-    if blocked_hostname(host) {
-        return Err(EgressBlocked::new(BlockReason::Hostname));
+    // URL 解析器已把 `127.1` 这类写法规范成点分 IPv4；IPv6 字面量带方括号，
+    // 已被校验过，去掉括号后一定能解析。
+    let unbracketed = host.strip_prefix('[').and_then(|h| h.strip_suffix(']'));
+    let reason = match unbracketed.unwrap_or(host).parse::<IpAddr>() {
+        Ok(ip) => classify_ip(ip),
+        Err(_) if unbracketed.is_some() => Some(BlockReason::InvalidUrl),
+        Err(_) => blocked_hostname(host).then_some(BlockReason::Hostname),
+    };
+    match reason {
+        Some(reason) => Err(EgressBlocked::new(reason)),
+        None => Ok(()),
     }
-    if let Some(reason) = literal_block(host) {
-        return Err(EgressBlocked::new(reason));
-    }
-    Ok(())
-}
-
-fn literal_block(host: &str) -> Option<BlockReason> {
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return classify_ip(ip);
-    }
-    // 像 IPv6 但解析失败：失败关闭，不把它交给系统解析器。
-    if host.contains(':') {
-        return Some(BlockReason::InvalidUrl);
-    }
-    None
 }
 
 /// 丢掉被拒绝的地址，端口改为 0，让请求 URL 的端口生效。
@@ -335,7 +322,11 @@ impl fmt::Display for RedirectStopped {
 impl StdError for RedirectStopped {}
 
 fn on_redirect(attempt: Attempt<'_>) -> redirect::Action {
-    let previous: Vec<&str> = attempt.previous().iter().map(reqwest::Url::as_str).collect();
+    let previous: Vec<&str> = attempt
+        .previous()
+        .iter()
+        .map(reqwest::Url::as_str)
+        .collect();
     match decide_redirect(attempt.url().as_str(), &previous) {
         RedirectChoice::Follow => attempt.follow(),
         RedirectChoice::Blocked(blocked) => {
@@ -387,8 +378,8 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
     use super::{
-        check_url, classify_ip, decide_redirect, find_blocked, resolve_host, retain_allowed,
-        BlockReason, EgressBlocked, RedirectChoice, SAFE_MESSAGE,
+        BlockReason, EgressBlocked, RedirectChoice, SAFE_MESSAGE, check_url, classify_ip,
+        decide_redirect, find_blocked, resolve_host, retain_allowed,
     };
 
     fn reason_of(url: &str) -> Result<(), BlockReason> {
@@ -401,24 +392,63 @@ mod tests {
 
     #[test]
     fn ipv4_classes() {
-        assert_eq!(classify_ip(ipv4(0, 0, 0, 0)), Some(BlockReason::Unspecified));
-        assert_eq!(classify_ip(ipv4(0, 1, 2, 3)), Some(BlockReason::Unspecified));
+        assert_eq!(
+            classify_ip(ipv4(0, 0, 0, 0)),
+            Some(BlockReason::Unspecified)
+        );
+        assert_eq!(
+            classify_ip(ipv4(0, 1, 2, 3)),
+            Some(BlockReason::Unspecified)
+        );
         assert_eq!(classify_ip(ipv4(127, 0, 0, 1)), Some(BlockReason::Loopback));
-        assert_eq!(classify_ip(ipv4(127, 255, 255, 255)), Some(BlockReason::Loopback));
+        assert_eq!(
+            classify_ip(ipv4(127, 255, 255, 255)),
+            Some(BlockReason::Loopback)
+        );
         assert_eq!(classify_ip(ipv4(10, 1, 2, 3)), Some(BlockReason::Private));
         assert_eq!(classify_ip(ipv4(172, 16, 0, 1)), Some(BlockReason::Private));
-        assert_eq!(classify_ip(ipv4(172, 31, 255, 255)), Some(BlockReason::Private));
-        assert_eq!(classify_ip(ipv4(192, 168, 1, 1)), Some(BlockReason::Private));
-        assert_eq!(classify_ip(ipv4(169, 254, 169, 254)), Some(BlockReason::LinkLocal));
-        assert_eq!(classify_ip(ipv4(169, 254, 170, 2)), Some(BlockReason::LinkLocal));
+        assert_eq!(
+            classify_ip(ipv4(172, 31, 255, 255)),
+            Some(BlockReason::Private)
+        );
+        assert_eq!(
+            classify_ip(ipv4(192, 168, 1, 1)),
+            Some(BlockReason::Private)
+        );
+        assert_eq!(
+            classify_ip(ipv4(169, 254, 169, 254)),
+            Some(BlockReason::LinkLocal)
+        );
+        assert_eq!(
+            classify_ip(ipv4(169, 254, 170, 2)),
+            Some(BlockReason::LinkLocal)
+        );
         assert_eq!(classify_ip(ipv4(100, 64, 0, 1)), Some(BlockReason::Cgnat));
-        assert_eq!(classify_ip(ipv4(100, 100, 100, 200)), Some(BlockReason::Cgnat));
-        assert_eq!(classify_ip(ipv4(100, 127, 255, 255)), Some(BlockReason::Cgnat));
-        assert_eq!(classify_ip(ipv4(224, 0, 0, 1)), Some(BlockReason::Multicast));
-        assert_eq!(classify_ip(ipv4(239, 255, 255, 255)), Some(BlockReason::Multicast));
+        assert_eq!(
+            classify_ip(ipv4(100, 100, 100, 200)),
+            Some(BlockReason::Cgnat)
+        );
+        assert_eq!(
+            classify_ip(ipv4(100, 127, 255, 255)),
+            Some(BlockReason::Cgnat)
+        );
+        assert_eq!(
+            classify_ip(ipv4(224, 0, 0, 1)),
+            Some(BlockReason::Multicast)
+        );
+        assert_eq!(
+            classify_ip(ipv4(239, 255, 255, 255)),
+            Some(BlockReason::Multicast)
+        );
         assert_eq!(classify_ip(ipv4(240, 0, 0, 1)), Some(BlockReason::Reserved));
-        assert_eq!(classify_ip(ipv4(255, 255, 255, 255)), Some(BlockReason::Reserved));
-        assert_eq!(classify_ip(ipv4(168, 63, 129, 16)), Some(BlockReason::Metadata));
+        assert_eq!(
+            classify_ip(ipv4(255, 255, 255, 255)),
+            Some(BlockReason::Reserved)
+        );
+        assert_eq!(
+            classify_ip(ipv4(168, 63, 129, 16)),
+            Some(BlockReason::Metadata)
+        );
 
         assert_eq!(classify_ip(ipv4(1, 1, 1, 1)), None);
         assert_eq!(classify_ip(ipv4(8, 8, 8, 8)), None);
@@ -436,19 +466,40 @@ mod tests {
         assert_eq!(classify_ip(parse("::")), Some(BlockReason::Unspecified));
         assert_eq!(classify_ip(parse("::1")), Some(BlockReason::Loopback));
         assert_eq!(classify_ip(parse("fe80::1")), Some(BlockReason::LinkLocal));
-        assert_eq!(classify_ip(parse("fc00::1")), Some(BlockReason::UniqueLocal));
-        assert_eq!(classify_ip(parse("fd00:ec2::254")), Some(BlockReason::UniqueLocal));
-        assert_eq!(classify_ip(parse("fec0::1")), Some(BlockReason::UniqueLocal));
+        assert_eq!(
+            classify_ip(parse("fc00::1")),
+            Some(BlockReason::UniqueLocal)
+        );
+        assert_eq!(
+            classify_ip(parse("fd00:ec2::254")),
+            Some(BlockReason::UniqueLocal)
+        );
+        assert_eq!(
+            classify_ip(parse("fec0::1")),
+            Some(BlockReason::UniqueLocal)
+        );
         assert_eq!(classify_ip(parse("ff02::1")), Some(BlockReason::Multicast));
-        assert_eq!(classify_ip(parse("::ffff:10.0.0.1")), Some(BlockReason::Private));
+        assert_eq!(
+            classify_ip(parse("::ffff:10.0.0.1")),
+            Some(BlockReason::Private)
+        );
         assert_eq!(
             classify_ip(parse("::ffff:169.254.169.254")),
             Some(BlockReason::LinkLocal)
         );
-        assert_eq!(classify_ip(parse("::ffff:127.0.0.1")), Some(BlockReason::Loopback));
+        assert_eq!(
+            classify_ip(parse("::ffff:127.0.0.1")),
+            Some(BlockReason::Loopback)
+        );
         assert_eq!(classify_ip(parse("::10.0.0.1")), Some(BlockReason::Private));
-        assert_eq!(classify_ip(parse("64:ff9b::10.0.0.1")), Some(BlockReason::Private));
-        assert_eq!(classify_ip(parse("2002:a00:1::")), Some(BlockReason::Private));
+        assert_eq!(
+            classify_ip(parse("64:ff9b::10.0.0.1")),
+            Some(BlockReason::Private)
+        );
+        assert_eq!(
+            classify_ip(parse("2002:a00:1::")),
+            Some(BlockReason::Private)
+        );
 
         assert_eq!(classify_ip(parse("::ffff:1.1.1.1")), None);
         assert_eq!(classify_ip(parse("::8.8.8.8")), None);
@@ -462,14 +513,26 @@ mod tests {
         assert_eq!(reason_of("http://127.0.0.1/"), Err(BlockReason::Loopback));
         assert_eq!(reason_of("http://127.1/"), Err(BlockReason::Loopback));
         assert_eq!(reason_of("http://[::1]/"), Err(BlockReason::Loopback));
-        assert_eq!(reason_of("http://[::ffff:10.0.0.1]/"), Err(BlockReason::Private));
+        assert_eq!(
+            reason_of("http://[::ffff:10.0.0.1]/"),
+            Err(BlockReason::Private)
+        );
         assert_eq!(reason_of("http://10.0.0.1/"), Err(BlockReason::Private));
-        assert_eq!(reason_of("http://169.254.169.254/"), Err(BlockReason::LinkLocal));
-        assert_eq!(reason_of("http://168.63.129.16/"), Err(BlockReason::Metadata));
+        assert_eq!(
+            reason_of("http://169.254.169.254/"),
+            Err(BlockReason::LinkLocal)
+        );
+        assert_eq!(
+            reason_of("http://168.63.129.16/"),
+            Err(BlockReason::Metadata)
+        );
         assert_eq!(reason_of("http://localhost/"), Err(BlockReason::Hostname));
         assert_eq!(reason_of("http://localhost./"), Err(BlockReason::Hostname));
         assert_eq!(reason_of("http://LOCALHOST/"), Err(BlockReason::Hostname));
-        assert_eq!(reason_of("http://foo.localhost/x"), Err(BlockReason::Hostname));
+        assert_eq!(
+            reason_of("http://foo.localhost/x"),
+            Err(BlockReason::Hostname)
+        );
         assert_eq!(reason_of("http://metadata/"), Err(BlockReason::Hostname));
         assert_eq!(
             reason_of("http://metadata.google.internal./"),
@@ -569,12 +632,16 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_host_rejects_private_literals_and_denied_names() {
-        let private = resolve_host("10.0.0.1").await.expect_err("private");
+        let Err(private) = resolve_host("10.0.0.1").await else {
+            panic!("private literal should be blocked");
+        };
         assert_eq!(private.to_string(), SAFE_MESSAGE);
         assert!(!private.to_string().contains("10.0.0.1"));
         assert!(find_blocked(private.as_ref()).is_some());
 
-        let name = resolve_host("metadata.google.internal").await.expect_err("name");
+        let Err(name) = resolve_host("metadata.google.internal").await else {
+            panic!("metadata name should be blocked");
+        };
         assert_eq!(name.to_string(), SAFE_MESSAGE);
         assert!(!name.to_string().contains("metadata"));
 

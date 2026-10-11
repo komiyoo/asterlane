@@ -269,9 +269,7 @@ impl UpstreamOAuth {
         needs_registration: bool,
     ) -> Result<AuthorizationManager, AuthorizeError> {
         let id = server.id.as_str();
-        let mut manager = self
-            .authorization_manager(id, server.url.as_str())
-            .await?;
+        let mut manager = self.authorization_manager(id, server.url.as_str()).await?;
         self.credential_store(id)?.install(&mut manager);
         let resolution = manager
             .resolve_metadata()

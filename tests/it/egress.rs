@@ -1,5 +1,7 @@
 //! 出站地址校验：wiremock 在 127.0.0.1 上，开关打开时请求被拒，关闭时照常。
 
+#![allow(clippy::expect_used)]
+
 use std::sync::Arc;
 
 use asterlane::catalog::ToolCatalog;

@@ -189,7 +189,10 @@ mod tests {
         let err = AsterlaneError::from(ProxyError::EgressBlocked);
         assert_eq!(err.error_code(), ErrorCode::ProxyEgressBlocked);
         assert_eq!(err.http_response().status, 403);
-        assert_eq!(err.to_string(), "proxy.egress_blocked: upstream address is not allowed");
+        assert_eq!(
+            err.to_string(),
+            "proxy.egress_blocked: upstream address is not allowed"
+        );
         assert!(!err.to_string().contains("10.0.0.1"));
         assert!(matches!(
             err.mcp_error(),

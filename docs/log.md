@@ -1,5 +1,9 @@
 # Documentation Update Log
 
+## 2026-10-11（Phase 13 PR6：出站地址校验）
+
+- **运行时**：新增 `egress.block_private_addresses` 与错误码 `proxy.egress_blocked`，见 [Config Schema](runtime/config-schema.md) 与 [Error Model](architecture/error-model.md)。[多租户数据面](plans/2026/10-10/w1-02-多租户数据面.md) PR6 勾选；SaaS 默认开启待 SaaS 部署形态确定。
+
 ## 2026-10-11（Postgres 暂缓）
 
 - **决定**：维护者决定存储先用 SQLite，Postgres 后端暂缓。[Roadmap](product/roadmap.md#产品决策) 与 [多租户数据面](plans/2026/10-10/w1-02-多租户数据面.md) 的 PR1 已标注；多副本部署要等恢复这一项。

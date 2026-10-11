@@ -126,7 +126,12 @@ impl UpstreamOAuth {
             None => None,
         };
         let redirect_base_url = oauth.and_then(|o| o.redirect_base_url.clone());
-        Ok(Self::with_egress(key, repository, redirect_base_url, egress)?)
+        Ok(Self::with_egress(
+            key,
+            repository,
+            redirect_base_url,
+            egress,
+        )?)
     }
 
     /// 直接用已有的密钥与存储构造。出站校验关闭，与未写 `egress` 时相同。
@@ -174,12 +179,11 @@ impl UpstreamOAuth {
     ) -> Result<AuthorizationManager, McpError> {
         self.ensure_outbound_allowed(server_url)?;
         match &self.oauth_http {
-            Some(client) => AuthorizationManager::new_with_oauth_http_client(
-                server_url,
-                client.handle(),
-            )
-            .await
-            .map_err(|e| setup_failure(server_id, "client setup", &e)),
+            Some(client) => {
+                AuthorizationManager::new_with_oauth_http_client(server_url, client.handle())
+                    .await
+                    .map_err(|e| setup_failure(server_id, "client setup", &e))
+            }
             None => AuthorizationManager::new(server_url)
                 .await
                 .map_err(|e| setup_failure(server_id, "client setup", &e)),
@@ -194,7 +198,10 @@ impl UpstreamOAuth {
         match crate::egress::check_url(url, true) {
             Ok(()) => Ok(()),
             Err(blocked) => {
-                tracing::debug!(reason = blocked.reason_name(), "egress blocked OAuth base URL");
+                tracing::debug!(
+                    reason = blocked.reason_name(),
+                    "egress blocked OAuth base URL"
+                );
                 Err(McpError::egress_blocked())
             }
         }
@@ -288,7 +295,13 @@ impl UpstreamOAuth {
 /// 打开时 MCP 传输与 OAuth 各用受控 client；任一构建失败则启动失败，不退回未校验的 client。
 fn oauth_clients(
     egress: &EgressConfig,
-) -> Result<(reqwest::Client, Option<Arc<http_client::GuardedOAuthHttpClient>>), McpError> {
+) -> Result<
+    (
+        reqwest::Client,
+        Option<Arc<http_client::GuardedOAuthHttpClient>>,
+    ),
+    McpError,
+> {
     if !egress.block_private_addresses {
         let http = reqwest::Client::builder()
             .pool_max_idle_per_host(0)
@@ -373,8 +386,8 @@ mod tests {
     async fn from_config_without_oauth_section_has_no_key() {
         let service =
             UpstreamOAuth::from_config(None, &FixedSecret(None), None, &EgressConfig::default())
-            .await
-            .unwrap();
+                .await
+                .unwrap();
         assert!(service.key.is_none());
         assert_eq!(service.redirect_uri(), "http://localhost/oauth/callback");
     }
@@ -382,15 +395,14 @@ mod tests {
     #[tokio::test]
     async fn from_config_resolves_the_encryption_key_and_redirect_uri() {
         let key = base64::engine::general_purpose::STANDARD.encode([5u8; 32]);
-        let service =
-            UpstreamOAuth::from_config(
-                Some(&oauth_config()),
-                &FixedSecret(Some(key)),
-                None,
-                &EgressConfig::default(),
-            )
-                .await
-                .unwrap();
+        let service = UpstreamOAuth::from_config(
+            Some(&oauth_config()),
+            &FixedSecret(Some(key)),
+            None,
+            &EgressConfig::default(),
+        )
+        .await
+        .unwrap();
         assert!(service.key.is_some());
         assert_eq!(
             service.redirect_uri(),
@@ -408,8 +420,8 @@ mod tests {
                 None,
                 &EgressConfig::default(),
             )
-                .await
-                .unwrap_err();
+            .await
+            .unwrap_err();
             assert_eq!(err.error_code(), ErrorCode::ConfigInvalidYaml);
             assert!(err.to_string().contains("token_encryption_key_ref"));
         }
@@ -421,8 +433,8 @@ mod tests {
                 None,
                 &EgressConfig::default(),
             )
-                .await
-                .is_err()
+            .await
+            .is_err()
         );
     }
 

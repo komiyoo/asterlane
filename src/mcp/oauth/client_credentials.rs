@@ -157,9 +157,7 @@ pub(super) async fn connect(
         ));
     };
     let id = server.id.as_str();
-    let mut manager = oauth
-        .authorization_manager(id, server.url.as_str())
-        .await?;
+    let mut manager = oauth.authorization_manager(id, server.url.as_str()).await?;
     let resolution = manager
         .resolve_metadata()
         .await

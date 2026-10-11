@@ -131,10 +131,7 @@ impl<S: SecretStore, R: RequestEventRepository + SecurityEventRepository + Usage
 
 /// 开关关闭时原样使用注入的 client。打开时换成带 DNS 过滤的 client；
 /// 构建失败则保留原 client，但标记为未固定，后续请求一律拒绝。
-fn prepare_http(
-    config: &GatewayConfig,
-    http: reqwest::Client,
-) -> (reqwest::Client, bool, bool) {
+fn prepare_http(config: &GatewayConfig, http: reqwest::Client) -> (reqwest::Client, bool, bool) {
     if !config.egress.block_private_addresses {
         return (http, false, false);
     }

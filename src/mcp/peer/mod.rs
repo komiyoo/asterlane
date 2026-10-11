@@ -191,11 +191,7 @@ impl RmcpRemoteMcpPeer {
                 let client = serve_upstream(make_transport(), false, handler)
                     .await
                     .map_err(|legacy_error| {
-                        map_legacy_connect_error(
-                            &legacy_error,
-                            &auto_error,
-                            auth_required_on_401,
-                        )
+                        map_legacy_connect_error(&legacy_error, &auto_error, auth_required_on_401)
                     })?;
                 Ok(Self::with_listen(
                     client,
@@ -322,17 +318,16 @@ fn initialize_error_is_blocked(error: &ClientInitializeError) -> bool {
     let ClientInitializeError::TransportError { error, .. } = error else {
         return false;
     };
-    let mut current = Some(error.error.as_ref());
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error.error.as_ref());
     while let Some(err) = current {
         if crate::egress::find_blocked(err).is_some() {
             return true;
         }
         if let Some(StreamableHttpError::Client(inner)) =
             err.downcast_ref::<StreamableHttpError<reqwest::Error>>()
+            && crate::egress::find_blocked(inner).is_some()
         {
-            if crate::egress::find_blocked(inner).is_some() {
-                return true;
-            }
+            return true;
         }
         current = err.source();
     }

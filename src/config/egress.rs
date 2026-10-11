@@ -16,7 +16,7 @@ pub struct EgressConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::GatewayConfig;
+    use crate::config::GatewayConfig;
 
     #[test]
     fn missing_section_stays_off() {
@@ -26,10 +26,9 @@ mod tests {
 
     #[test]
     fn explicit_true_parses() {
-        let config: GatewayConfig = serde_norway::from_str(
-            "egress:\n  block_private_addresses: true\napi_resources: []\n",
-        )
-        .expect("yaml");
+        let config: GatewayConfig =
+            serde_norway::from_str("egress:\n  block_private_addresses: true\napi_resources: []\n")
+                .expect("yaml");
         assert!(config.egress.block_private_addresses);
     }
 }
