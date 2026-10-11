@@ -1,10 +1,10 @@
 ---
 type: Architecture Decision
 title: 线上部署
-description: 网关留在自有机器，控制台可放到 Cloudflare 免费静态资源。同源是当前构建的做法，不是产品约束。
+description: 网关留在自有机器，控制台可放到 Cloudflare 免费静态资源。同源是当前构建的做法，不是产品约束。Kubernetes 清单复刻 Compose 的同源形态。
 resource: docs/admin/deployment.md
-tags: [deployment, cloudflare, tunnel, console, operations]
-timestamp: 2026-10-10T00:00:00Z
+tags: [deployment, cloudflare, tunnel, console, operations, kubernetes]
+timestamp: 2026-10-11T00:00:00Z
 ---
 
 # 结论
@@ -96,6 +96,56 @@ ingress:
 这一形态里，`/mcp`、`/v1/`、`/healthz`、`/metrics` 在控制台 Nginx 上是 404。代理流量不要打到 `console`。
 
 备份时对 SQLite 做 online backup，不要在写入期间分别拷贝 `asterlane.db` 和 `-wal`。网关镜像有 `libsqlite3`，没有 `sqlite3` 命令；在能挂载 `gateway-data` 卷的环境里执行 `.backup`，再把得到的单个文件上传到 R2。事件表先于其他数据碰到 10 GB 免费额度。
+
+# Kubernetes
+
+`deploy/k8s/` 是 kustomize 清单，不是 Helm chart。它复刻上面这一形态：网关与控制台在同一命名空间，控制台把 `/admin` 转到网关，浏览器仍请求相对路径。不需要文末那三处跨源改动。入口仍可以是 Cloudflare Tunnel；下面的 Ingress 只给已经有集群入口的人。
+
+用 `kubectl apply -k deploy/k8s` 安装。不要对整个目录 `kubectl apply -f`：`config.yaml` 是网关配置，不是 Kubernetes 对象。
+
+| 对象 | 作用 |
+| --- | --- |
+| Namespace `asterlane` | 清单里的工作负载都在这个命名空间 |
+| Deployment / Service `asterlane-gateway` | 镜像 `ghcr.io/komiyoo/asterlane:0.1.0`，容器端口 3000，ClusterIP |
+| PVC `asterlane-gateway-data` | 挂到 `/data`，默认 1Gi，不指定 StorageClass |
+| ConfigMap `asterlane-gateway-config` | 由 `deploy/k8s/config.yaml` 生成，挂到 `/etc/asterlane/config.yaml`。kustomize 会在名字后加内容哈希 |
+| Deployment / Service `asterlane-web` | 镜像 `ghcr.io/komiyoo/asterlane-web:0.1.0`，容器端口 8080，ClusterIP |
+| Secret `asterlane-admin-token` | 只在 Deployment 里引用键 `token`。值不在 kustomization 里 |
+
+Compose 把本机 `3721` 转到网关容器的 `3000`，把本机 `3722` 转到控制台容器的 `8080`。集群里没有这两个宿主端口。控制台的 `ASTERLANE_GATEWAY_UPSTREAM` 是 `asterlane-gateway:3000`。网关启动参数与 `compose.yaml` 的 `command` 相同：`serve --config=/etc/asterlane/config.yaml --database-url=sqlite:/data/asterlane.db?mode=rwc --bind=0.0.0.0:3000`。
+
+配置里的 `secret://env/ASTERLANE_ADMIN_TOKEN` 读进程环境变量，环境变量来自 Secret 的键 `token`。先建 Secret，再安装清单。把 `<admin token>` 换成自己的值。不要把 Compose 写在仓库里的缺省口令用到集群外能够访问的入口，也不要把真实 token 提交进 git。
+
+```bash
+kubectl apply -f deploy/k8s/namespace.yaml
+kubectl -n asterlane create secret generic asterlane-admin-token \
+  --from-literal=token='<admin token>'
+kubectl apply -k deploy/k8s
+```
+
+`deploy/k8s/admin-token-secret.example.yaml` 只演示名字和键，值是 `replace-me`。不要把它加进 `kustomization.yaml`，否则下次 `kubectl apply -k` 会用占位符盖掉已经设置的值。
+
+网关固定 1 个副本，原因写在 Deployment 里：存储是 SQLite，限流与配额是进程内状态，多副本要等 [多租户数据面](../architecture/open-source-and-saas.md#多租户数据面) 的共享状态。更新策略是 `Recreate`，因为 `ReadWriteOnce` 的卷不能同时挂给两个 Pod。删掉网关 Pod 后 PVC 还在，SQLite 还在。集群没有默认 StorageClass 时，PVC 会停在 Pending。
+
+网关容器以 uid/gid `10001` 运行，与 `Dockerfile` 里的用户 `asterlane` 一致，并且 `runAsNonRoot`。`deploy/asterlane-entrypoint` 要先以 root 把 `/data` 交给这个用户，再用 `setpriv` 降权；Kubernetes 用 `fsGroup: 10001` 做这件事，所以清单直接执行 `/usr/local/bin/asterlane`。卷必须接受 `fsGroup` 改属主。控制台镜像没有 `USER`，Nginx 入口要写出渲染后的配置，清单不改它的用户；监听端口是 `8080`，不占用特权端口。受限的 Pod 安全策略可能拒绝这个 root 进程。
+
+网关的启动、就绪和存活探针都是 `GET /healthz`。这个路径公开，响应里 `status` 为 `ok`。控制台 Nginx 对 `/healthz`、`/metrics`、`/mcp`、`/v1/` 固定返回 404，探针打在 `/`，与 `web/Dockerfile` 的 `HEALTHCHECK` 一致。静态页能打开不代表网关健康。
+
+镜像标签写发布版本 `0.1.0`，不用 `latest`。网关镜像名与 [发布流程 · 产物](../engineering/release-process.md#产物) 一致。控制台镜像名暂定 `ghcr.io/komiyoo/asterlane-web`，发布流水线还没有推送它。GHCR 上的 package 在首次推送后默认私有。镜像还不存在时，把清单里的 `image` 改成已经载入集群的标签，并保持 `imagePullPolicy: IfNotPresent`。`app.kubernetes.io/version` 与标签一起改。
+
+提交进仓库的 `deploy/k8s/config.yaml` 与 `run.yaml` 逐字节相同，渲染检查会比较这两份文件。这是与 Compose 相同的一份可启动配置，里面没有公网 `oauth.redirect_base_url`。某个集群要设置它（网关的公网源，例如 `https://mcp.example.com`，见 [Configuration Schema](../runtime/config-schema.md)）时，两份文件一起改再 `kubectl apply -k`。只改已经生成的 ConfigMap 会在下一次 apply 时被盖掉。kustomize 给 ConfigMap 名字加上内容哈希；挂载用了 `subPath`，不会热更新，哈希变化会重建网关 Pod。`/metrics` 留在网关的 ClusterIP 上，不要从公网主机名进来。
+
+升级控制台镜像时，若要让还开着旧页面的浏览器继续加载带内容哈希的脚本和样式，按 [上一版静态资源](../../web/deploy/retain.md) 把上一版的 `/usr/share/nginx/html` 挂到 `/previous-dist`。本清单没有这个卷，与当前 `compose.yaml` 一样。
+
+`deploy/k8s/ingress.example.yaml` 不在默认 kustomization 里。主机名是 `mcp.example.com` 和 `console.example.com`。apply 前改成自己的域名；有多个 IngressClass 时补上 `ingressClassName`，需要证书时再加 `spec.tls`。公网规则与上面的 Tunnel 相同：`mcp` 转到网关，`console` 转到控制台，并挡住 `/metrics`。
+
+```bash
+kubectl apply -f deploy/k8s/ingress.example.yaml
+```
+
+备份仍对 SQLite 做 online backup，不要在写入期间分别拷贝数据库文件和 `-wal`。
+
+渲染检查是 `kubectl kustomize deploy/k8s`。CI 的 `k8s` job 跑这条命令，并确认 `deploy/k8s/config.yaml` 与 `run.yaml` 相同。
 
 # 拆源之前要先改的代码
 
