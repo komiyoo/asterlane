@@ -24,7 +24,21 @@
 
 ## 快速上手
 
-需要 Rust 1.94 及以上和 `jq`。下面使用 [`examples/gateway.yaml`](examples/gateway.yaml)。管理口令用 [`.env.schema`](.env.schema) 里的缺省值。把 `EXA_DEFAULT` 换成你自己的 key。没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。
+可以先用发布镜像，也可以从源码构建。管理口令、本机端口和镜像版本的缺省在 [`.env.schema`](.env.schema)。
+
+**用发布镜像**
+
+首个版本发布前，`ghcr.io/komiyoo/asterlane` 和 `ghcr.io/komiyoo/asterlane-web` 还没有可拉取的 tag，下面这条命令现在会失败。发布之后，在仓库根执行：
+
+```bash
+docker compose -f compose.release.yaml up -d
+```
+
+网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。`run.yaml` 已是一份可启动的配置。用 `ASTERLANE_ADMIN_TOKEN` 的缺省值登录。两个镜像的版本缺省都是 `ASTERLANE_VERSION`（`0.1.0`）。要改版本、口令或端口，先 export 同名变量再启动。代理把 `http://127.0.0.1:3721/mcp` 当作 MCP server 接入。线上部署见 [线上部署](docs/admin/deployment.md)。
+
+**从源码构建**
+
+需要 Rust 1.94 及以上和 `jq`。下面使用 [`examples/gateway.yaml`](examples/gateway.yaml)。把 `EXA_DEFAULT` 换成你自己的 key。没有有效的 Exa key 时，网关可以启动，真实搜索调用会失败。
 
 终端 1：在 `127.0.0.1:3000` 启动网关，数据库只在内存里。
 
@@ -52,7 +66,13 @@ cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
 
 代理把 `http://127.0.0.1:3000/mcp` 当作 MCP server 接入，凭据用这枚 gateway token。更多选项见 [运行网关](docs/admin/running.md)。
 
+在仓库根执行 `docker compose up -d --build` 会用源码构建同一套网关和控制台，端口与上面的发布镜像相同。
+
 ## 安装
+
+**发布镜像**
+
+见上面的「用发布镜像」。[`compose.release.yaml`](compose.release.yaml) 拉取 `ghcr.io/komiyoo/asterlane` 与 `ghcr.io/komiyoo/asterlane-web`，版本由 `ASTERLANE_VERSION` 指定，缺省 `0.1.0`。首个版本发布前这条路还不可用。
 
 **从源码安装**
 
@@ -63,7 +83,7 @@ cargo install --path . --locked
 asterlane --help
 ```
 
-**Docker Compose（网关 + 管理控制台）**
+**从源码构建 Docker Compose（网关 + 管理控制台）**
 
 在仓库根执行：
 
@@ -73,9 +93,9 @@ docker compose up -d --build
 
 网关监听 `127.0.0.1:3721`，控制台监听 `127.0.0.1:3722`。`run.yaml` 已是一份可启动的配置。用 [`.env.schema`](.env.schema) 里 `ASTERLANE_ADMIN_TOKEN` 的缺省值登录。要改口令或端口，先 export 同名变量再启动。线上部署见 [线上部署](docs/admin/deployment.md)。
 
-**预编译二进制与镜像**
+**预编译二进制**
 
-每个发布 tag 会在 [GitHub Releases](https://github.com/komiyoo/asterlane/releases) 提供 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin` 的二进制，并推送多架构镜像 `ghcr.io/komiyoo/asterlane`。目前还没有打过发布 tag。
+每个发布 tag 会在 [GitHub Releases](https://github.com/komiyoo/asterlane/releases) 提供 `x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`aarch64-apple-darwin` 的二进制，并推送上面两个多架构镜像，标签都是去掉 `v` 的版本号。目前还没有打过发布 tag。
 
 ## 管理控制台
 

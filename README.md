@@ -24,7 +24,21 @@ Once an agent connects to more than a few MCP servers and HTTP APIs, authenticat
 
 ## Quick start
 
-Requires Rust 1.94 or newer and `jq`. This uses the example config in [`examples/gateway.yaml`](examples/gateway.yaml). The admin token is the default from [`.env.schema`](.env.schema). Replace `EXA_DEFAULT` with your own key. Without a valid Exa key the gateway still starts, but the real search call fails.
+Start from published images, or build from source. Defaults for the admin token, local ports, and image version are in [`.env.schema`](.env.schema).
+
+**Published images**
+
+Before the first tagged release, `ghcr.io/komiyoo/asterlane` and `ghcr.io/komiyoo/asterlane-web` have no pullable tag, so the command below fails today. After that release, from the repository root:
+
+```bash
+docker compose -f compose.release.yaml up -d
+```
+
+The gateway listens on `127.0.0.1:3721` and the console on `127.0.0.1:3722`. `run.yaml` is already a working config. Log in with the `ASTERLANE_ADMIN_TOKEN` default. Both images use `ASTERLANE_VERSION`, which defaults to `0.1.0`. To change the version, token, or ports, export the same names before starting. Point an agent at `http://127.0.0.1:3721/mcp`. Production setup is described in [Deployment](docs/admin/deployment.md).
+
+**Build from source**
+
+Requires Rust 1.94 or newer and `jq`. This uses the example config in [`examples/gateway.yaml`](examples/gateway.yaml). Replace `EXA_DEFAULT` with your own key. Without a valid Exa key the gateway still starts, but the real search call fails.
 
 Terminal 1, start the gateway on `127.0.0.1:3000` with an in-memory database:
 
@@ -52,7 +66,13 @@ cargo run -- tools call search__exa__neural_search --args '{"query":"rust mcp"}'
 
 Point your agent at `http://127.0.0.1:3000/mcp` as an MCP server, with the gateway token as its credential. More options are in [Running the Gateway](docs/admin/running.md).
 
+At the repository root, `docker compose up -d --build` builds the same gateway and console from source. The ports match the published images above.
+
 ## Installation
+
+**Published images**
+
+See [Quick start](#quick-start). [`compose.release.yaml`](compose.release.yaml) pulls `ghcr.io/komiyoo/asterlane` and `ghcr.io/komiyoo/asterlane-web` at the version in `ASTERLANE_VERSION` (default `0.1.0`). This path is not usable before the first tagged release.
 
 **From source**
 
@@ -63,7 +83,7 @@ cargo install --path . --locked
 asterlane --help
 ```
 
-**Docker Compose (gateway + admin console)**
+**Docker Compose from source (gateway + admin console)**
 
 At the repository root:
 
@@ -73,9 +93,9 @@ docker compose up -d --build
 
 The gateway listens on `127.0.0.1:3721` and the console on `127.0.0.1:3722`. `run.yaml` is already a working config. Log in with the `ASTERLANE_ADMIN_TOKEN` default from [`.env.schema`](.env.schema). To change the token or the ports, export the same names before starting. Production setup is described in [Deployment](docs/admin/deployment.md).
 
-**Prebuilt binaries and images**
+**Prebuilt binaries**
 
-Each tagged release will publish binaries for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, and `aarch64-apple-darwin` on [GitHub Releases](https://github.com/komiyoo/asterlane/releases), and a multi-arch image at `ghcr.io/komiyoo/asterlane`. No release has been tagged yet.
+Each tagged release publishes binaries for `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, and `aarch64-apple-darwin` on [GitHub Releases](https://github.com/komiyoo/asterlane/releases), plus the two multi-arch images above. Both images are tagged with the version number without the leading `v`. No release has been tagged yet.
 
 ## Admin console
 
