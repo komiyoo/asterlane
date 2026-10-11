@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { choose, E2E_ADMIN_TOKEN } from "./fixture.ts";
+import { startMcpStandIn } from "./mcp-stand-in.ts";
 
 const readPages = ["总览", "用量", "密钥池", "事件", "安全事件", "审计", "配置"] as const;
 
@@ -28,6 +29,38 @@ async function openPage(page: Page, name: string) {
     .click();
 }
 
+/** 把表格滚到最右后，展开内容仍落在 .tablewrap 的可视区内，页面本身不横滚。 */
+async function expectDetailFits(page: Page, detail: Locator) {
+  await expect(detail).toBeVisible();
+  const fit = await detail.evaluate((element) => {
+    const wrap = element.closest(".tablewrap");
+    if (wrap instanceof HTMLElement) {
+      wrap.scrollLeft = wrap.scrollWidth;
+    }
+    const box = element.getBoundingClientRect();
+    const wrapBox = wrap instanceof HTMLElement ? wrap.getBoundingClientRect() : null;
+    return {
+      position: getComputedStyle(element).position,
+      detailLeft: box.left,
+      detailRight: box.right,
+      detailWidth: box.width,
+      wrapLeft: wrapBox === null ? null : wrapBox.left,
+      wrapRight: wrapBox === null ? null : wrapBox.right,
+      wrapClient: wrap instanceof HTMLElement ? wrap.clientWidth : null,
+      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  expect(fit.position).toBe("sticky");
+  expect(fit.wrapLeft).not.toBeNull();
+  expect(fit.wrapRight).not.toBeNull();
+  expect(fit.wrapClient).not.toBeNull();
+  expect(fit.pageOverflow).toBeLessThanOrEqual(1);
+  expect(fit.detailLeft).toBeGreaterThanOrEqual((fit.wrapLeft ?? 0) - 1);
+  expect(fit.detailRight).toBeLessThanOrEqual((fit.wrapRight ?? 0) + 4);
+  expect(fit.detailWidth).toBeLessThanOrEqual((fit.wrapClient ?? 0) + 1);
+  expect(fit.detailWidth).toBeGreaterThan((fit.wrapClient ?? 0) * 0.7);
+}
+
 test("logged-out routes do not show console data", async ({ page }) => {
   for (const path of ["/", "/usage", "/events", "/config", "/resources"]) {
     await page.goto(path);
@@ -38,37 +71,86 @@ test("logged-out routes do not show console data", async ({ page }) => {
 });
 
 test("login, refresh, back, and read pages hit the gateway", async ({ page }) => {
+  test.setTimeout(180_000);
   await page.setViewportSize({ width: 390, height: 800 });
-  await login(page);
-  await expect(page.getByRole("navigation", { name: "控制台页面" })).toBeHidden();
-  await expect(page.getByText(/ok · v/)).toBeVisible();
-  await expect(page.getByText("请求总数")).toBeVisible();
+  const standIn = await startMcpStandIn();
+  const toolName = "lab__narrow__echo";
+  try {
+    const created = await page.request.post("/admin/mcp-servers", {
+      headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },
+      data: {
+        id: "e2e-narrow",
+        domain: "lab",
+        provider: "narrow",
+        url: standIn.url,
+        description: "e2e narrow layout",
+        auth: { type: "none" },
+      },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    await login(page);
+    await expect(page.getByRole("navigation", { name: "控制台页面" })).toBeHidden();
+    await expect(page.getByText(/ok · v/)).toBeVisible();
+    await expect(page.getByText("请求总数")).toBeVisible();
 
-  await page.reload();
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
 
-  await openPage(page, "用量");
-  await expect(page).toHaveURL(/\/usage$/);
-  await expect(page.getByRole("navigation", { name: "控制台页面" })).toBeHidden();
-  await page.goBack();
-  await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
+    await openPage(page, "用量");
+    await expect(page).toHaveURL(/\/usage$/);
+    await expect(page.getByRole("navigation", { name: "控制台页面" })).toBeHidden();
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("heading", { name: "总览" })).toBeVisible();
 
-  for (const name of readPages) {
-    await openPage(page, name);
-    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    for (const name of readPages) {
+      await openPage(page, name);
+      await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    }
+
+    // 宽表格只在自己的容器里横向滚动，页面本身不随之变宽。内置集成表不需要准备数据。
+    await openPage(page, "MCP 服务");
+    await expect(
+      page.getByRole("region", { name: "内置集成" }).getByRole("row", { name: /exa/ }),
+    ).toBeVisible();
+    const overflow = await page.locator("html").evaluate((element) => {
+      const root = element as { scrollWidth: number; clientWidth: number };
+      return root.scrollWidth - root.clientWidth;
+    });
+    expect(overflow).toBeLessThanOrEqual(0);
+
+    const serverRow = page.getByRole("row", { name: /e2e-narrow/ }).filter({
+      has: page.getByRole("button", { name: "详情", exact: true }),
+    });
+    await expect(serverRow).toContainText("正常");
+    await serverRow.getByRole("button", { name: "详情", exact: true }).click();
+    await expectDetailFits(page, page.locator(".detail").filter({ hasText: "健康：" }));
+
+    await openPage(page, "工具");
+    const toolRow = page.getByRole("row", { name: new RegExp(toolName) });
+    await toolRow.getByRole("button", { name: "调试", exact: true }).click();
+    const debug = page.getByRole("region", { name: `调试 ${toolName}` });
+    await expectDetailFits(page, debug);
+    await toolRow.getByRole("button", { name: "介绍", exact: true }).click();
+    await expectDetailFits(page, page.getByRole("region", { name: `介绍 ${toolName}` }));
+    await expect(debug.getByRole("button", { name: "调用" })).toBeEnabled();
+    await debug.getByLabel("调用参数").fill('{"message":"narrow"}');
+    await debug.getByRole("button", { name: "调用" }).click();
+    await expect(debug.getByText(/status \d+/)).toBeVisible();
+
+    await openPage(page, "事件");
+    await expect(page.getByRole("heading", { name: "事件", exact: true })).toBeVisible();
+    await page.getByLabel("名称").fill(toolName);
+    await page.getByRole("button", { name: "查询" }).click();
+    const eventRow = page.getByRole("row", { name: new RegExp(toolName) }).first();
+    await eventRow.getByRole("button", { name: "详情", exact: true }).click();
+    await expectDetailFits(page, page.locator(".detail").filter({ hasText: "请求参数" }));
+  } finally {
+    await page.request.delete(`/admin/mcp-servers/${encodeURIComponent("e2e-narrow")}`, {
+      headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },
+    });
+    await standIn.close();
   }
-
-  // 宽表格只在自己的容器里横向滚动，页面本身不随之变宽。内置集成表不需要准备数据。
-  await openPage(page, "MCP 服务");
-  await expect(
-    page.getByRole("region", { name: "内置集成" }).getByRole("row", { name: /exa/ }),
-  ).toBeVisible();
-  const overflow = await page.locator("html").evaluate((element) => {
-    const root = element as { scrollWidth: number; clientWidth: number };
-    return root.scrollWidth - root.clientWidth;
-  });
-  expect(overflow).toBeLessThanOrEqual(0);
 });
 
 test("filters, cursor note, limit scope, and YAML export", async ({ page }) => {

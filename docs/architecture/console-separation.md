@@ -180,10 +180,10 @@ flowchart LR
 
 - 外壳用 Kumo `Sidebar`。导航的分组、顺序和文字在 `web/src/app/routes.ts`，这个文件只放数据，因为 e2e 在 Node 里也读取它；页面组件和图标在 `web/src/app/shell.tsx` 按路径对应。窄屏（小于 768px）导航收进抽屉，点任一项后收起。
 - 页面按路由懒加载，各自打成独立的包；登录页和外壳先加载。
-- 表格、选择框、分页、徽标、复选框、链接和文本域用 Kumo 组件，沿用它们的键盘与 ARIA 行为。代理密钥表单的「允许的服务」「允许的工具」仍是原生多选：它们和过滤框配合，并保留被筛掉的已选项；改用 Kumo Combobox（支持多选）要重做这套交互。
-- Kumo 的 Select 不是原生 `<select>`，选项列表渲染在 `body` 下。e2e 用 `web/e2e/fixture.ts` 的 `choose()` 先点开，再按显示文字选。
+- 表格、选择框、分页、徽标、复选框、链接和文本域用 Kumo 组件，沿用它们的键盘与 ARIA 行为。代理密钥表单的「允许的服务」「允许的工具」用 Kumo Combobox 多选：工具仍按名称和服务过滤，被滤掉的已选项留在选择里。
+- Kumo 的 Select 和 Combobox 都不是原生 `<select>`，选项列表渲染在 `body` 下。e2e 用 `web/e2e/fixture.ts` 的 `choose()` 选一项，`chooseMultiple()` 选多项：先点开，再按显示文字选。
 - `web/src/styles.css` 只用 Kumo 的 CSS 变量（`--color-kumo-*`、`--text-color-kumo-*`、`--font-*`、`--radius-*`），深色模式随 `data-mode` 切换，不写固定颜色。不在 `@layer` 里的规则优先级高于 Kumo 组件样式，所以只给控制台自己的类名写规则，元素默认样式放进 `@layer base`。
-- 宽表格包在 `.tablewrap` 里横向滚动，页面本身不随之变宽；e2e 在 390px 宽度下检查这一点。
+- 宽表格包在 `.tablewrap` 里横向滚动，页面本身不随之变宽。展开行（`.detail`）宽度跟随这个容器的可视区，并贴在左侧（`position: sticky; left: 0`），读展开内容不用把整张表滚过来。e2e 在 390px 宽度下检查这两点。
 
 # 构建与部署
 
