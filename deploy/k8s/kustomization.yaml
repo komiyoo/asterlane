@@ -1,0 +1,21 @@
+# 用 kubectl apply -k deploy/k8s 安装。不要 kubectl apply -f 整个目录：
+# config.yaml 是网关配置，不是 Kubernetes 对象。
+# admin token 与 Ingress 只给示例，不在 resources 里。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: asterlane
+
+resources:
+  - namespace.yaml
+  - gateway-pvc.yaml
+  - gateway-deployment.yaml
+  - gateway-service.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+
+# 内容与仓库根 run.yaml 相同。键名 config.yaml 挂到 /etc/asterlane/config.yaml。
+configMapGenerator:
+  - name: asterlane-gateway-config
+    files:
+      - config.yaml

@@ -1,0 +1,31 @@
+# 示例，不在 kustomization.yaml 的 resources 里。
+# apply 前改主机名。集群有多个 IngressClass 时补 spec.ingressClassName。
+# 公网主机名要挡住 /metrics，与 docs/admin/deployment.md 的 Tunnel 规则相同。
+# 证书未写进本文件。需要 TLS 时再加 spec.tls，secretName 自备。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: asterlane
+  namespace: asterlane
+spec:
+  rules:
+    - host: mcp.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: asterlane-gateway
+                port:
+                  number: 3000
+    - host: console.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: asterlane-web
+                port:
+                  number: 8080

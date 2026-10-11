@@ -67,3 +67,21 @@ jobs:
         run: docker build --tag asterlane:ci .
       - name: Docker 镜像冒烟
         run: docker run --rm asterlane:ci --help
+
+  k8s:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # ubuntu runner 自带 kubectl，kustomize 内置在 kubectl 里。只渲染，不连集群。
+      - name: 渲染 K8s 清单
+        run: |
+          set -euo pipefail
+          cmp deploy/k8s/config.yaml run.yaml
+          kubectl kustomize deploy/k8s > "${RUNNER_TEMP}/asterlane-k8s.yaml"
+          grep -q 'image: ghcr.io/komiyoo/asterlane:0.1.0' "${RUNNER_TEMP}/asterlane-k8s.yaml"
+          grep -q 'image: ghcr.io/komiyoo/asterlane-web:0.1.0' "${RUNNER_TEMP}/asterlane-k8s.yaml"
+          grep -q 'replicas: 1' "${RUNNER_TEMP}/asterlane-k8s.yaml"
+          if grep -E 'image:[[:space:]]+[^[:space:]]+:latest([[:space:]]|$)' "${RUNNER_TEMP}/asterlane-k8s.yaml"; then
+            echo "::error::清单使用了 latest 标签"
+            exit 1
+          fi

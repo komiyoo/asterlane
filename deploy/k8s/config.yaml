@@ -1,0 +1,47 @@
+schema_version: 1
+
+admin:
+  keys:
+    - id: ops
+      token_ref: secret://env/ASTERLANE_ADMIN_TOKEN
+
+api_resources:
+  - id: httpbin
+    domain: test
+    provider: httpbin
+    base_url: https://httpbin.org
+    description: HTTPBin test endpoints
+    endpoints:
+      - tool: get_ip
+        method: GET
+        path: /ip
+        description: Returns origin IP.
+      - tool: get_headers
+        method: GET
+        path: /headers
+        description: Returns request headers.
+      - tool: post_anything
+        method: POST
+        path: /anything
+        description: Returns anything passed to it.
+  - id: httpbingo
+    domain: test
+    provider: httpbingo
+    base_url: https://httpbingo.org
+    description: HTTPBingo test endpoints (alias 演示:get_ip 与 httpbin 碰撞 → 两段名;get_uuid 唯一 → 裸名)
+    endpoints:
+      - tool: get_ip
+        method: GET
+        path: /ip
+        description: Returns origin IP (httpbingo).
+      - tool: get_uuid
+        method: GET
+        path: /uuid
+        description: Returns a new UUID.
+
+proxy_keys:
+  - id: demo
+    display_name: Demo agent
+    allowed_tools:
+      - ".*"
+    default_tool_page_size: 50

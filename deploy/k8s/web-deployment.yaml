@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: asterlane-web
+  labels:
+    app.kubernetes.io/name: asterlane
+    app.kubernetes.io/component: web
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  # 控制台无状态。默认 1 个副本，与 compose.yaml 一致；要扩容再改这个数。
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: asterlane
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: asterlane
+        app.kubernetes.io/component: web
+        app.kubernetes.io/version: "0.1.0"
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: web
+          # 镜像名暂定。占位发布版本，不用 latest。
+          image: ghcr.io/komiyoo/asterlane-web:0.1.0
+          imagePullPolicy: IfNotPresent
+          # web/Dockerfile 没有 USER。官方 Nginx 入口要写出渲染后的配置，监听 8080。
+          # 控制台 Nginx 对 /healthz 返回 404，探活打在 /，与该 Dockerfile 的 HEALTHCHECK 一致。
+          env:
+            - name: ASTERLANE_GATEWAY_UPSTREAM
+              value: asterlane-gateway:3000
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
