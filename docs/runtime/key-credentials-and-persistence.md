@@ -4,7 +4,7 @@ title: Proxy Key 凭据化与配置持久化闭环
 description: Proxy key 真实 token 签发/吊销/过期与 /mcp 端点认证、在线配置的启动回读与导出、per-key 日配额与用量面板、审计视图的需求与设计契约。
 resource: docs/runtime/key-credentials-and-persistence.md
 tags: [keys, auth, tokens, persistence, quota, audit, admin]
-timestamp: 2026-07-22T00:00:00+08:00
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 背景
@@ -27,8 +27,8 @@ MCP 治理交付（见 [MCP 治理与 Key 限额](mcp-governance-and-key-limits.
 
 # 非目标
 
-- 不做多租户/自助 key 门户；签发只经 admin API/控制台/CLI。
-- 不做 JWT/OAuth 形态的 gateway key：不透明随机 token + 服务端摘要即可，无跨服务验签需求。
+- 不做面向终端用户的自助 key 门户；签发只经 admin API、控制台或 CLI。多租户 2026-10-10 进入规划，见 [开源版与 SaaS 双形态](../architecture/open-source-and-saas.md)。
+- 不做 JWT/OAuth 形态的 gateway key：不透明随机 token + 服务端摘要即可，无跨服务验签需求。2026-10-10 规划的下游 OAuth access token 是另一种凭据，由身份服务签发、对应一个 gateway key；gateway key 本身仍是不透明 token，见 [下游 MCP OAuth](../architecture/open-source-and-saas.md#下游-mcp-oauth)。
 - 不做按月窗口配额与配额告警（webhook 通知另行立项）。
 - 不迁移历史无 token 配置：无 token 的 key 保留 id-only 兼容模式（见 K1 语义），由运维择期补 token。
 

@@ -19,6 +19,7 @@
 
 - [产品需求](product/product-requirements.md) — 要做什么，以及明确不做什么。
 - [路线图](product/roadmap.md) — 尚未完成的缺口和待决问题。
+- [开源版与 SaaS](architecture/open-source-and-saas.md) — 两种形态的边界、身份服务、多租户与下游 OAuth。
 - [架构](architecture/architecture.md) — 模块边界与数据流。
 - [兼容性政策](architecture/compatibility-policy.md) — 什么变更算破坏性变更。
 

@@ -62,6 +62,7 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
 | 序列化 | `serde` + `serde_json` + `serde_norway` | 手写 parser |
 | 数据库 | `sqlx` SQLite → Postgres | diesel, sea-orm |
 | 错误 | `thiserror`（库）+ `anyhow`（CLI 边界） | 手写 From impl 链 |
+| 登录、组织、OAuth 授权服务器 | Better Auth 独立身份服务（Bun + Hono） | 在 Rust 网关里自写登录、会话或授权服务器 |
 
 ## 工程纲领
 
@@ -72,7 +73,9 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
 - 不要把 Asterlane 变成模型供应商网关，除非产品需求明确改变
 - 代理应能请求收窄后的工具视图，而不是一次性接收所有工具
 - 上游凭据留在网关；代理只拿有范围限制的网关访问权
-- 网关密钥、管理员凭据、上游凭据和密钥引用相互独立
+- 网关密钥、管理员凭据（admin token 与身份服务签发的 JWT）、下游 OAuth token、上游凭据和密钥引用相互独立
+- 开源版与 SaaS 是同一份网关代码，开源版以单个默认租户运行；公开仓库不引用私有仓库的代码
+- 常驻 JS 进程只有身份服务，只管登录、组织和授权；业务 API、凭据和上游调用留在 Rust，网关进程只校验 token（见 `docs/architecture/open-source-and-saas.md`）
 - 模块边界不得塌缩成同一层
 - 本地 NyaProxy 克隆只作参考，按 Asterlane 的资源与 MCP 网关模型重新解释
 
@@ -89,10 +92,12 @@ Asterlane / 星径 是面向代理原生场景的第三方资源、HTTP API、MC
 
 # 验证
 
-研发验证一律在本机、当前仓库根执行：
+验证在本机、当前仓库根执行，按改动范围选择最小有效检查；详细命令见 `docs/engineering/development-workflow.md` 的「验证」。
 
-```bash
-just check
-```
+- 纯文档改动只跑 `just docs check`，不触发 Rust 或前端构建。
+- 开发中先完成一组相关修改，再检查受影响目标；不要每次编辑都跑全量编译、测试或 `just check`。
+- 代码改动完成后跑一次 `just check`；同一代码状态、工具链和配置下已通过的检查不重复跑。后续改动、失败或新增风险只重跑受影响检查，必要时扩大全量验证。
+- 复用当前 checkout 的 `target/` 和构建配置；不要为验证在临时目录复制项目、另设 `CARGO_TARGET_DIR` 或频繁切换 profile、features、`RUSTFLAGS`。隔离实验确有必要时，结束后清理自己生成的临时构建产物。
+- 同一 checkout 的 Cargo 检查串行执行；已有构建在运行时等待并复用结果，不再启动重复构建。不要把 `cargo clean` 当作常规验证步骤。
 
-含工具链 doctor、`cargo fmt -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 与 OKF 检查，对齐 CI 前四项。Worktree 先 `just worktree init`，做完合回 `main` 后在主仓 `just worktree prune`；步骤见 `docs/engineering/worktree-workflow.md`。无法完成时写明未运行或失败的精确命令与原因。
+Worktree 先 `just worktree init`，合回 `main` 后在主仓 `just worktree prune`；步骤见 `docs/engineering/worktree-workflow.md`。无法完成验证时写明未运行或失败的精确命令与原因。

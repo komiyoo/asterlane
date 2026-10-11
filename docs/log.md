@@ -1,5 +1,26 @@
 # Documentation Update Log
 
+## 2026-10-10（Phase 11–14 执行计划；双形态决定同步到其余文档）
+
+- **计划**：新增四份执行计划，Roadmap 各阶段链接到对应计划：[开源就绪与首次发布](plans/2026/10-10/w0-00-开源就绪与首次发布.md)、[身份服务与管理员登录](plans/2026/10-10/w0-01-身份服务与管理员登录.md)、[多租户数据面](plans/2026/10-10/w1-02-多租户数据面.md)（依赖前者的并发写入修复）、[下游 MCP OAuth](plans/2026/10-10/w1-03-下游-mcp-oauth.md)（依赖身份服务）。Phase 15 的计划在私有仓库，不放这里。计划文件与两层索引按 `plans/README.md` 的布局手写，没有经过 `plan-docs` 脚本，脚本重新生成时以脚本输出为准。
+- **同步**：[Architecture](architecture/architecture.md) 决策表加「产品形态」一行，凭据与管理面两节注明 SaaS 规划；顺带改正限流一节里已于 2026-10-09 删除的维度仍写作「尚未接线」。[MCP Governance](runtime/mcp-governance-and-key-limits.md#非目标) 的非目标区分了仍不做的项与已排期的项。`AGENTS.md` 的护栏加上身份服务是唯一常驻 JS 进程、网关只校验 token、开源版与 SaaS 同一份代码。Roadmap 竞品吸收表的「明确不吸收」一格就地改写，删去表后的补注。
+- **更正**：独立控制台没有上游 OAuth 的「授权 / 撤销授权」按钮。Roadmap 支柱一与 Phase 8、[Configuration Schema](runtime/config-schema.md) 原来写成控制台已有，改为排在 Phase 11；[MCP Protocol](architecture/mcp-protocol.md#授权码流程管理员一次性授权) 授权码流程一节改为「网关在这个流程里只是 OAuth 客户端」。
+- **验证**：`just docs check`。
+
+## 2026-10-10（控制台界面整理；开源与 SaaS 双形态规划）
+
+- **控制台**：导航改为 Kumo `Sidebar`，分五组并带图标，窄屏（小于 768px）收进抽屉；表格、选择框、分页、徽标、复选框、链接和文本域改用 Kumo 组件；页面按路由懒加载；`web/src/styles.css` 改为只用 Kumo 的 CSS 变量，深色模式随之生效。修了两处窄屏问题：宽表格把整页撑出横向滚动（`.page` 的 grid 列改为 `minmax(0, 1fr)`，console e2e 在 390px 宽度检查），以及点当前页的导航项时抽屉不收起。MCP 服务的 `auth_required` 状态显示「需要授权」；健康状态文案改为 `satisfies Record<OutputHealthStatus, string>` 的映射表，漏写状态时类型检查报错。约定见 [控制台与网关分离架构 · 外壳与样式](architecture/console-separation.md#外壳与样式)；根 README 的控制台截图已换成新界面。
+- **e2e**：Kumo Select 不是原生 `<select>`，`web/e2e/fixture.ts` 新增 `choose()`；修正两处与页面文字不一致的旧选择器（MCP 页标题、工具页过滤框标签）。
+- **方向**：维护者确定开源自托管与托管 SaaS 两种形态：共享多租户网关、Better Auth 独立身份服务、下游 MCP OAuth（SaaS 必做、开源版可选）、网关核心 MIT 与私有控制面。新增 [开源版与 SaaS 双形态](architecture/open-source-and-saas.md)；[Roadmap](product/roadmap.md) 新增 Phase 11–15 并更新产品决策；[Admin Console](admin/admin-console.md#非目标)、[MCP Protocol](architecture/mcp-protocol.md#明确不做)、[Proxy Key 凭据化](runtime/key-credentials-and-persistence.md) 与两份根 README 的相关非目标同步修订。把租户数据模型和基础身份服务放进 MIT 是对开源边界的解释，待维护者确认。
+- **发现**：写配置的管理接口是「读配置快照 → 复制 → 修改 → 整体替换」，没有串行化；并发写入时后完成的覆盖先完成的，运行中的配置丢掉前一次写入，数据库里却保留那一行。已记入 Roadmap 横切表，修复排在 Phase 11。
+- **验证**：`just check`；Playwright e2e 对本地启动的网关运行（deployment 与 preview 两个 spec 检查 Nginx 镜像，本次未运行）；`just docs check`。
+
+## 2026-10-10（减少重复编译与临时构建占用）
+
+- **结论**：根 `AGENTS.md` 明确按改动范围验证、批量修改后检查、复用已通过结果及当前 checkout 的构建目录；纯文档改动只跑文档检查，代码改动收尾仍执行一次完整检查。避免并发重复 Cargo 命令及为验证复制项目到临时目录，隔离实验结束后清理自产构建产物。
+- **影响面**：[Development Workflow · 验证](engineering/development-workflow.md#验证) 与工程分类索引同步；不改变代码、构建配置或 CI 门禁。
+- **验证**：`just docs check` 与 `git diff --check` 通过；本次只改指导文档，未触发编译。
+
 ## 2026-10-10（部署缺省值与 .env.schema）
 
 - **结论**：Compose 启动改为仓库根一条 `docker compose up -d --build`。`run.yaml` 已可启动；管理口令、本机端口和镜像提交号的缺省写在 `.env.schema`，`compose.yaml` 使用同一组 `${VAR:-缺省}`。`.env.example` 删除。二进制仍不加载 `.env` 或 schema。本机从源码启动时，管理口令用这份缺省值。

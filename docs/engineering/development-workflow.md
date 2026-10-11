@@ -56,7 +56,11 @@ Web 控制台的具体规划（形态决策、页面地图、API 缺口、分阶
 
 # 验证
 
-完成前在当前仓库根执行 `just check`。Worktree 的初始化、合回与清理见 [Worktree Workflow](worktree-workflow.md)。
+按改动范围选择最小有效检查，相关修改形成一个完整批次后再验证，避免每次编辑都触发编译。纯文档改动只运行 `just docs check`。Rust 开发中按需用 `cargo check` 做类型检查，或用 `cargo test --lib <filter>` / `cargo test --test <target> <filter>` 检查受影响测试；只选能覆盖本次风险的命令，不依次机械执行所有命令。前端开发中只运行受影响的静态检查或测试，无需反复构建 Rust。
+
+代码改动完成前在当前仓库根执行一次 `just check`。同一代码状态、工具链和配置下，已通过的检查可以复用，不为了汇报再次执行；后续改动、失败或新增风险先重跑受影响检查，必要时扩大验证范围。没有实际执行的检查必须如实说明。Worktree 的初始化、合回与清理见 [Worktree Workflow](worktree-workflow.md)。
+
+构建复用当前 checkout 的 `target/`，保持 profile、features 和 `RUSTFLAGS` 稳定。同一 checkout 的 Cargo 命令串行运行，已有构建时先等待结果，避免重复进程争抢锁。不要为了单次验证复制项目到临时目录或另设 `CARGO_TARGET_DIR`；隔离实验确有必要时，结束后清理自己生成的临时构建产物，保留源码和实验记录。不同 worktree 不强制共享构建目录，沿用仓库 Worktree 工作流。`cargo clean` 仅用于明确的空间清理或排查缓存问题，不作为例行检查前置步骤。
 
 ```bash
 just check

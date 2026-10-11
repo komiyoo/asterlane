@@ -11,7 +11,14 @@ Layout: `YYYY/MM-DD/<lane>-<slug>.md`, with a derived `w<wave>-` prefix once the
 *Year folders appear below as they are created.*
 
 <!-- plan-index:begin -->
-_还没有计划。_
+_本区块的格式与 `plan-docs` 的 `scripts/plan-index.py` 一致，依赖来自各计划 frontmatter 的 `depends_on`；用脚本重新生成时以脚本输出为准。Wave 按天计算，每天从 Wave 0 起；同一 Wave 内的计划之间没有依赖路径，可以并行；Wave N 依赖 Wave N-1。「当天序号」是计划建当天的建档顺序，跨 Wave 不重置，归档后也保留。_
+
+| Wave | 当天序号 | 计划 | 优先级 | 依赖 |
+|---|---|---|---|---|
+| 0 | 00 | [开源就绪与首次发布](./2026/10-10/w0-00-开源就绪与首次发布.md) | — | — |
+| 0 | 01 | [身份服务与管理员登录](./2026/10-10/w0-01-身份服务与管理员登录.md) | — | — |
+| 1 | 02 | [多租户数据面](./2026/10-10/w1-02-多租户数据面.md) | — | [开源就绪与首次发布](./2026/10-10/w0-00-开源就绪与首次发布.md) |
+| 1 | 03 | [下游 MCP OAuth](./2026/10-10/w1-03-下游-mcp-oauth.md) | — | [身份服务与管理员登录](./2026/10-10/w0-01-身份服务与管理员登录.md) |
 <!-- plan-index:end -->
 
 # Archive

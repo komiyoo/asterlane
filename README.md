@@ -233,7 +233,7 @@ Configuration, permissions, and deployment are in the [docs](docs/README.md). Th
 
 - **Not a model gateway.** Asterlane does not proxy, route, or bill LLM inference.
 - **No local stdio MCP servers.** Upstream MCP servers are remote, over Streamable HTTP. The gateway does not spawn local processes.
-- **Not an identity provider.** Agents authenticate with gateway keys; the gateway is not an OAuth authorization server and does not log in end users through SSO.
+- **The gateway itself is not an identity provider.** Agents authenticate with gateway keys; the gateway process is not an OAuth authorization server and does not log in end users. Admin accounts, SSO, and downstream MCP OAuth are planned for a separate identity service; see the [roadmap](docs/product/roadmap.md).
 
 ## Roadmap
 

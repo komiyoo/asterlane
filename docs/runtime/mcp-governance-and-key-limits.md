@@ -4,7 +4,7 @@ title: MCP 治理与 Key 限额
 description: MCP 供应商可观测/可管理（详情页、测活、工具介绍、上游限额）与 key 分发的结构化范围选择、rps/rpm/调用次数限额的需求梳理与设计契约。
 resource: docs/runtime/mcp-governance-and-key-limits.md
 tags: [mcp, admin, console, limits, keys, health, governance]
-timestamp: 2026-10-09T00:00:00+08:00
+timestamp: 2026-10-10T00:00:00+08:00
 ---
 
 # 背景
@@ -35,8 +35,8 @@ timestamp: 2026-10-09T00:00:00+08:00
 
 - 不做 `api_resources`（HTTP API 上游）的测活：HTTP 上游无统一探活协议，等出现真实需求再定义 per-resource probe。
 - 不做 per-key 按月窗口配额；按日配额 `max_calls_per_day` 已交付，`max_calls` 仍为累计配额。
-- 不做分布式限流与多实例健康共识：限流计数与健康状态为单实例内存态（`max_calls` 借 store 事件计数跨重启恢复）。
-- 不做多管理员 RBAC、SSE 实时推送（沿用 admin-console 远期清单）。
+- 不做多实例健康共识：健康状态是单实例内存态。限流计数现在也是单实例内存态（`max_calls` 借 store 事件计数跨重启恢复）；跨副本共享 2026-10-10 排入 [Roadmap](../product/roadmap.md#phase-13多租户数据面) Phase 13。
+- 不做 SSE 实时推送（沿用 admin-console 远期清单）。多管理员 RBAC 2026-10-10 排入 [Roadmap](../product/roadmap.md#phase-12身份服务) Phase 12，由身份服务提供。
 - 不改变「上游凭据只以 secret ref 出现」的红线：CRUD 输入与响应永不含明文密钥。
 
 # 设计契约

@@ -4,7 +4,7 @@ title: Asterlane Architecture
 description: Defines the gateway scope, core modules, MCP wrapping model, naming, data flow, and staged roadmap.
 resource: docs/architecture/architecture.md
 tags: [architecture, mcp, gateway, credentials]
-timestamp: 2026-08-20T00:00:00Z
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # Context
@@ -30,6 +30,7 @@ The original product requirements are preserved in [Product Requirements](../pro
 | --- | --- | --- | --- |
 | MCP 工具名格式 | `domain:provider:tool:method`（冒号四段） | `domain__provider__tool`（双下划线三段） | 冒号不兼容 MCP/LLM API 字符集；`method` 段信息量为零（HTTP method 为路由细节，MCP 固定 `call`）。详见 [Naming Convention](naming-convention.md)。 |
 | 控制台交付形态（2026-09-26） | 早期 vanilla UI 编译进 Rust 二进制 | 同仓库独立前端，独立构建。现有页面经 Nginx 同源访问管理 API；同源不是产品约束 | 11 个页面需要组件与类型支持；Rust 构建保持独立。页面与独立部署已在 2026-09-27 落地。线上放置见 [线上部署](../admin/deployment.md)。 |
+| 产品形态（2026-10-10） | 未涉及部署形态；控制面只要求区分 admin key 与 proxy key | 开源自托管版加托管 SaaS，同一份网关代码。SaaS 是共享多租户网关；管理员登录、组织与下游 MCP OAuth 由独立身份服务（Better Auth）承担，网关进程只校验它签发的 token，授权主体仍是 gateway key | 维护者 2026-10-10 决定。边界、前置条件与修订的非目标见 [开源版与 SaaS 双形态](open-source-and-saas.md)，阶段见 [Roadmap](../product/roadmap.md#2026-10-10-方向调整开源与-saas-双形态)。 |
 
 # Module Map
 
@@ -96,7 +97,7 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 借鉴 NyaProxy（`services/limit.py`、`core/queue.py`）：
 
-- **限流维度**（类型化 `LimiterKey` 枚举替代字符串拼接）：生产在用 `Endpoint(ApiId)`（上游）与 `Principal(PrincipalId)`（gateway key）；`UpstreamKey`、`Ip`、`GatewayPrincipal` 与 `RateLimits` 尚未接线（截至 2026-10-01），来历、成本与接线或保留的推荐见 [Rate Limit Dimensions](rate-limit-dimensions.md)。
+- **限流维度**（类型化 `LimiterKey` 枚举替代字符串拼接）：只有 `Endpoint(ApiId)`（上游）与 `Principal(PrincipalId)`（gateway key）。从未接线的 `UpstreamKey`、`Ip`、`GatewayPrincipal` 与 `RateLimits` 已于 2026-10-09 删除，原因见 [Rate Limit Dimensions](rate-limit-dimensions.md)。
 - **算法**：`governor` GCRA（O(1) 内存）。整数配额可退还；GCRA 令牌不能退还。`Retry-After` 从 check 失败时的 `wait_time_from` 传递，不做非消费 peek（governor 不支持）。
 - **队列**：每个配置了 `max_concurrent` 的上游一个 tokio `Semaphore` 控制并发，`tokio::time::timeout` 包裹排队；排队超时返回 503 `limit.queue_timeout`。`Priority::{MasterKey, Retry}` 已实现但生产路径固定传 `Normal`，不存在优先级队列。
 
@@ -113,12 +114,13 @@ Remote MCP servers are configured under top-level `mcp_servers`, not as `api_res
 
 - 配置只存 secret ref（`secret://provider/name`），不存明文。
 - env 与本地文件始终可用；Vault KV v2 与 Infisical 通过顶层 `secrets` 节装配（`token_ref` 必须是 env/file 引导凭据）。远程 backend 对成功解析做进程内 TTL 缓存，并对超时 / 连接失败 / HTTP 5xx 做少次瞬时重试。云 KMS 仍为后续方向。
+- SaaS 形态（2026-10-10 规划，Roadmap Phase 13）：租户不能用 env 与本地文件引用，它们读的是网关进程自己的环境；租户的上游凭据按租户信封加密后存数据库，主密钥放 KMS。见 [开源版与 SaaS 双形态 · 上游凭据](open-source-and-saas.md#上游凭据)。
 - 明文只在写入上游 Authorization header 的瞬间 `expose_secret`，其余时刻为 `SecretString`。
 - 限流器、日志、指标中 key 以 `KeyId`（哈希/序号）索引，不以明文做键——纠正 NyaProxy 的反模式（`{api}_key_{sk-xxx}`）。
 
 # Admin Console
 
-管理面使用 admin key，与代理使用的 proxy key 分开。NyaProxy 把这两类密钥混用，这里不沿用。页面、管理 API 和部署见 [Admin Console](../admin/admin-console.md)。本地开发时的控制台形态见 [开发工作流 · 控制台](../engineering/development-workflow.md#控制台)。
+管理面使用 admin key，与代理使用的 proxy key 分开。NyaProxy 把这两类密钥混用，这里不沿用。2026-10-10 规划由独立身份服务提供账号登录：admin API 另外接受它签发的 JWT，用 JWKS 验签，admin key 仍可用（Roadmap Phase 12）。页面、管理 API 和部署见 [Admin Console](../admin/admin-console.md)。本地开发时的控制台形态见 [开发工作流 · 控制台](../engineering/development-workflow.md#控制台)。
 
 # Roadmap
 

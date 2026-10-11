@@ -4,7 +4,7 @@ title: Admin Console
 description: Web 管理控制台的形态决策、页面地图、admin API 缺口清单与分阶段路线。
 resource: docs/admin/admin-console.md
 tags: [admin, console, ui, observability, design]
-timestamp: 2026-08-19T00:00:00Z
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 定位
@@ -17,10 +17,10 @@ timestamp: 2026-08-19T00:00:00Z
 
 # 非目标
 
-- 不做多租户 SaaS 控制台、不做面向最终用户的门户。
+- 本页描述的控制台面向单个部署的管理员。SaaS 的多组织控制台、注册与计费页面按 [开源版与 SaaS 双形态](../architecture/open-source-and-saas.md)（2026-10-10）规划；不做面向最终用户的门户。
 - 不做模型网关 dashboard（产品护栏：Asterlane 不是 LLM provider gateway）。
-- v1 不做实时推送（SSE/WebSocket live tail）、不做多管理员 RBAC、不做 SSO。
-- 不引入常驻 JS 应用服务器：控制台部署静态产物，后端继续由 Rust 提供 API；部署边界见 [生产入口](../architecture/console-separation.md#生产入口)。
+- 不做实时推送（SSE/WebSocket live tail）。多管理员角色与 SSO 不在网关里实现：2026-10-10 起由独立身份服务提供，见 [Roadmap](../product/roadmap.md#phase-12身份服务) Phase 12。
+- 控制台仍部署静态产物，业务 API 由 Rust 提供；部署边界见 [生产入口](../architecture/console-separation.md#生产入口)。2026-10-10 起唯一的常驻 JS 进程是身份服务（Better Auth），只负责登录、组织与 OAuth 授权，不承载业务 API，也不接触上游凭据。
 
 # 形态决策
 
@@ -98,7 +98,7 @@ admin:
   - server 视图（列表与详情）的 `oauth` 段：`grant`；`status` 为 `authorized`（网关持有可用凭据）、`authorization_required`（没有凭据、凭据无法解密或刷新被拒）或 `automatic`（client_credentials，网关自动换取，无需授权，连接是否成功看 `health`）；`expires_at`（RFC3339，access token 到期时间，取不到则省略；到期前网关自动刷新，到期不代表要重新授权）；另有 `client_id`、`client_secret_ref`（只是 `secret://` 引用）与 `scopes`，供编辑表单回显。不含 client secret、access token、refresh token 与 code。
   - 控制台：2026-10-01 的内嵌页面曾在授权码类 server 行上提供「授权」和「撤销授权」，编辑表单可改 `grant`、`client_id`、`client_secret_ref`、`scopes`。2026-09-27 起页面改由 `web/` 提供，这次合并没有把这些按钮迁进独立控制台。授权和撤销目前走上面的 HTTP 端点或 CLI。省略 `auth` 的更新仍保留已有认证配置与已存凭据；改 `client_id` 或 `client_secret_ref` 不会作废已存凭据，要换客户端须先撤销再重新授权。
   - CLI：`asterlane admin mcp-servers authorize <id>`、`deauthorize <id>`，见 [CLI 客户端架构](cli-client-architecture.md)。授权与撤销都落 `AdminAudit`（`action` 为 `authorize`、`deauthorize`）。
-- **远期（不排期）**：多管理员 RBAC、SSE live tail、SSO。
+- **远期**：SSE live tail（不排期）。多管理员 RBAC 与 SSO 已排入 [Roadmap](../product/roadmap.md#phase-12身份服务) Phase 12（2026-10-10）。
 
 每阶段独立可交付：C0/C1 合起来就是可用的最小控制台，C2/C3 按需求节奏推进。
 

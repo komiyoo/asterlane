@@ -4,7 +4,7 @@ title: MCP 协议版本与网关适配
 description: 将 Asterlane 对齐 MCP 2026-07-28，同时双栈兼容 2025-11-25 客户端与上游。
 resource: docs/architecture/mcp-protocol.md
 tags: [mcp, protocol, rmcp, compatibility]
-timestamp: 2026-10-09T00:00:00Z
+timestamp: 2026-10-10T00:00:00Z
 ---
 
 # 背景
@@ -61,7 +61,7 @@ Streamable HTTP POST 必须带 `MCP-Protocol-Version`、`Mcp-Method`，命名请
 
 ## 上游认证
 
-上游 MCP server 的认证除了无认证、`bearer`、`header`（secret ref 注入静态凭据）之外，还支持 OAuth（`auth.type: oauth`，配置见 [Configuration Schema](../runtime/config-schema.md#oauth-认证)）。网关是 OAuth **客户端**：token 永不离开网关，下游只用 gateway key，Asterlane 不做授权服务器。整个网关共用一个上游身份，不做按用户委托。协议本身由 rmcp 的 `auth` 实现，不手写；rmcp 类型止步于 `src/mcp/oauth/`。
+上游 MCP server 的认证除了无认证、`bearer`、`header`（secret ref 注入静态凭据）之外，还支持 OAuth（`auth.type: oauth`，配置见 [Configuration Schema](../runtime/config-schema.md#oauth-认证)）。网关是 OAuth **客户端**：token 永不离开网关，下游目前只用 gateway key，网关进程不做授权服务器（2026-10-10 规划的下游 OAuth 由独立身份服务签发 token，每个 token 对应一个 gateway key，见 [开源版与 SaaS 双形态](open-source-and-saas.md#下游-mcp-oauth)）。整个网关共用一个上游身份，不做按用户委托。协议本身由 rmcp 的 `auth` 实现，不手写；rmcp 类型止步于 `src/mcp/oauth/`。
 
 - **元数据发现**：RFC 9728 受保护资源元数据 → RFC 8414 授权服务器元数据，由 rmcp 完成；上游没有发布 OAuth 元数据时不猜测端点，连接失败。授权服务器的 token 端点必须是 https（本机 loopback 联调除外）。
 - **RFC 8707 `resource`**：token 请求带 `resource`，取受保护资源元数据里的 `resource`（rmcp 3.1 不公开它读到的值，网关按同一顺序再读一次同源文档里的这个字段：401 的 `resource_metadata` 指针、路径插入式 well-known、根 well-known），发现不到就用 server URL。
@@ -72,7 +72,7 @@ Streamable HTTP POST 必须带 `MCP-Protocol-Version`、`Mcp-Method`，命名请
 
 ## 授权码流程（管理员一次性授权）
 
-授权码类上游由管理员授权一次，之后网关自己保存并刷新 token。整个网关共用这一个上游身份，不做按用户委托；Asterlane 不做授权服务器，不接人类 IdP。流程用 rmcp 的 `AuthorizationManager` / `AuthorizationSession`，实现在 `src/mcp/oauth/authorize.rs`（发起与完成）与 `pending.rs`（待完成授权）：
+授权码类上游由管理员授权一次，之后网关自己保存并刷新 token。整个网关共用这一个上游身份，不做按用户委托；这个流程里网关只是 OAuth 客户端，不做授权服务器。流程用 rmcp 的 `AuthorizationManager` / `AuthorizationSession`，实现在 `src/mcp/oauth/authorize.rs`（发起与完成）与 `pending.rs`（待完成授权）：
 
 ```text
 管理员                  网关                                  授权服务器
@@ -115,7 +115,8 @@ resource 与 resource template 对下游的 URI 一律是 `asterlane://{server_i
 
 - Roots / Sampling / Logging：规范已弃用，新实现不跟。
 - HTTP+SSE 旧传输：不恢复。
-- 把 Asterlane 做成 OAuth 授权服务器或 CIMD 发行方；按用户委托的上游 OAuth（整个网关共用一个上游身份）。
+- 在网关进程里实现 OAuth 授权服务器或 CIMD 发行方。2026-10-10 起下游 OAuth 由独立的身份服务承担，网关的 `/mcp` 只做受保护资源，见 [开源版与 SaaS 双形态](open-source-and-saas.md#下游-mcp-oauth)。
+- 按用户委托的上游 OAuth：整个网关共用一个上游身份（SaaS 下每个租户一个）。
 - MCP Apps。
 
 # 兼容

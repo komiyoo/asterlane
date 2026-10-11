@@ -231,7 +231,7 @@ asl__fetch { cursor: "…", offset: <已经交给模型的字节数> }
 
 - **不是模型网关。** 不转发、不路由、不计费 LLM 推理请求。
 - **不接本地 stdio MCP server。** 上游 MCP server 都是远程的，走 Streamable HTTP；网关不启动本地进程。
-- **不做身份提供方。** 代理用 gateway key 认证；网关不是 OAuth 授权服务器，也不通过 SSO 登录终端用户。
+- **网关本身不做身份提供方。** 代理用 gateway key 认证，网关进程不是 OAuth 授权服务器，也不登录终端用户。管理员账号、SSO 和下游 MCP OAuth 计划由独立的身份服务提供，见 [路线图](docs/product/roadmap.md)。
 
 ## 路线图
 
