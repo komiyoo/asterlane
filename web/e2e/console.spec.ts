@@ -130,6 +130,8 @@ test("login, refresh, back, and read pages hit the gateway", async ({ page }) =>
     await expectDetailFits(page.locator(".detail").filter({ hasText: "健康：" }));
 
     await openPage(page, "工具");
+    // 等工具页出来再找行：MCP 详情里也列着这个工具和「调试」按钮。
+    await expect(page.getByRole("heading", { name: "工具", exact: true })).toBeVisible();
     const toolRow = page.getByRole("row", { name: new RegExp(toolName) });
     await toolRow.getByRole("button", { name: "调试", exact: true }).click();
     const debug = page.getByRole("region", { name: `调试 ${toolName}` });

@@ -1,11 +1,12 @@
 # Documentation Update Log
 
-## 2026-10-11（Phase 11：并发写入修复、K8s 清单、控制台发布镜像）
+## 2026-10-11（Phase 11：并发写入修复、控制台 OAuth 授权与收尾、K8s 清单、控制台发布镜像）
 
 - **并发写入**：管理写入在本进程内串行化，修复 2026-10-10 发现的互相覆盖。回归测试在修复前稳定失败、修复后稳定通过。现状见 [开源版与 SaaS 双形态 · 前置条件](architecture/open-source-and-saas.md#前置条件)，多副本仍待 Phase 13。
 - **部署**：新增 `deploy/k8s/` kustomize 清单，网关固定单副本并说明原因，见 [线上部署](admin/deployment.md)；本机没有集群，清单只做了语法与渲染层面的检查，kind 上的安装验收未做。发布流水线增加控制台镜像，新增 `compose.release.yaml`，[发布流程](engineering/release-process.md)、[运行网关](admin/running.md) 与两份根 README 的快速上手同步；首个版本发布前这条路还不可用。
+- **控制台**：补回上游 OAuth 的「授权 / 撤销授权」和 OAuth 字段编辑，[Admin Console](admin/admin-console.md#分阶段路线) C7 与 [Configuration Schema](runtime/config-schema.md) 改为现状。授权响应原先没有 DTO，补了 `McpOAuthAuthorizeResponse` 并重新生成 `schemas/admin.json` 与前端类型，前端不再手写这个形状。代理密钥的服务与工具多选改用 Kumo Combobox，删除不再使用的 `mergeVisibleSelection` 和早已没有引用的 `pending-page.tsx`；表格展开行在窄屏上跟随可视区，见 [外壳与样式](architecture/console-separation.md#外壳与样式)。
 - **过程**：这几个切片由多个代理在各自的 worktree 里并行编写，不在 worktree 里构建，合入前在主仓串行验证。进度记在 [开源就绪与首次发布](plans/2026/10-10/w0-00-开源就绪与首次发布.md)。
-- **验证**：`just check`；`just docs check`。
+- **验证**：`just check`；`just docs check`；Playwright e2e 对本地启动的网关运行（deployment 与 preview 两个 spec 检查 Nginx 镜像，本次未运行）。
 
 ## 2026-10-10（Phase 11–14 执行计划；双形态决定同步到其余文档）
 

@@ -58,7 +58,7 @@ timestamp: 2026-10-10T00:00:00Z
 
 | 缺口 | 性质 | 证据 |
 | --- | --- | --- |
-| **已交付（2026-10-01）：上游 MCP OAuth（client-credentials、授权码、动态客户端注册、加密凭据存储、管理员一次性授权）** | 定位缺口（最重，已清） | `UpstreamAuth::OAuth`（`grant: client_credentials \| authorization_code`）+ 顶层 `oauth` 节；`mcp::oauth` 基于 rmcp `auth`：RFC 9728 / 8414 元数据发现、RFC 8707 `resource`、client-credentials 在请求路径上自动重新换取；授权码凭据 ChaCha20-Poly1305 加密存入 SQLite（`upstream_oauth_credentials`，无数据库时只在内存），没有凭据、解密失败或刷新被拒时 server 显示 `auth_required`。管理员一次性授权：`POST /admin/mcp-servers/{id}/oauth/authorize`（元数据发现、未配 `client_id` 时动态注册、PKCE 与 state，state 只在内存、10 分钟、一次性）→ 浏览器回调 `GET /oauth/callback`（顶层路由，只靠 state）换 token、加密保存并重连 → `DELETE …/oauth` 撤销；admin 视图 `oauth: {grant, status, expires_at}`，CLI `admin mcp-servers authorize / deauthorize`；独立控制台还没有「授权 / 撤销授权」与 OAuth 字段编辑（排在 Phase 11）；rmcp 在 debug 级会打印授权 code，`serve` 的 tracing 加了固定的 `info` 级上限。已用进程内模拟授权服务器端到端验证；**尚未对真实 OAuth 类上游验证**（见 Phase 8 准出） |
+| **已交付（2026-10-01）：上游 MCP OAuth（client-credentials、授权码、动态客户端注册、加密凭据存储、管理员一次性授权）** | 定位缺口（最重，已清） | `UpstreamAuth::OAuth`（`grant: client_credentials \| authorization_code`）+ 顶层 `oauth` 节；`mcp::oauth` 基于 rmcp `auth`：RFC 9728 / 8414 元数据发现、RFC 8707 `resource`、client-credentials 在请求路径上自动重新换取；授权码凭据 ChaCha20-Poly1305 加密存入 SQLite（`upstream_oauth_credentials`，无数据库时只在内存），没有凭据、解密失败或刷新被拒时 server 显示 `auth_required`。管理员一次性授权：`POST /admin/mcp-servers/{id}/oauth/authorize`（元数据发现、未配 `client_id` 时动态注册、PKCE 与 state，state 只在内存、10 分钟、一次性）→ 浏览器回调 `GET /oauth/callback`（顶层路由，只靠 state）换 token、加密保存并重连 → `DELETE …/oauth` 撤销；admin 视图 `oauth: {grant, status, expires_at}`，CLI `admin mcp-servers authorize / deauthorize`；控制台「授权 / 撤销授权」与 OAuth 字段编辑（迁到 `web/` 时遗漏，2026-10-11 补回）；rmcp 在 debug 级会打印授权 code，`serve` 的 tracing 加了固定的 `info` 级上限。已用进程内模拟授权服务器端到端验证；**尚未对真实 OAuth 类上游验证**（见 Phase 8 准出） |
 | **已交付：Vault / Infisical 装配**（2026-08-19） | 兑现差（已清） | `GatewayConfig.secrets` + `secret_store_from_config`：serve 在 MCP connect 前装配；`token_ref` 仅 env/file；缺省探测 `/v1/sys/health` 与 `/api/status` |
 | **已交付：secret 缓存 / TTL / 重试**（2026-08-20） | 生产就绪（已清） | `secrets.cache_ttl_secs` 缺省 60（`0` 关闭），只缓存 vault/infisical；`remote_retries` 缺省 2，仅超时/连接失败/5xx。失败不入缓存。env/file 不缓存。轮换 = TTL 过期后重新拉取 |
 | 云 KMS 后端 | 定位缺口（轻） | [Architecture](../architecture/architecture.md) 的 Credential Vault 节列为方向，无代码 |
@@ -147,7 +147,7 @@ timestamp: 2026-10-10T00:00:00Z
 
 **目标**：让网关能接管需要 OAuth 的第三方 MCP server，这是支柱一的结构性补齐。
 
-- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数，基于 rmcp `auth` feature。2026-10-01 定范围：client-credentials + 管理员一次性授权码授权；授权码流程的 token 加密后存入 SQLite（无数据库时只在内存），永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器。**已交付（2026-10-01）**：配置、client-credentials（含请求路径上的重新换取）、加密凭据存储、授权码类上游的 `auth_required` 状态与 FailClosed 语义、管理员一次性授权（authorize / 回调 / 撤销与 CLI 入口，控制台入口排在 Phase 11，见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)）
+- 上游 MCP OAuth 2.1（**网关作为 OAuth 客户端**）：`UpstreamAuth` 增 OAuth 变体；401 `WWW-Authenticate` 挑战解析、授权服务器元数据发现（RFC 9728）、token 获取与刷新、RFC 8707 resource 参数，基于 rmcp `auth` feature。2026-10-01 定范围：client-credentials + 管理员一次性授权码授权；授权码流程的 token 加密后存入 SQLite（无数据库时只在内存），永不出网关。不接人类 IdP，不把 Asterlane 做成授权服务器。**已交付（2026-10-01）**：配置、client-credentials（含请求路径上的重新换取）、加密凭据存储、授权码类上游的 `auth_required` 状态与 FailClosed 语义、管理员一次性授权（authorize / 回调 / 撤销、CLI 入口；控制台入口 2026-10-11 补回，见 [MCP Protocol – 授权码流程](../architecture/mcp-protocol.md#授权码流程管理员一次性授权)）
 - **已交付（2026-10-01）**：动态客户端注册，仅用于授权码流程中未预置 `client_id` 的上游（rmcp 的 DCR 只注册 `authorization_code` 公开客户端；授权服务器仍返回 client secret 时网关没有地方保存它，此类上游须配置预注册客户端）
 - **已交付（2026-08-20）**：多上游 MCP `failure_mode`（缺省 FailOpen；FailClosed 挡 `tools/list`）；`refresh_interval_secs` 与 `tools_list_ttl_ms` 可配置
 - **已交付（2026-08-20）**：订阅上游 `tools/list_changed`（`subscriptions/listen` + session 回调）；周期 refresh 保留为兜底，不再是唯一失效路径
@@ -188,10 +188,10 @@ timestamp: 2026-10-10T00:00:00Z
 
 - **已交付（2026-10-10）**：控制台界面整理。Kumo 侧栏外壳，导航分组并带图标，窄屏收进抽屉；表格、选择框、分页、状态徽标改用 Kumo 组件；页面按需加载；深浅色跟随系统。见 [控制台与网关分离架构 · 外壳与样式](../architecture/console-separation.md#外壳与样式)
 - **已交付（2026-10-11）**：修复并发管理写入互相覆盖（见[横切：生产就绪](#横切生产就绪)）：本进程的配置写入串行化，并补并发写入的回归测试
-- 控制台补回上游 OAuth 的「授权 / 撤销授权」和 OAuth 字段编辑。2026-09-27 页面迁到 `web/` 时没有带过来（见 [Admin Console · 分阶段路线](../admin/admin-console.md#分阶段路线) 的 C7），而 `CHANGELOG.md` 的 Unreleased 已经写了这项；发布前要么补上，要么改正那条记录
+- **已交付（2026-10-11）**：控制台补回上游 OAuth 的「授权 / 撤销授权」和 OAuth 字段编辑（2026-09-27 页面迁到 `web/` 时遗漏，见 [Admin Console · 分阶段路线](../admin/admin-console.md#分阶段路线) 的 C7）
+- **已交付（2026-10-11）**：K8s kustomize 清单（从 Phase 9 移入，单副本）；发布流水线增加控制台镜像，见 [线上部署](../admin/deployment.md)
 - 首次打 tag 发布，验证 release 流水线（Phase 9 遗留）
 - 对至少一个真实 OAuth 类上游 MCP server 做端到端验证（Phase 8 遗留）
-- K8s 部署物：manifest 或 Helm chart（从 Phase 9 移入）
 - 控制台中英双语；入口文档（运行网关、配置 Schema）提供英文版
 - 定贡献者签署方式，见[产品决策](#产品决策)「贡献者协议」
 
