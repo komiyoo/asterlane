@@ -4,6 +4,7 @@ import {
   type InputLoadBalanceStrategy,
   type InputResourceWriteParams,
 } from "../../api/index.ts";
+import { text } from "../../i18n/locale.ts";
 
 export const STRATEGIES = [
   "round_robin",
@@ -27,7 +28,9 @@ export interface ResourceDraft {
   refsText: string;
 }
 
-const secretRefMessage = "必须是完整的 secret:// 引用，不能填写明文，也不能用脱敏后的引用";
+function secretRefDetail(): string {
+  return text("resources.validation.secretRef");
+}
 
 export function emptyResourceDraft(): ResourceDraft {
   return {
@@ -53,33 +56,33 @@ export function isSecretRef(value: string): boolean {
 
 export function validateResourceDraft(draft: ResourceDraft): string | null {
   if (draft.id.trim() === "") {
-    return "请填写 ID";
+    return text("resources.validation.id");
   }
   if (draft.domain.trim() === "") {
-    return "请填写领域";
+    return text("resources.validation.domain");
   }
   if (!isHttpUrl(draft.baseUrl.trim())) {
-    return "基础 URL 需要以 http:// 或 https:// 开头";
+    return text("resources.validation.baseUrl");
   }
   if (draft.authType === "bearer" && !isSecretRef(draft.tokenRef.trim())) {
-    return `Token 引用${secretRefMessage}`;
+    return text("resources.validation.tokenRef", { detail: secretRefDetail() });
   }
   if (draft.authType === "header") {
     if (draft.headerName.trim() === "") {
-      return "请填写 Header 名";
+      return text("resources.validation.headerName");
     }
     if (!isSecretRef(draft.headerRef.trim())) {
-      return `Header 引用${secretRefMessage}`;
+      return text("resources.validation.headerRef", { detail: secretRefDetail() });
     }
   }
   const refs = poolRefLines(draft.refsText);
   for (const ref of refs) {
     if (!isSecretRef(ref)) {
-      return `密钥池引用${secretRefMessage}`;
+      return text("resources.validation.poolRef", { detail: secretRefDetail() });
     }
   }
   if (refs.length > 0 && draft.authType === "none") {
-    return "密钥池需要 bearer 或 header 认证，用来说明凭据怎么放进请求";
+    return text("resources.validation.poolAuth");
   }
   return null;
 }
@@ -118,7 +121,7 @@ export function presentWriteError(error: unknown): string {
   if (error instanceof Error && error.message.trim() !== "") {
     return error.message;
   }
-  return "连接失败";
+  return text("errors.connection");
 }
 
 export function poolRefLines(raw: string): string[] {

@@ -3,6 +3,7 @@ import type { OutputMcpPresetResponse } from "../../api/index.ts";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
+import { text } from "../../i18n/locale.ts";
 
 export function PresetList({
   presets,
@@ -24,8 +25,8 @@ export function PresetList({
   onRetry: () => void;
 }) {
   return (
-    <section aria-label="内置集成">
-      <h3 className="section-title">内置集成</h3>
+    <section aria-label={text("mcp.presets.region")}>
+      <h3 className="section-title">{text("mcp.presets.region")}</h3>
       {notice === null ? null : <FormMessage tone="error">{notice}</FormMessage>}
       {error !== null ? <ErrorState error={error} onRetry={onRetry} /> : null}
       {loading && presets === null ? <LoadingState /> : null}
@@ -34,17 +35,17 @@ export function PresetList({
           <Table>
             <Table.Header variant="compact">
               <Table.Row>
-                <Table.Head>集成</Table.Head>
-                <Table.Head>描述</Table.Head>
-                <Table.Head>状态</Table.Head>
-                <Table.Head>凭据</Table.Head>
+                <Table.Head>{text("mcp.presets.integration")}</Table.Head>
+                <Table.Head>{text("mcp.presets.description")}</Table.Head>
+                <Table.Head>{text("mcp.presets.status")}</Table.Head>
+                <Table.Head>{text("mcp.presets.credential")}</Table.Head>
                 <Table.Head></Table.Head>
               </Table.Row>
             </Table.Header>
             <Table.Body>
               {presets.length === 0 ? (
                 <Table.Row>
-                  <Table.Cell colSpan={5}>无内置集成</Table.Cell>
+                  <Table.Cell colSpan={5}>{text("mcp.presets.empty")}</Table.Cell>
                 </Table.Row>
               ) : (
                 presets.map((preset) => (
@@ -58,11 +59,15 @@ export function PresetList({
                     <Table.Cell className="wrap">{preset.description}</Table.Cell>
                     <Table.Cell>
                       <Badge variant={preset.enabled ? "success" : "neutral"} appearance="dot">
-                        {preset.enabled ? "已启用" : "未启用"}
+                        {preset.enabled
+                          ? text("mcp.presets.enabled")
+                          : text("mcp.presets.disabled")}
                       </Badge>
                     </Table.Cell>
                     <Table.Cell>
-                      {preset.requires_key ? "需 key" : "免费"}
+                      {preset.requires_key
+                        ? text("mcp.presets.needsKey")
+                        : text("mcp.presets.free")}
                       {safeApplyUrl(preset.apply_url) === null ? null : (
                         <>
                           {" "}
@@ -71,7 +76,7 @@ export function PresetList({
                             target="_blank"
                             rel="noreferrer"
                           >
-                            申请 key
+                            {text("mcp.presets.apply")}
                             <Link.ExternalIcon />
                           </Link>
                         </>
@@ -80,11 +85,11 @@ export function PresetList({
                     <Table.Cell>
                       {preset.enabled ? (
                         <Button type="button" disabled>
-                          已启用
+                          {text("mcp.presets.enabled")}
                         </Button>
                       ) : preset.requires_key ? (
                         <Button type="button" onClick={() => onConfigure(preset)}>
-                          配置 key 启用
+                          {text("mcp.presets.configure")}
                         </Button>
                       ) : (
                         <Button
@@ -92,7 +97,9 @@ export function PresetList({
                           disabled={enablingId === preset.id}
                           onClick={() => onEnable(preset)}
                         >
-                          {enablingId === preset.id ? "启用中…" : "启用"}
+                          {enablingId === preset.id
+                            ? text("mcp.presets.enabling")
+                            : text("mcp.presets.enable")}
                         </Button>
                       )}
                     </Table.Cell>

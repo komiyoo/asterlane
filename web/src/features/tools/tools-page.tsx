@@ -10,6 +10,8 @@ import { usePageLoad } from "../../app/use-page-load.ts";
 import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
+import { text } from "../../i18n/locale.ts";
+import { formatCount } from "../format.ts";
 import {
   effectiveDescription,
   viewCatalog,
@@ -20,23 +22,6 @@ import { ToolDebugPanel } from "./debug-panel.tsx";
 import { ToolMetadataPanel } from "./metadata-panel.tsx";
 
 type Widths = [number, number, number, number];
-
-const columns: { key: ToolSortKey | "actions"; label: string }[] = [
-  { key: "name", label: "名称" },
-  { key: "resource_id", label: "资源" },
-  { key: "description", label: "描述" },
-  { key: "actions", label: "操作" },
-];
-
-const paginationLabels = {
-  navigation: "分页",
-  firstPage: "第一页",
-  previousPage: "上一页",
-  nextPage: "下一页",
-  lastPage: "最后一页",
-  pageNumber: "页码",
-  pageSize: "每页条数",
-};
 
 export function ToolsPage() {
   const load = usePageLoad((signal) => listTools({ signal }), []);
@@ -50,6 +35,21 @@ export function ToolsPage() {
   const [metaName, setMetaName] = useState<string | null>(null);
   const tools = load.data?.tools ?? [];
   const view = viewCatalog(tools, { filter, sortKey, direction, page, pageSize });
+  const columns: { key: ToolSortKey | "actions"; label: string }[] = [
+    { key: "name", label: text("tools.columns.name") },
+    { key: "resource_id", label: text("tools.columns.resource") },
+    { key: "description", label: text("tools.columns.description") },
+    { key: "actions", label: text("tools.columns.actions") },
+  ];
+  const paginationLabels = {
+    navigation: text("tools.page.navigation"),
+    firstPage: text("tools.page.first"),
+    previousPage: text("tools.page.previous"),
+    nextPage: text("tools.page.next"),
+    lastPage: text("tools.page.last"),
+    pageNumber: text("tools.page.pageNumber"),
+    pageSize: text("tools.page.pageSize"),
+  };
 
   function toggleSort(key: ToolSortKey) {
     if (sortKey === key) {
@@ -63,11 +63,11 @@ export function ToolsPage() {
 
   return (
     <section className="page">
-      <h2>工具</h2>
+      <h2>{text("shell.routes.tools")}</h2>
       <div className="toolbar">
         <Input
-          label="过滤"
-          placeholder="名称、资源或描述"
+          label={text("tools.filter")}
+          placeholder={text("tools.filterPlaceholder")}
           value={filter}
           onChange={(event) => {
             setFilter(event.target.value);
@@ -77,8 +77,10 @@ export function ToolsPage() {
       </div>
       {load.data === undefined ? null : (
         <p className="hint">
-          已取得 {load.data.total_count} 条，筛选后 {view.filteredCount}{" "}
-          条。排序和分页只针对这些已取得的目录，不是全部历史。
+          {text("tools.hint", {
+            total: formatCount(load.data.total_count),
+            filtered: formatCount(view.filteredCount),
+          })}
         </p>
       )}
       {load.loading && load.data === undefined ? <LoadingState /> : null}
@@ -86,10 +88,10 @@ export function ToolsPage() {
         <ErrorState error={load.error} onRetry={load.reload} />
       ) : null}
       {load.data !== undefined && load.data.tools.length === 0 ? (
-        <EmptyState title="无工具" />
+        <EmptyState title={text("tools.empty")} />
       ) : null}
       {load.data !== undefined && load.data.tools.length > 0 && view.rows.length === 0 ? (
-        <EmptyState title="无匹配工具" />
+        <EmptyState title={text("tools.noMatch")} />
       ) : null}
       {view.rows.length === 0 ? null : (
         <>
@@ -99,7 +101,7 @@ export function ToolsPage() {
                 <Table.Row>
                   {columns.map((column, index) => (
                     <Table.Head
-                      key={column.label}
+                      key={column.key}
                       style={widths[index] > 0 ? { width: `${widths[index]}px` } : undefined}
                       aria-sort={
                         column.key === "actions"
@@ -134,7 +136,7 @@ export function ToolsPage() {
                       <button
                         type="button"
                         className="col-resize"
-                        aria-label={`调整${column.label}列宽`}
+                        aria-label={text("tools.columns.resize", { label: column.label })}
                         onPointerDown={(event) => onResizePointer(event, index, widths, setWidths)}
                         onKeyDown={(event) => onResizeKey(event, index, setWidths)}
                       />
@@ -171,11 +173,14 @@ export function ToolsPage() {
           >
             <Pagination.Info>
               {({ pageShowingRange, totalCount }) =>
-                `第 ${pageShowingRange} 条，共 ${totalCount} 条`
+                text("tools.page.range", {
+                  range: pageShowingRange,
+                  total: totalCount ?? 0,
+                })
               }
             </Pagination.Info>
             <Pagination.PageSize
-              label="每页"
+              label={text("tools.page.perPage")}
               value={pageSize}
               options={[10, 20, 50]}
               onChange={(size) => {
@@ -216,8 +221,12 @@ function ToolRows({
           {tool.description_override === null ? null : (
             <>
               {" "}
-              <span title={`原始描述: ${tool.description || "（无）"}`}>
-                <Badge variant="neutral">已覆盖</Badge>
+              <span
+                title={text("tools.originalTitle", {
+                  text: tool.description || text("tools.metadata.noOriginal"),
+                })}
+              >
+                <Badge variant="neutral">{text("tools.overridden")}</Badge>
               </span>
             </>
           )}
@@ -225,10 +234,10 @@ function ToolRows({
         <Table.Cell>
           <div className="row-actions">
             <Button type="button" onClick={onDebug}>
-              调试
+              {text("tools.debug")}
             </Button>
             <Button type="button" onClick={onMeta}>
-              介绍
+              {text("tools.intro")}
             </Button>
           </div>
         </Table.Cell>

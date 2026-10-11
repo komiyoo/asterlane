@@ -9,6 +9,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
   use: {
+    locale: "zh-CN",
     trace: "off",
     ...(process.env.PLAYWRIGHT_CHANNEL === undefined
       ? {}

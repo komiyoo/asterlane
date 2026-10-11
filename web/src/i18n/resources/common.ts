@@ -1,0 +1,41 @@
+export const zh = {
+  loading: "加载中…",
+  empty: "无数据",
+  retry: "重试",
+  cancel: "取消",
+  close: "关闭",
+  save: "保存",
+  create: "创建",
+  query: "查询",
+  object: "对象：{{name}}",
+  loadFailed: "加载失败",
+  yes: "是",
+  no: "否",
+  dash: "—",
+  on: "开",
+  off: "关",
+  none: "无",
+  limitNote:
+    "本次查询 limit 为 {{limit}}，返回 {{count}} 条。服务端没有总页数，这不是全部历史。",
+};
+
+export const en = {
+  loading: "Loading…",
+  empty: "No data",
+  retry: "Retry",
+  cancel: "Cancel",
+  close: "Close",
+  save: "Save",
+  create: "Create",
+  query: "Query",
+  object: "Object: {{name}}",
+  loadFailed: "Failed to load",
+  yes: "Yes",
+  no: "No",
+  dash: "—",
+  on: "On",
+  off: "Off",
+  none: "None",
+  limitNote:
+    "This query used limit {{limit}} and returned {{count}} rows. The server has no page count, so this is not the full history.",
+} satisfies typeof zh;

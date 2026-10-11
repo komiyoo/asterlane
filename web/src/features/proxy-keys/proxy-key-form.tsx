@@ -1,6 +1,7 @@
 import { Button, Combobox, Input, Select } from "@cloudflare/kumo";
 import { useState, type FormEvent } from "react";
 import { FormMessage } from "../../components/form-message.tsx";
+import { text } from "../../i18n/locale.ts";
 import type { ProxyKeyDraft } from "./draft.ts";
 import {
   matchingTools,
@@ -56,13 +57,13 @@ export function ProxyKeyForm({
           onChange={(event) => patch({ id: event.target.value })}
         />
         <Input
-          label="显示名"
+          label={text("proxyKeys.fields.name")}
           value={draft.displayName}
           disabled={busy}
           onChange={(event) => patch({ displayName: event.target.value })}
         />
         <Input
-          label="页大小"
+          label={text("proxyKeys.fields.pageSize")}
           value={draft.pageSize}
           inputMode="numeric"
           disabled={busy}
@@ -83,14 +84,14 @@ export function ProxyKeyForm({
           onChange={(event) => patch({ rpm: event.target.value })}
         />
         <Input
-          label="最大调用"
+          label={text("proxyKeys.fields.maxCalls")}
           value={draft.maxCalls}
           inputMode="numeric"
           disabled={busy}
           onChange={(event) => patch({ maxCalls: event.target.value })}
         />
         <Input
-          label="当日上限"
+          label={text("proxyKeys.fields.maxCallsPerDay")}
           value={draft.maxCallsPerDay}
           inputMode="numeric"
           disabled={busy}
@@ -99,41 +100,45 @@ export function ProxyKeyForm({
       </div>
       <div className="toolbar">
         <MultiPicker
-          label="允许的服务"
+          label={text("proxyKeys.fields.servers")}
           items={serverOptions.map((server) => server.id)}
           value={draft.allowedServers}
           disabled={busy}
           itemLabel={(id) => serverText(serverOptions, id)}
-          empty="无匹配服务"
+          empty={text("proxyKeys.emptyServers")}
           onChange={(allowedServers) => patch({ allowedServers })}
         />
         <div className="scope-tools">
           <Input
-            label="工具过滤"
+            label={text("proxyKeys.fields.toolFilter")}
             value={toolFilter}
             disabled={busy}
             onChange={(event) => setToolFilter(event.target.value)}
           />
           <Select
-            label="按服务过滤"
+            label={text("proxyKeys.fields.serverFilter")}
             value={toolServer}
             disabled={busy}
             items={[
-              { value: "", label: "全部服务" },
+              { value: "", label: text("proxyKeys.fields.allServers") },
               ...serverOptions.map((server) => ({ value: server.id, label: server.id })),
             ]}
             onValueChange={(server) => setToolServer(server ?? "")}
           />
           <MultiPicker
-            label="允许的工具"
+            label={text("proxyKeys.fields.tools")}
             items={visibleToolNames}
             value={draft.allowedToolNames}
             disabled={busy}
             itemLabel={(name) => name}
-            empty="无匹配工具"
+            empty={text("proxyKeys.emptyTools")}
             onChange={(allowedToolNames) => patch({ allowedToolNames })}
           />
-          <p className="hint">已选工具：{draft.allowedToolNames.join(", ") || "无"}</p>
+          <p className="hint">
+            {text("proxyKeys.fields.selected", {
+              names: draft.allowedToolNames.join(", ") || text("common.none"),
+            })}
+          </p>
         </div>
       </div>
       {warnings.map((warning) => (
@@ -142,17 +147,17 @@ export function ProxyKeyForm({
         </FormMessage>
       ))}
       <details>
-        <summary>高级：正则范围</summary>
+        <summary>{text("proxyKeys.fields.advanced")}</summary>
         <div className="toolbar">
           <Input
-            label="允许正则"
+            label={text("proxyKeys.fields.allowed")}
             value={draft.allowedTools}
             spellCheck={false}
             disabled={busy}
             onChange={(event) => patch({ allowedTools: event.target.value })}
           />
           <Input
-            label="拒绝正则"
+            label={text("proxyKeys.fields.denied")}
             value={draft.deniedTools}
             spellCheck={false}
             disabled={busy}
@@ -163,10 +168,10 @@ export function ProxyKeyForm({
       {error === null ? null : <FormMessage tone="error">{error}</FormMessage>}
       <div className="toolbar">
         <Button type="submit" disabled={busy}>
-          {editing ? "保存" : "创建"}
+          {editing ? text("common.save") : text("common.create")}
         </Button>
         <Button type="button" onClick={onCancel} disabled={busy}>
-          取消
+          {text("common.cancel")}
         </Button>
       </div>
     </form>
@@ -205,10 +210,10 @@ function MultiPicker({
     >
       <Combobox.TriggerMultipleWithInput
         className="scope-picker"
-        placeholder="搜索"
+        placeholder={text("proxyKeys.search")}
         value={selected}
         renderItem={(item) => (
-          <Combobox.Chip key={item} removeLabel="移除">
+          <Combobox.Chip key={item} removeLabel={text("proxyKeys.remove")}>
             {itemLabel(item)}
           </Combobox.Chip>
         )}
@@ -230,7 +235,7 @@ function MultiPicker({
 function serverText(options: readonly ScopeServer[], id: string): string {
   const server = options.find((item) => item.id === id);
   if (server === undefined) {
-    return `${id}（已保存）`;
+    return text("proxyKeys.scope.saved", { id });
   }
   return serverLabel(server);
 }

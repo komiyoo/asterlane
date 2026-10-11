@@ -2,6 +2,8 @@ import { Button, Dialog, Input } from "@cloudflare/kumo";
 import { useRef, useState } from "react";
 import { isStaleOrAborted, issueProxyKeyToken } from "../../api/index.ts";
 import { FormMessage } from "../../components/form-message.tsx";
+import { text } from "../../i18n/locale.ts";
+import { formatTimestamp } from "../format.ts";
 import {
   initialTokenDialogState,
   issueFailure,
@@ -16,12 +18,11 @@ export function TokenDialog({
   onDismiss,
 }: {
   keyId: string;
-  mode: "签发" | "轮换";
+  mode: "issue" | "rotate";
   onDismiss: (reload: boolean) => void;
 }) {
   const [state, setState] = useState<TokenDialogState>(initialTokenDialogState);
-  const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"copied" | "failed" | null>(null);
   const stateRef = useRef(state);
   const tokenInput = useRef<HTMLInputElement>(null);
 
@@ -57,8 +58,7 @@ export function TokenDialog({
       return;
     }
     commit(step.state);
-    setCopied(false);
-    setCopyError(null);
+    setCopyState(null);
     try {
       const result = await issueProxyKeyToken(keyId, parsed.body);
       if (stateRef.current.kind !== "issuing") {
@@ -69,7 +69,7 @@ export function TokenDialog({
         commit(
           reduceTokenDialog(stateRef.current, {
             type: "failed",
-            message: "响应缺少 token。这次签发可能已经执行，不会自动重试。",
+            message: text("proxyKeys.token.missingToken"),
             uncertain: true,
           }).state,
         );
@@ -103,58 +103,66 @@ export function TokenDialog({
     }
     try {
       await navigator.clipboard.writeText(state.token);
-      setCopied(true);
-      setCopyError(null);
+      setCopyState("copied");
     } catch {
       tokenInput.current?.select();
-      setCopied(false);
-      setCopyError("复制失败，已选中文本，请手动复制");
+      setCopyState("failed");
     }
   }
 
   const issuing = state.kind === "issuing";
   const expiresLocal = state.kind === "issued" ? "" : state.expiresLocal;
   const failure = state.kind === "failed" ? state.message : null;
+  const action = text(mode === "rotate" ? "proxyKeys.token.rotate" : "proxyKeys.token.issue");
 
   return (
     <Dialog.Root open role="alertdialog" onOpenChange={onOpenChange}>
       <Dialog className="confirm-dialog" size="sm">
-        <Dialog.Title>
-          {mode} token · {keyId}
-        </Dialog.Title>
+        <Dialog.Title>{text("proxyKeys.token.title", { action, id: keyId })}</Dialog.Title>
         <Dialog.Description>
           {state.kind === "issued"
-            ? "仅此一次展示，关闭后无法再查看，请立即保存。"
-            : mode === "轮换"
-              ? "该密钥已有 token，轮换后旧 token 立即失效。明文只出现在这个弹窗里。"
-              : "明文 token 只在签发成功后出现一次，关闭、退出或离开页面后不会保留。"}
+            ? text("proxyKeys.token.once")
+            : mode === "rotate"
+              ? text("proxyKeys.token.rotateHint")
+              : text("proxyKeys.token.issueHint")}
         </Dialog.Description>
         {state.kind === "issued" ? (
           <>
             <Input
               ref={tokenInput}
-              label="签发的 gateway token"
+              label={text("proxyKeys.token.issuedLabel")}
               value={state.token}
               readOnly
               spellCheck={false}
               passwordManagerIgnore
               autoComplete="off"
             />
-            <p className="hint">过期时间：{state.expiresAt ?? "永不过期"}</p>
-            {copyError === null ? null : <FormMessage tone="error">{copyError}</FormMessage>}
+            <p className="hint">
+              {text("proxyKeys.token.expires", {
+                time:
+                  state.expiresAt === null
+                    ? text("proxyKeys.token.never")
+                    : formatTimestamp(state.expiresAt),
+              })}
+            </p>
+            {copyState === "failed" ? (
+              <FormMessage tone="error">{text("proxyKeys.token.copyFailed")}</FormMessage>
+            ) : null}
             <div className="confirm-actions">
               <Button type="button" autoFocus onClick={() => void onCopy()}>
-                {copied ? "已复制" : "复制"}
+                {copyState === "copied"
+                  ? text("proxyKeys.token.copied")
+                  : text("proxyKeys.token.copy")}
               </Button>
               <Button type="button" onClick={() => onOpenChange(false)}>
-                关闭
+                {text("common.close")}
               </Button>
             </div>
           </>
         ) : (
           <>
             <Input
-              label="过期时间"
+              label={text("proxyKeys.token.expiresLabel")}
               type="datetime-local"
               value={expiresLocal}
               disabled={issuing || (state.kind === "failed" && state.uncertain)}
@@ -167,18 +175,22 @@ export function TokenDialog({
                 )
               }
             />
-            <p className="hint">留空表示不过期。时间按本机时区解释。</p>
-            {issuing ? <FormMessage tone="info">正在签发，完成前不能关闭。</FormMessage> : null}
+            <p className="hint">{text("proxyKeys.token.expiresHint")}</p>
+            {issuing ? (
+              <FormMessage tone="info">{text("proxyKeys.token.issuing")}</FormMessage>
+            ) : null}
             {failure === null ? null : <FormMessage tone="error">{failure}</FormMessage>}
             <div className="confirm-actions">
               {state.kind === "failed" && state.uncertain ? null : (
                 <Button type="button" onClick={() => void onIssue()} disabled={issuing}>
-                  {mode}
+                  {action}
                 </Button>
               )}
               {issuing ? null : (
                 <Button type="button" onClick={() => onOpenChange(false)}>
-                  {state.kind === "failed" && state.uncertain ? "关闭" : "取消"}
+                  {state.kind === "failed" && state.uncertain
+                    ? text("common.close")
+                    : text("common.cancel")}
                 </Button>
               )}
             </div>

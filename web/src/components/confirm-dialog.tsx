@@ -1,4 +1,5 @@
 import { Button, Dialog } from "@cloudflare/kumo";
+import { text } from "../i18n/locale.ts";
 
 export function ConfirmDialog({
   label,
@@ -21,9 +22,9 @@ export function ConfirmDialog({
       <Dialog className="confirm-dialog" size="sm">
         <Dialog.Title>{title}</Dialog.Title>
         <Dialog.Description>{description}</Dialog.Description>
-        {resource === undefined ? null : <p>对象：{resource}</p>}
+        {resource === undefined ? null : <p>{text("common.object", { name: resource })}</p>}
         <div className="confirm-actions">
-          <Dialog.Close render={(props) => <Button {...props}>取消</Button>} />
+          <Dialog.Close render={(props) => <Button {...props}>{text("common.cancel")}</Button>} />
           <Button type="button" variant="destructive" onClick={onConfirm}>
             {confirmLabel}
           </Button>

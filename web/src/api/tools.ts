@@ -1,3 +1,4 @@
+import { text } from "../i18n/locale.ts";
 import { getApiClient, type CallInit } from "./client.ts";
 import type {
   InputJsonObject,
@@ -32,7 +33,7 @@ export async function putToolDefault(
     args,
     init,
   );
-  return expectBody(value, "保存默认参数响应为空");
+  return expectBody(value, text("api.tools.defaultEmpty"));
 }
 
 export async function invokeTool(
@@ -46,7 +47,7 @@ export async function invokeTool(
     args,
     init,
   );
-  return expectBody(value, "调用响应为空");
+  return expectBody(value, text("api.tools.invokeEmpty"));
 }
 
 export async function putToolMetadata(
@@ -60,7 +61,7 @@ export async function putToolMetadata(
     body,
     init,
   );
-  return expectBody(value, "保存介绍响应为空");
+  return expectBody(value, text("api.tools.metaSaveEmpty"));
 }
 
 export async function deleteToolMetadata(
@@ -73,7 +74,7 @@ export async function deleteToolMetadata(
     undefined,
     init,
   );
-  return expectBody(value, "清除介绍响应为空");
+  return expectBody(value, text("api.tools.metaClearEmpty"));
 }
 
 function expectBody<T>(value: T | undefined, message: string): T {

@@ -1,3 +1,4 @@
+import { text } from "../i18n/locale.ts";
 import { getApiClient, type CallInit } from "./client.ts";
 import type {
   InputProxyKeyWriteParams,
@@ -84,21 +85,21 @@ function proxyKeyPath(id: string): string {
 
 function requiredCreated(value: OutputCreatedResponse | undefined): OutputCreatedResponse {
   if (value === undefined || value.created.trim() === "") {
-    throw new Error("创建响应不完整");
+    throw new Error(text("api.proxyKeys.createIncomplete"));
   }
   return value;
 }
 
 function requiredUpdated(value: OutputUpdatedResponse | undefined): OutputUpdatedResponse {
   if (value === undefined || value.updated.trim() === "") {
-    throw new Error("更新响应不完整");
+    throw new Error(text("api.proxyKeys.updateIncomplete"));
   }
   return value;
 }
 
 function requiredDeleted(value: OutputDeletedResponse | undefined): OutputDeletedResponse {
   if (value === undefined || value.deleted.trim() === "") {
-    throw new Error("删除响应不完整");
+    throw new Error(text("api.proxyKeys.deleteIncomplete"));
   }
   return value;
 }

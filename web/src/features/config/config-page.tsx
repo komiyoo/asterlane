@@ -10,6 +10,8 @@ import { useRefresh } from "../../app/use-refresh.ts";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
+import { text } from "../../i18n/locale.ts";
+import { formatCount } from "../format.ts";
 import { downloadYaml } from "./download.ts";
 
 export function ConfigPage() {
@@ -49,29 +51,29 @@ export function ConfigPage() {
     try {
       const yaml = await exportConfigYaml();
       downloadYaml(yaml);
-      setExportMessage("已导出");
+      setExportMessage(text("config.exported"));
     } catch (caught) {
       setExportError(true);
-      setExportMessage(`导出失败：${formatApiError(caught)}`);
+      setExportMessage(text("config.exportFailed", { detail: formatApiError(caught) }));
     }
   }
 
   return (
     <section className="page">
-      <h2>配置</h2>
-      <p className="hint">校验和导出只读取当前合并快照，不会修改配置。</p>
+      <h2>{text("shell.routes.config")}</h2>
+      <p className="hint">{text("config.hint")}</p>
       <div className="toolbar">
         <Button type="button" onClick={() => void runValidate()} disabled={loading}>
-          校验当前配置
+          {text("config.validate")}
         </Button>
         <Button type="button" onClick={() => void onExport()}>
-          导出 YAML
+          {text("config.export")}
         </Button>
       </div>
       {exportMessage === null ? null : (
         <FormMessage tone={exportError ? "error" : "info"}>{exportMessage}</FormMessage>
       )}
-      {loading ? <LoadingState label="正在校验…" /> : null}
+      {loading ? <LoadingState label={text("config.checking")} /> : null}
       {error !== null ? <ErrorState error={error} onRetry={() => void runValidate()} /> : null}
       {report === undefined || error !== null ? null : <ValidationReport report={report} />}
     </section>
@@ -83,13 +85,18 @@ function ValidationReport({ report }: { report: OutputConfigValidateResponse }) 
   const warnings = report.issues.filter((issue) => issue.level === "warn");
   return (
     <div className="card">
-      <p className={report.valid ? "ok" : "err"}>{report.valid ? "配置有效" : "配置存在问题"}</p>
-      <p>
-        资源 {report.resource_count} · Proxy Key {report.proxy_key_count} · MCP{" "}
-        {report.mcp_server_count}
+      <p className={report.valid ? "ok" : "err"}>
+        {report.valid ? text("config.valid") : text("config.invalid")}
       </p>
-      <IssueList title="错误" issues={errors} />
-      <IssueList title="警告" issues={warnings} />
+      <p>
+        {text("config.counts", {
+          resources: formatCount(report.resource_count),
+          keys: formatCount(report.proxy_key_count),
+          mcp: formatCount(report.mcp_server_count),
+        })}
+      </p>
+      <IssueList title={text("config.errors")} issues={errors} />
+      <IssueList title={text("config.warnings")} issues={warnings} />
     </div>
   );
 }
@@ -107,7 +114,7 @@ function IssueList({
   return (
     <section>
       <h3 className="section-title">
-        {title}（{issues.length}）
+        {text("config.issueCount", { title, count: formatCount(issues.length) })}
       </h3>
       <ul className="issues">
         {issues.map((issue, index) => (

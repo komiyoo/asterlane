@@ -1,3 +1,5 @@
+import { text } from "../i18n/locale.ts";
+
 export type ApiErrorKind = "auth" | "http" | "connection" | "aborted" | "stale";
 
 export class ApiError extends Error {
@@ -35,21 +37,23 @@ export function isStaleOrAborted(error: unknown): boolean {
 
 export function formatApiError(error: unknown): string {
   if (!isApiError(error)) {
-    return "连接失败";
+    return text("errors.connection");
   }
   if (error.kind === "connection") {
-    return error.status === undefined ? "连接失败" : `连接失败（HTTP ${error.status}）`;
+    return error.status === undefined
+      ? text("errors.connection")
+      : text("errors.connectionStatus", { status: error.status });
   }
   if (error.kind === "auth") {
-    return withRequestId("认证失败", error);
+    return withRequestId(text("errors.auth"), error);
   }
   if (error.kind === "http") {
     return withRequestId(error.message, error);
   }
   if (error.kind === "aborted" || error.kind === "stale") {
-    return "请求已取消";
+    return text("errors.cancelled");
   }
-  return "连接失败";
+  return text("errors.connection");
 }
 
 function withRequestId(message: string, error: ApiError): string {

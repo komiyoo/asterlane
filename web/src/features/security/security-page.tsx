@@ -11,6 +11,8 @@ import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LimitNote } from "../../components/limit-note.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
+import { text } from "../../i18n/locale.ts";
+import { formatTimestamp } from "../format.ts";
 import { jsonText } from "../json-value.ts";
 import { parseLimit } from "../time.ts";
 
@@ -21,12 +23,6 @@ const kinds: readonly OutputSecurityEventKind[] = [
   "integrity_hint_flipped",
   "content_defense_flag",
   "admin_audit",
-];
-
-/** 空串表示全部类型。 */
-const kindItems = [
-  { value: "", label: "全部类型" },
-  ...kinds.map((kind) => ({ value: kind, label: kind })),
 ];
 
 interface SecurityQuery {
@@ -40,7 +36,11 @@ const initialQuery: SecurityQuery = { kind: "", resource: "", limit: 50 };
 export function SecurityPage() {
   const [draft, setDraft] = useState({ kind: "", resource: "", limitText: "50" });
   const [applied, setApplied] = useState(initialQuery);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formInvalid, setFormInvalid] = useState(false);
+  const kindItems = [
+    { value: "", label: text("security.all") },
+    ...kinds.map((kind) => ({ value: kind, label: kind })),
+  ];
   const load = usePageLoad(
     (signal) =>
       listSecurityEvents(
@@ -58,25 +58,25 @@ export function SecurityPage() {
     event.preventDefault();
     const limit = parseLimit(draft.limitText, 50, 200);
     if (limit === undefined) {
-      setFormError("limit 为 1 到 200 的整数。");
+      setFormInvalid(true);
       return;
     }
-    setFormError(null);
+    setFormInvalid(false);
     setApplied({ kind: draft.kind, resource: draft.resource, limit });
   }
 
   return (
     <section className="page">
-      <h2>安全事件</h2>
+      <h2>{text("shell.routes.security")}</h2>
       <form className="toolbar" onSubmit={onSubmit}>
         <Select
-          label="类型"
+          label={text("security.kind")}
           value={draft.kind}
           items={kindItems}
           onValueChange={(kind) => setDraft({ ...draft, kind: kind ?? "" })}
         />
         <Input
-          label="资源 ID"
+          label={text("security.resource")}
           value={draft.resource}
           onChange={(event) => setDraft({ ...draft, resource: event.target.value })}
         />
@@ -86,9 +86,9 @@ export function SecurityPage() {
           inputMode="numeric"
           onChange={(event) => setDraft({ ...draft, limitText: event.target.value })}
         />
-        <Button type="submit">查询</Button>
+        <Button type="submit">{text("common.query")}</Button>
       </form>
-      {formError === null ? null : <FormMessage tone="error">{formError}</FormMessage>}
+      {formInvalid ? <FormMessage tone="error">{text("security.invalidLimit")}</FormMessage> : null}
       <SecurityResults limit={applied.limit} load={load} />
     </section>
   );
@@ -122,18 +122,18 @@ function SecurityTable({ rows }: { rows: OutputSecurityEventResponse[] }) {
       <Table>
         <Table.Header variant="compact">
           <Table.Row>
-            <Table.Head>时间</Table.Head>
-            <Table.Head>资源</Table.Head>
-            <Table.Head>工具</Table.Head>
-            <Table.Head>类型</Table.Head>
-            <Table.Head>严重度</Table.Head>
-            <Table.Head>详情</Table.Head>
+            <Table.Head>{text("security.columns.time")}</Table.Head>
+            <Table.Head>{text("security.columns.resource")}</Table.Head>
+            <Table.Head>{text("security.columns.tool")}</Table.Head>
+            <Table.Head>{text("security.columns.kind")}</Table.Head>
+            <Table.Head>{text("security.columns.severity")}</Table.Head>
+            <Table.Head>{text("security.columns.details")}</Table.Head>
           </Table.Row>
         </Table.Header>
         <Table.Body>
           {rows.map((row, index) => (
             <Table.Row key={`${row.timestamp}-${row.kind}-${index}`}>
-              <Table.Cell>{row.timestamp}</Table.Cell>
+              <Table.Cell>{formatTimestamp(row.timestamp) || row.timestamp}</Table.Cell>
               <Table.Cell>{row.resource_id}</Table.Cell>
               <Table.Cell>{row.tool_name ?? ""}</Table.Cell>
               <Table.Cell>{row.kind}</Table.Cell>

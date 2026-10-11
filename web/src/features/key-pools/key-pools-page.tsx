@@ -4,7 +4,8 @@ import { usePageLoad } from "../../app/use-page-load.ts";
 import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
-import { formatOptionalNumber } from "../format.ts";
+import { text } from "../../i18n/locale.ts";
+import { formatCount, formatOptionalNumber } from "../format.ts";
 
 const stateBadges = {
   available: "success",
@@ -17,13 +18,16 @@ export function KeyPoolsPage() {
 
   return (
     <section className="page">
-      <h2>密钥池</h2>
+      <h2>{text("shell.routes.keyPools")}</h2>
       {load.loading && load.data === undefined ? <LoadingState /> : null}
       {load.error !== null && load.data === undefined ? (
         <ErrorState error={load.error} onRetry={load.reload} />
       ) : null}
       {load.data !== undefined && load.data.length === 0 ? (
-        <EmptyState title="未配置密钥池" description="资源级 key_pool 尚未配置。" />
+        <EmptyState
+          title={text("keyPools.empty")}
+          description={text("keyPools.emptyDescription")}
+        />
       ) : null}
       {load.data?.map((pool) => (
         <section key={pool.resource_id}>
@@ -34,13 +38,13 @@ export function KeyPoolsPage() {
             <Table>
               <Table.Header variant="compact">
                 <Table.Row>
-                  <Table.Head>密钥 ID</Table.Head>
-                  <Table.Head>状态</Table.Head>
-                  <Table.Head>租借数</Table.Head>
-                  <Table.Head>冷却剩余(ms)</Table.Head>
-                  <Table.Head>权重</Table.Head>
-                  <Table.Head>加权延迟(ms)</Table.Head>
-                  <Table.Head>引用</Table.Head>
+                  <Table.Head>{text("keyPools.columns.id")}</Table.Head>
+                  <Table.Head>{text("keyPools.columns.state")}</Table.Head>
+                  <Table.Head>{text("keyPools.columns.leased")}</Table.Head>
+                  <Table.Head>{text("keyPools.columns.cooling")}</Table.Head>
+                  <Table.Head>{text("keyPools.columns.weight")}</Table.Head>
+                  <Table.Head>{text("keyPools.columns.latency")}</Table.Head>
+                  <Table.Head>{text("keyPools.columns.ref")}</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -52,9 +56,9 @@ export function KeyPoolsPage() {
                         {key.state}
                       </Badge>
                     </Table.Cell>
-                    <Table.Cell>{key.leased_count}</Table.Cell>
+                    <Table.Cell>{formatCount(key.leased_count)}</Table.Cell>
                     <Table.Cell>{formatOptionalNumber(key.cooling_remaining_ms)}</Table.Cell>
-                    <Table.Cell>{key.weight}</Table.Cell>
+                    <Table.Cell>{formatCount(key.weight)}</Table.Cell>
                     <Table.Cell>{formatOptionalNumber(key.ewma_latency_ms)}</Table.Cell>
                     <Table.Cell>{key.ref}</Table.Cell>
                   </Table.Row>

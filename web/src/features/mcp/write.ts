@@ -6,6 +6,7 @@ import type {
   OutputMcpPresetResponse,
   OutputMcpServerResponse,
 } from "../../api/index.ts";
+import { text } from "../../i18n/locale.ts";
 
 export type AuthChoice = "keep" | "none" | "bearer" | "header" | "oauth";
 
@@ -104,13 +105,13 @@ export function buildMcpWrite(values: McpFormValues, editing: boolean): McpWrite
   const provider = values.provider.trim();
   const url = values.url.trim();
   if (!editing && id === "") {
-    return fail("ID 不能为空");
+    return fail(text("mcp.validation.id"));
   }
   if (domain === "" || provider === "" || url === "") {
-    return fail("领域、提供商和 URL 不能为空");
+    return fail(text("mcp.validation.identity"));
   }
   if (!editing && !/^https?:\/\//.test(url)) {
-    return fail("URL 需要以 http:// 或 https:// 开头");
+    return fail(text("mcp.validation.url"));
   }
   const auth = authValue(values, editing);
   if (!auth.ok) {
@@ -120,7 +121,7 @@ export function buildMcpWrite(values: McpFormValues, editing: boolean): McpWrite
   if (!limits.ok) {
     return limits;
   }
-  const budget = readPositive("结果预算", values.resultBudget);
+  const budget = readPositive(text("mcp.fields.resultBudget"), values.resultBudget);
   if (!budget.ok) {
     return budget;
   }
@@ -159,10 +160,10 @@ function authValue(
   const secret = values.secret.trim();
   if (values.auth === "keep") {
     if (!editing) {
-      return fail("新建服务需要选择认证方式");
+      return fail(text("mcp.validation.authRequired"));
     }
     if (secret !== "") {
-      return fail("选择了保持不变，请清空 secret 引用，或改成 Bearer、Header 或 OAuth");
+      return fail(text("mcp.validation.keepSecret"));
     }
     return { ok: true, value: undefined };
   }
@@ -173,14 +174,14 @@ function authValue(
     return oauthAuth(values);
   }
   if (!isSecretRef(secret)) {
-    return fail("只接受 secret:// 引用，不接受明文密钥");
+    return fail(text("mcp.validation.secretRef"));
   }
   if (values.auth === "bearer") {
     return { ok: true, value: { type: "bearer", token_ref: secret } };
   }
   const name = values.headerName.trim();
   if (name === "") {
-    return fail("Header 名不能为空");
+    return fail(text("mcp.validation.headerName"));
   }
   return { ok: true, value: { type: "header", name, value_ref: secret } };
 }
@@ -192,17 +193,17 @@ function oauthAuth(
   const secret = values.clientSecretRef.trim();
   const scopes = readScopes(values.scopes);
   if (secret !== "" && !isSecretRef(secret)) {
-    return fail("只接受 secret:// 引用，不接受明文密钥");
+    return fail(text("mcp.validation.secretRef"));
   }
   if (values.grant === "client_credentials") {
     if (clientId === "") {
-      return fail("client_credentials 需要 client_id");
+      return fail(text("mcp.validation.clientId"));
     }
     if (secret === "") {
-      return fail("client_credentials 需要 client secret 引用");
+      return fail(text("mcp.validation.clientSecret"));
     }
   } else if (secret !== "" && clientId === "") {
-    return fail("填写 client secret 引用时必须同时填写 client_id");
+    return fail(text("mcp.validation.secretNeedsId"));
   }
   return {
     ok: true,
@@ -239,7 +240,7 @@ function readLimits(
   if (!rpm.ok) {
     return rpm;
   }
-  const maxConcurrent = readPositive("最大并发", values.maxConcurrent);
+  const maxConcurrent = readPositive(text("mcp.fields.maxConcurrent"), values.maxConcurrent);
   if (!maxConcurrent.ok) {
     return maxConcurrent;
   }
@@ -265,11 +266,11 @@ function readPositive(
     return { ok: true, value: undefined };
   }
   if (!/^[1-9]\d*$/.test(trimmed)) {
-    return fail(`${label}须为大于 0 的整数，或留空`);
+    return fail(text("mcp.validation.positive", { label }));
   }
   const value = Number(trimmed);
   if (!Number.isSafeInteger(value)) {
-    return fail(`${label}超出可表示的整数范围`);
+    return fail(text("mcp.validation.range", { label }));
   }
   return { ok: true, value };
 }
@@ -285,11 +286,11 @@ function fail(message: string): { ok: false; message: string } {
 export function oauthStatusText(status: string): string {
   switch (status) {
     case "authorized":
-      return "已授权";
+      return text("mcp.oauth.authorized");
     case "authorization_required":
-      return "需要授权";
+      return text("mcp.oauth.required");
     case "automatic":
-      return "自动换取";
+      return text("mcp.oauth.automatic");
     default:
       return status;
   }

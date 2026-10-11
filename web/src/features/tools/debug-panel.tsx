@@ -9,18 +9,25 @@ import {
   putToolDefault,
 } from "../../api/index.ts";
 import { FormMessage } from "../../components/form-message.tsx";
+import { text } from "../../i18n/locale.ts";
 import { jsonText } from "../json-value.ts";
 import { formatArgsText, parseArgsObject } from "./args.ts";
 import { describeDefaultLoad, describeStoreFailure } from "./feedback.ts";
 
+type CallState =
+  | { kind: "idle" }
+  | { kind: "running" }
+  | { kind: "failed" }
+  | { kind: "done"; status: number; latency: number; requestId: string };
+
 export function ToolDebugPanel({ toolName }: { toolName: string }) {
   const [argsText, setArgsText] = useState("");
   const [phase, setPhase] = useState<"loading" | "ready">("loading");
-  const [loadMessage, setLoadMessage] = useState("正在加载已存默认参数…");
+  const [loadedSource, setLoadedSource] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [running, setRunning] = useState(false);
+  const [call, setCall] = useState<CallState>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
-  const [statusText, setStatusText] = useState("");
   const [resultText, setResultText] = useState("");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState(false);
@@ -35,7 +42,8 @@ export function ToolDebugPanel({ toolName }: { toolName: string }) {
       .then((record) => {
         commitIfCurrent(gate.current, id, controller.signal, record, (value) => {
           setArgsText(formatArgsText(value.args));
-          setLoadMessage(`已加载存储默认（${value.source}）`);
+          setLoadedSource(value.source);
+          setLoadFailure(null);
           setLoadError(false);
           setPhase("ready");
         });
@@ -46,7 +54,8 @@ export function ToolDebugPanel({ toolName }: { toolName: string }) {
         }
         const described = describeDefaultLoad(error);
         setArgsText("{}");
-        setLoadMessage(described.message);
+        setLoadedSource(null);
+        setLoadFailure(described.message);
         setLoadError(!described.missing);
         setPhase("ready");
       });
@@ -64,25 +73,26 @@ export function ToolDebugPanel({ toolName }: { toolName: string }) {
       return;
     }
     invoking.current = true;
-    setRunning(true);
+    setCall({ kind: "running" });
     setActionMessage(null);
-    setStatusText("调用中…");
     setResultText("");
     try {
       const response = await invokeTool(toolName, parsed.value);
-      setStatusText(
-        `status ${response.status} · ${response.latency_ms} ms · ${response.request_id}`,
-      );
+      setCall({
+        kind: "done",
+        status: response.status,
+        latency: response.latency_ms,
+        requestId: response.request_id,
+      });
       setResultText(jsonText(response.result));
     } catch (error) {
       if (isStaleOrAborted(error)) {
         return;
       }
-      setStatusText("调用失败");
-      setResultText(describeStoreFailure(error, "调用"));
+      setCall({ kind: "failed" });
+      setResultText(describeStoreFailure(error, text("tools.feedback.invoke")));
     } finally {
       invoking.current = false;
-      setRunning(false);
     }
   }
 
@@ -102,11 +112,11 @@ export function ToolDebugPanel({ toolName }: { toolName: string }) {
     try {
       await putToolDefault(toolName, parsed.value);
       setActionError(false);
-      setActionMessage("已存为默认参数");
+      setActionMessage(text("tools.debugPanel.saved"));
     } catch (error) {
       if (!isStaleOrAborted(error)) {
         setActionError(true);
-        setActionMessage(describeStoreFailure(error, "保存默认参数"));
+        setActionMessage(describeStoreFailure(error, text("tools.saveDefault.action")));
       }
     } finally {
       savingLock.current = false;
@@ -114,12 +124,31 @@ export function ToolDebugPanel({ toolName }: { toolName: string }) {
     }
   }
 
+  const loadMessage =
+    phase === "loading"
+      ? text("tools.debugPanel.loading")
+      : loadedSource !== null
+        ? text("tools.debugPanel.loaded", { source: loadedSource })
+        : (loadFailure ?? "");
+  const statusText =
+    call.kind === "running"
+      ? text("tools.debugPanel.running")
+      : call.kind === "failed"
+        ? text("tools.debugPanel.failed")
+        : call.kind === "done"
+          ? text("tools.debugPanel.status", {
+              status: call.status,
+              latency: call.latency,
+              requestId: call.requestId,
+            })
+          : "";
+
   return (
-    <section aria-label={`调试 ${toolName}`} className="detail">
-      <p className="hint">调试调用 {toolName}。参数必须是 JSON object，不会自动重放。</p>
+    <section aria-label={text("tools.debugPanel.region", { name: toolName })} className="detail">
+      <p className="hint">{text("tools.debugPanel.hint", { name: toolName })}</p>
       <FormMessage tone={loadError ? "error" : "info"}>{loadMessage}</FormMessage>
       <Textarea
-        label="调用参数"
+        label={text("tools.debugPanel.args")}
         className="code-input"
         rows={6}
         spellCheck={false}
@@ -129,24 +158,24 @@ export function ToolDebugPanel({ toolName }: { toolName: string }) {
       <div className="toolbar">
         <Button
           type="button"
-          disabled={phase !== "ready" || running || saving}
+          disabled={phase !== "ready" || call.kind === "running" || saving}
           onClick={() => void onInvoke()}
         >
-          调用
+          {text("tools.debugPanel.invoke")}
         </Button>
         <Button
           type="button"
-          disabled={phase !== "ready" || running || saving}
+          disabled={phase !== "ready" || call.kind === "running" || saving}
           onClick={() => void onSave()}
         >
-          存为默认
+          {text("tools.debugPanel.save")}
         </Button>
       </div>
       {actionMessage === null ? null : (
         <FormMessage tone={actionError ? "error" : "info"}>{actionMessage}</FormMessage>
       )}
       <p role="status">{statusText}</p>
-      <pre aria-label="调用结果">{resultText}</pre>
+      <pre aria-label={text("tools.debugPanel.result")}>{resultText}</pre>
     </section>
   );
 }

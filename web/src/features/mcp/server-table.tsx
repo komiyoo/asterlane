@@ -3,6 +3,7 @@ import { Fragment, useState } from "react";
 import type {
   OutputHealthStatus,
   OutputMcpHealthResponse,
+  OutputMcpOAuthResponse,
   OutputMcpServerDetailResponse,
   OutputMcpServerResponse,
 } from "../../api/index.ts";
@@ -11,7 +12,8 @@ import { EmptyState } from "../../components/empty-state.tsx";
 import { ErrorState } from "../../components/error-state.tsx";
 import { FormMessage } from "../../components/form-message.tsx";
 import { LoadingState } from "../../components/loading-state.tsx";
-import { formatOptionalNumber } from "../format.ts";
+import { text } from "../../i18n/locale.ts";
+import { formatCount, formatOptionalNumber, formatTimestamp } from "../format.ts";
 import { effectiveDescription } from "../tools/catalog.ts";
 import { ToolDebugPanel } from "../tools/debug-panel.tsx";
 import { ToolMetadataPanel } from "../tools/metadata-panel.tsx";
@@ -54,7 +56,7 @@ export function ServerTable({
   const [metaName, setMetaName] = useState<string | null>(null);
 
   if (servers.length === 0) {
-    return <EmptyState title="无 MCP 服务" />;
+    return <EmptyState title={text("mcp.table.empty")} />;
   }
 
   return (
@@ -62,12 +64,12 @@ export function ServerTable({
       <Table>
         <Table.Header variant="compact">
           <Table.Row>
-            <Table.Head>状态</Table.Head>
+            <Table.Head>{text("mcp.table.status")}</Table.Head>
             <Table.Head>ID</Table.Head>
-            <Table.Head>领域 / 提供商</Table.Head>
+            <Table.Head>{text("mcp.table.domain")}</Table.Head>
             <Table.Head>URL</Table.Head>
-            <Table.Head>需要 key</Table.Head>
-            <Table.Head>工具数</Table.Head>
+            <Table.Head>{text("mcp.table.needsKey")}</Table.Head>
+            <Table.Head>{text("mcp.table.tools")}</Table.Head>
             <Table.Head></Table.Head>
           </Table.Row>
         </Table.Header>
@@ -144,7 +146,7 @@ function ServerRows({
       <Table.Row>
         <Table.Cell>
           <Badge variant={healthBadges[health.status]} appearance="dot">
-            {healthLabels[health.status]}
+            {healthLabel(health.status)}
           </Badge>
           {health.last_error === null ? null : <div className="err">{health.last_error}</div>}
         </Table.Cell>
@@ -153,7 +155,7 @@ function ServerRows({
           {server.builtin ? (
             <>
               {" "}
-              <Badge variant="neutral">内置</Badge>
+              <Badge variant="neutral">{text("mcp.table.builtin")}</Badge>
             </>
           ) : null}
         </Table.Cell>
@@ -161,25 +163,29 @@ function ServerRows({
           {server.domain} / {server.provider}
         </Table.Cell>
         <Table.Cell>{server.url}</Table.Cell>
-        <Table.Cell>{server.requires_key ? `是（${server.auth_type}）` : "否"}</Table.Cell>
-        <Table.Cell>{server.tool_count}</Table.Cell>
+        <Table.Cell>
+          {server.requires_key
+            ? text("mcp.table.keyed", { auth: server.auth_type })
+            : text("common.no")}
+        </Table.Cell>
+        <Table.Cell>{formatCount(server.tool_count)}</Table.Cell>
         <Table.Cell>
           <div className="row-actions">
             <Button type="button" aria-expanded={open} onClick={onToggle}>
-              详情
+              {text("mcp.table.details")}
             </Button>
             <Button type="button" disabled={probing} onClick={onProbe}>
-              {probing ? "探测中…" : "探测"}
+              {probing ? text("mcp.table.probing") : text("mcp.table.probe")}
             </Button>
             <Button type="button" onClick={onEdit}>
-              编辑
+              {text("mcp.table.edit")}
             </Button>
             <ConfirmDialog
-              label="删除"
-              title="删除 MCP 服务"
-              description="删除后，该服务的工具会从目录移除。"
+              label={text("mcp.table.delete")}
+              title={text("mcp.table.deleteTitle")}
+              description={text("mcp.table.deleteDescription")}
               resource={server.id}
-              confirmLabel="确认删除"
+              confirmLabel={text("mcp.table.deleteConfirm")}
               onConfirm={onDelete}
             />
             <OAuthActions
@@ -233,42 +239,57 @@ function ServerDetail({
   onMeta: (name: string) => void;
   onSaved: () => void;
 }) {
+  const dash = text("common.dash");
   return (
     <div className="detail">
-      <p>描述：{detail.description || "—"}</p>
+      <p>{text("mcp.detail.description", { text: detail.description || dash })}</p>
       <p>
-        健康：{healthLabels[health.status]}（{health.status}） · 末次检查{" "}
-        {health.last_check_at ?? "—"} · 末次正常 {health.last_ok_at ?? "—"} · 延迟(ms){" "}
-        {formatOptionalNumber(health.latency_ms) || "—"} · 连续失败 {health.consecutive_failures}
+        {text("mcp.detail.health", {
+          label: healthLabel(health.status),
+          status: health.status,
+          checked: formatTimestamp(health.last_check_at) || dash,
+          okAt: formatTimestamp(health.last_ok_at) || dash,
+          latency: formatOptionalNumber(health.latency_ms) || dash,
+          failures: formatCount(health.consecutive_failures),
+        })}
       </p>
-      {health.last_error === null ? null : <p className="err">最近错误：{health.last_error}</p>}
-      <p>测活：{detail.health_check_enabled ? "开启" : "关闭"}</p>
-      {detail.oauth === null ? null : (
-        <p>
-          授权：{oauthStatusText(detail.oauth.status)}（{detail.oauth.status}） ·{" "}
-          {detail.oauth.grant} · 到期 {detail.oauth.expires_at ?? "—"}
-          {detail.oauth.expires_at ? "（到期前自动刷新，不必重新授权）" : ""}
-        </p>
+      {health.last_error === null ? null : (
+        <p className="err">{text("mcp.detail.lastError", { error: health.last_error })}</p>
       )}
       <p>
-        限额：rps {detail.limits.rps ?? "—"} · rpm {detail.limits.rpm ?? "—"} · 最大并发{" "}
-        {detail.limits.max_concurrent ?? "—"}
+        {detail.health_check_enabled ? text("mcp.detail.probeOn") : text("mcp.detail.probeOff")}
+      </p>
+      {detail.oauth === null ? null : <p>{oauthDetailText(detail.oauth)}</p>}
+      <p>
+        {text("mcp.detail.limits", {
+          rps: formatOptionalNumber(detail.limits.rps) || dash,
+          rpm: formatOptionalNumber(detail.limits.rpm) || dash,
+          concurrent: formatOptionalNumber(detail.limits.max_concurrent) || dash,
+        })}
       </p>
       <p>
-        完整性策略：{detail.security.integrity_policy} · 防御：
-        {detail.security.defense_enabled ? "开" : "关"} · 结果预算：
-        {detail.security.result_budget_bytes ?? "—"}
+        {text("mcp.detail.integrity", { policy: detail.security.integrity_policy })}
+        {" · "}
+        {text("mcp.detail.defense", {
+          state: detail.security.defense_enabled ? text("common.on") : text("common.off"),
+        })}
+        {" · "}
+        {text("mcp.detail.budget", {
+          bytes: formatOptionalNumber(detail.security.result_budget_bytes) || dash,
+        })}
       </p>
-      <h3 className="section-title">工具（{detail.tools.length}）</h3>
+      <h3 className="section-title">
+        {text("mcp.detail.tools", { count: formatCount(detail.tools.length) })}
+      </h3>
       {detail.tools.length === 0 ? (
-        <p>无工具</p>
+        <p>{text("mcp.detail.noTools")}</p>
       ) : (
         <div className="tablewrap">
           <Table>
             <Table.Header variant="compact">
               <Table.Row>
-                <Table.Head>工具名</Table.Head>
-                <Table.Head>描述（有效）</Table.Head>
+                <Table.Head>{text("mcp.detail.toolName")}</Table.Head>
+                <Table.Head>{text("mcp.detail.effectiveDescription")}</Table.Head>
                 <Table.Head></Table.Head>
               </Table.Row>
             </Table.Header>
@@ -281,7 +302,7 @@ function ServerDetail({
                       {tool.description_override === null ? null : (
                         <>
                           {" "}
-                          <Badge variant="neutral">已覆盖</Badge>
+                          <Badge variant="neutral">{text("mcp.detail.overridden")}</Badge>
                         </>
                       )}
                     </Table.Cell>
@@ -296,10 +317,10 @@ function ServerDetail({
                     <Table.Cell>
                       <div className="row-actions">
                         <Button type="button" onClick={() => onMeta(tool.wire_name)}>
-                          介绍
+                          {text("mcp.detail.intro")}
                         </Button>
                         <Button type="button" onClick={() => onDebug(tool.wire_name)}>
-                          调试
+                          {text("mcp.detail.debug")}
                         </Button>
                       </div>
                     </Table.Cell>
@@ -341,10 +362,32 @@ const healthBadges = {
   unknown: "neutral",
 } as const satisfies Record<OutputHealthStatus, string>;
 
-const healthLabels = {
-  ok: "正常",
-  unreachable: "不可达",
-  auth_required: "需要授权",
-  disabled: "已停用",
-  unknown: "未知",
-} as const satisfies Record<OutputHealthStatus, string>;
+function healthLabel(status: string): string {
+  switch (status) {
+    case "ok":
+      return text("mcp.health.ok");
+    case "unreachable":
+      return text("mcp.health.unreachable");
+    case "auth_required":
+      return text("mcp.health.authRequired");
+    case "disabled":
+      return text("mcp.health.disabled");
+    case "unknown":
+      return text("mcp.health.unknown");
+    default:
+      return text("mcp.health.unknown");
+  }
+}
+
+function oauthDetailText(oauth: OutputMcpOAuthResponse): string {
+  const line = text("mcp.detail.oauth", {
+    status: oauthStatusText(oauth.status),
+    code: oauth.status,
+    grant: oauth.grant,
+    expires: formatTimestamp(oauth.expires_at) || text("common.dash"),
+  });
+  if (oauth.expires_at === undefined || oauth.expires_at === null || oauth.expires_at === "") {
+    return line;
+  }
+  return line + text("mcp.detail.oauthRefresh");
+}
