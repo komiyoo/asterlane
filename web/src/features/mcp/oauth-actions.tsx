@@ -101,17 +101,3 @@ export function OAuthActions({
     </>
   );
 }
-
-export function oauthStatusText(status: string): string {
-  switch (status) {
-    case "authorized":
-      return "已授权";
-    case "authorization_required":
-      return "需要授权";
-    case "automatic":
-      return "自动换取";
-    default:
-      return status;
-  }
-}
-

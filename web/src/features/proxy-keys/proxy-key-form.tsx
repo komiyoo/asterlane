@@ -208,7 +208,7 @@ function MultiPicker({
         placeholder="搜索"
         value={selected}
         renderItem={(item) => (
-          <Combobox.Chip key={item} value={item} removeLabel="移除">
+          <Combobox.Chip key={item} removeLabel="移除">
             {itemLabel(item)}
           </Combobox.Chip>
         )}

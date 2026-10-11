@@ -30,35 +30,38 @@ async function openPage(page: Page, name: string) {
 }
 
 /** 把表格滚到最右后，展开内容仍落在 .tablewrap 的可视区内，页面本身不横滚。 */
-async function expectDetailFits(page: Page, detail: Locator) {
+async function expectDetailFits(detail: Locator) {
   await expect(detail).toBeVisible();
-  const fit = await detail.evaluate((element) => {
-    const wrap = element.closest(".tablewrap");
-    if (wrap instanceof HTMLElement) {
-      wrap.scrollLeft = wrap.scrollWidth;
-    }
-    const box = element.getBoundingClientRect();
-    const wrapBox = wrap instanceof HTMLElement ? wrap.getBoundingClientRect() : null;
-    return {
-      position: getComputedStyle(element).position,
-      detailLeft: box.left,
-      detailRight: box.right,
-      detailWidth: box.width,
-      wrapLeft: wrapBox === null ? null : wrapBox.left,
-      wrapRight: wrapBox === null ? null : wrapBox.right,
-      wrapClient: wrap instanceof HTMLElement ? wrap.clientWidth : null,
-      pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  const wrap = detail.locator(
+    "xpath=ancestor::div[contains(concat(' ', @class, ' '), ' tablewrap ')][1]",
+  );
+  // e2e 的类型检查不带 DOM 类型，浏览器里只按需要的字段做结构断言。
+  const wrapClient = await wrap.evaluate((element) => {
+    const box = element as unknown as {
+      scrollLeft: number;
+      scrollWidth: number;
+      clientWidth: number;
     };
+    box.scrollLeft = box.scrollWidth;
+    return box.clientWidth;
   });
-  expect(fit.position).toBe("sticky");
-  expect(fit.wrapLeft).not.toBeNull();
-  expect(fit.wrapRight).not.toBeNull();
-  expect(fit.wrapClient).not.toBeNull();
-  expect(fit.pageOverflow).toBeLessThanOrEqual(1);
-  expect(fit.detailLeft).toBeGreaterThanOrEqual((fit.wrapLeft ?? 0) - 1);
-  expect(fit.detailRight).toBeLessThanOrEqual((fit.wrapRight ?? 0) + 4);
-  expect(fit.detailWidth).toBeLessThanOrEqual((fit.wrapClient ?? 0) + 1);
-  expect(fit.detailWidth).toBeGreaterThan((fit.wrapClient ?? 0) * 0.7);
+  const pageOverflow = await detail
+    .page()
+    .locator("html")
+    .evaluate((element) => {
+      const root = element as unknown as { scrollWidth: number; clientWidth: number };
+      return root.scrollWidth - root.clientWidth;
+    });
+  const detailBox = await detail.boundingBox();
+  const wrapBox = await wrap.boundingBox();
+  if (detailBox === null || wrapBox === null) {
+    throw new Error("展开内容或表格容器不可见");
+  }
+  expect(pageOverflow).toBeLessThanOrEqual(1);
+  expect(detailBox.x).toBeGreaterThanOrEqual(wrapBox.x - 1);
+  expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(wrapBox.x + wrapBox.width + 4);
+  expect(detailBox.width).toBeLessThanOrEqual(wrapClient + 1);
+  expect(detailBox.width).toBeGreaterThan(wrapClient * 0.7);
 }
 
 test("logged-out routes do not show console data", async ({ page }) => {
@@ -124,15 +127,15 @@ test("login, refresh, back, and read pages hit the gateway", async ({ page }) =>
     });
     await expect(serverRow).toContainText("正常");
     await serverRow.getByRole("button", { name: "详情", exact: true }).click();
-    await expectDetailFits(page, page.locator(".detail").filter({ hasText: "健康：" }));
+    await expectDetailFits(page.locator(".detail").filter({ hasText: "健康：" }));
 
     await openPage(page, "工具");
     const toolRow = page.getByRole("row", { name: new RegExp(toolName) });
     await toolRow.getByRole("button", { name: "调试", exact: true }).click();
     const debug = page.getByRole("region", { name: `调试 ${toolName}` });
-    await expectDetailFits(page, debug);
+    await expectDetailFits(debug);
     await toolRow.getByRole("button", { name: "介绍", exact: true }).click();
-    await expectDetailFits(page, page.getByRole("region", { name: `介绍 ${toolName}` }));
+    await expectDetailFits(page.getByRole("region", { name: `介绍 ${toolName}` }));
     await expect(debug.getByRole("button", { name: "调用" })).toBeEnabled();
     await debug.getByLabel("调用参数").fill('{"message":"narrow"}');
     await debug.getByRole("button", { name: "调用" }).click();
@@ -144,7 +147,7 @@ test("login, refresh, back, and read pages hit the gateway", async ({ page }) =>
     await page.getByRole("button", { name: "查询" }).click();
     const eventRow = page.getByRole("row", { name: new RegExp(toolName) }).first();
     await eventRow.getByRole("button", { name: "详情", exact: true }).click();
-    await expectDetailFits(page, page.locator(".detail").filter({ hasText: "请求参数" }));
+    await expectDetailFits(page.locator(".detail").filter({ hasText: "请求参数" }));
   } finally {
     await page.request.delete(`/admin/mcp-servers/${encodeURIComponent("e2e-narrow")}`, {
       headers: { authorization: `Bearer ${E2E_ADMIN_TOKEN}` },

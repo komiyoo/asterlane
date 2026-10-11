@@ -1,10 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import {
-  assembleScope,
-  matchingTools,
-  serverChoices,
-  toolChoices,
-} from "./scope.ts";
+import { assembleScope, matchingTools, serverChoices, toolChoices } from "./scope.ts";
 
 const search = { name: "search__web", resourceId: "search" };
 const mail = { name: "mail__send", resourceId: "mail" };
@@ -33,6 +28,8 @@ test("saved servers and tool names stay selectable when the catalog omits them",
 });
 
 test("matchingTools filters by name and server", () => {
-  expect(matchingTools([search, mail], "mail", "").map((tool) => tool.name)).toEqual(["mail__send"]);
+  expect(matchingTools([search, mail], "mail", "").map((tool) => tool.name)).toEqual([
+    "mail__send",
+  ]);
   expect(matchingTools([search, mail], "", "search")).toEqual([search]);
 });

@@ -11,12 +11,13 @@ use crate::error::HttpErrorEnvelope;
 
 use super::types::{
     ConfigValidateResponse, CreatedResponse, DeletedResponse, EventsListParams, HealthResponse,
-    JsonObject, KeyPoolResponse, McpHealthResponse, McpOAuthAuthorizeResponse, McpPresetResponse, McpServerDetailResponse,
-    McpServerResponse, McpServerWriteParams, ProxyKeyResponse, ProxyKeyWriteParams,
-    RequestEventResponse, ResourceSummaryResponse, ResourceWriteParams, SecurityEventResponse,
-    SecurityEventsListParams, StatsResponse, TokenIssueParams, TokenIssueResponse,
-    ToolCatalogResponse, ToolDefaultResponse, ToolInvokeParams, ToolInvokeResponse,
-    ToolMetadataResponse, ToolMetadataWriteParams, UpdatedResponse, UsageListParams, UsageResponse,
+    JsonObject, KeyPoolResponse, McpHealthResponse, McpOAuthAuthorizeResponse, McpPresetResponse,
+    McpServerDetailResponse, McpServerResponse, McpServerWriteParams, ProxyKeyResponse,
+    ProxyKeyWriteParams, RequestEventResponse, ResourceSummaryResponse, ResourceWriteParams,
+    SecurityEventResponse, SecurityEventsListParams, StatsResponse, TokenIssueParams,
+    TokenIssueResponse, ToolCatalogResponse, ToolDefaultResponse, ToolInvokeParams,
+    ToolInvokeResponse, ToolMetadataResponse, ToolMetadataWriteParams, UpdatedResponse,
+    UsageListParams, UsageResponse,
 };
 
 const GENERATED_COMMENT: &str = "由 `just api schema` 从 Rust 管理 DTO 生成（schemars JSON Schema Draft 7）。不要手改。inputs 按反序列化，outputs 按序列化。检查失败时运行 `just api schema`。";

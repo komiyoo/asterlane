@@ -107,7 +107,8 @@ function expectBody<T>(value: T | undefined, message: string): T {
 }
 
 function isAuthorizationUrl(value: string): boolean {
-  if (value.length === 0 || value.length > 16_384 || /[\s\u0000-\u001f]/.test(value)) {
+  // URL 解析会拒绝或剔除非法字符，这里只限制长度、协议与用户信息。
+  if (value.length === 0 || value.length > 16_384) {
     return false;
   }
   let url: URL;

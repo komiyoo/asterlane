@@ -15,7 +15,8 @@ import { formatOptionalNumber } from "../format.ts";
 import { effectiveDescription } from "../tools/catalog.ts";
 import { ToolDebugPanel } from "../tools/debug-panel.tsx";
 import { ToolMetadataPanel } from "../tools/metadata-panel.tsx";
-import { OAuthActions, oauthStatusText } from "./oauth-actions.tsx";
+import { OAuthActions } from "./oauth-actions.tsx";
+import { oauthStatusText } from "./write.ts";
 
 export type DetailState =
   | { status: "loading" }
@@ -244,8 +245,8 @@ function ServerDetail({
       <p>测活：{detail.health_check_enabled ? "开启" : "关闭"}</p>
       {detail.oauth === null ? null : (
         <p>
-          授权：{oauthStatusText(detail.oauth.status)}（{detail.oauth.status}） · {detail.oauth.grant}{" "}
-          · 到期 {detail.oauth.expires_at ?? "—"}
+          授权：{oauthStatusText(detail.oauth.status)}（{detail.oauth.status}） ·{" "}
+          {detail.oauth.grant} · 到期 {detail.oauth.expires_at ?? "—"}
           {detail.oauth.expires_at ? "（到期前自动刷新，不必重新授权）" : ""}
         </p>
       )}
