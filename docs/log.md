@@ -1,5 +1,14 @@
 # Documentation Update Log
 
+## 2026-10-20（缺陷审计与修复计划）
+
+- **审计**：[Roadmap](product/roadmap.md#2026-10-20-缺陷审计) 新增「2026-10-20 缺陷审计」一节，证据都写成路径加符号名。
+  - 高危九项：认证缺省放开；工具参数原样拼进上游 URL；`/config` 与 `/metrics` 泄露 key id；`/mcp` 不校验 Host 与 Origin；远程 MCP 没有超时；HTTP 上游响应体没有边界；后台刷新回滚并发的管理修改；`max_calls` 重启后被部分重置；上游 MCP 错误原文外泄。
+  - 另按支柱列出其余缺陷。十项用临时测试在本机复现，测试没有提交。
+  - 支柱二的结论原写「基本完整」，就地改为「能力完整，但边界有安全缺陷」；支柱三补了指向审计的说明。Phase 11 与产品决策各加一条待决定项：高危项是否在首次打 tag 前修复。
+- **计划**：新增 [缺陷审计修复](plans/2026/10-20/w0-00-缺陷审计修复.md)，分六个阶段、22 个 PR，并列出需要维护者先定的行为变更。计划文件与两层索引按 `plans/README.md` 的布局手写，没有经过 `plan-docs` 脚本，脚本重新生成时以脚本输出为准。
+- **验证**：`python3 scripts/check_okf_docs.py`（即 `just docs check`）。
+
 ## 2026-10-11（Phase 11 PR4：中英双语）
 
 - **控制台与文档**：控制台用 `i18next` 加 `react-i18next` 做中英切换（依赖说明见 `web/README.md`）；OAuth 回调页中英并列。[Documentation Conventions](engineering/documentation-conventions.md) 定下 `docs/` 英文版命名，新增 [Running the Gateway](admin/running.en.md) 与 [Config Schema（英文）](runtime/config-schema.en.md)。[开源就绪计划](plans/2026/10-10/w0-00-开源就绪与首次发布.md) PR4 勾选。
