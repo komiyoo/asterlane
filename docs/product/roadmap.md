@@ -1,10 +1,10 @@
 ---
 type: Roadmap
 title: Asterlane 演进规划
-description: 按产品定位的五根支柱评估实现缺口，给出分阶段优先级、准入准出条件与待产品决策项；2026-10-10 起按开源版与 SaaS 双形态安排后续阶段。
+description: 按产品定位的五根支柱评估实现缺口，给出分阶段优先级、准入准出条件与待产品决策项；2026-10-10 起按开源版与 SaaS 双形态安排后续阶段；2026-10-20 记录缺陷审计结论。
 resource: docs/product/roadmap.md
-tags: [roadmap, planning, gaps, product, saas, open-source]
-timestamp: 2026-10-10T00:00:00Z
+tags: [roadmap, planning, gaps, product, saas, open-source, audit]
+timestamp: 2026-10-20T00:00:00Z
 ---
 
 # 背景
@@ -26,6 +26,78 @@ timestamp: 2026-10-10T00:00:00Z
 | **兑现差** | 文档/README 已声称具备，代码未接线或未装配 | 最高优先级。要么补齐，要么就地改文档下调声明，不允许悬空 |
 | **定位缺口** | 支柱本身不完整，影响网关能否替代直连上游 | 按支柱重要性排期 |
 | **生产就绪** | 单机能跑，长期运行或多副本会出事 | 与定位缺口并行，不可再推迟 |
+
+2026-10-20 的缺陷审计按同一口径另记了一批实现缺陷，其中九项高危，见 [2026-10-20 缺陷审计](#2026-10-20-缺陷审计)。
+
+# 2026-10-20 缺陷审计
+
+评估基线：2026-10-20 的 `main`。源码按六个互不重叠的切片通读，每条结论都追回真实调用链核实；其中十项用临时测试在本机复现。现有测试全部通过，说明这些路径都没有覆盖。执行顺序与验收见 [缺陷审计修复](../plans/2026/10-20/w0-00-缺陷审计修复.md)。
+
+支柱要求的能力都已实现，问题集中在三处：
+
+- **认证缺省是放开**：`/mcp` 是否要求凭据，取决于「还有没有带 token 的 key」。吊销、删除或重启都可能让网关退回匿名全放行。`/config` 与 `/metrics` 会泄露 key id，而 legacy 模式下 key id 本身就是凭据。工具参数原样拼进上游 URL。支柱一、二的承诺因此不成立。
+- **上游调用缺少边界**：远程 MCP 全链路没有超时；HTTP 上游的响应体既不限时，也不限大小。一个不响应的上游就能卡住启动、刷新和管理写入。
+- **状态口径失真**：后台刷新会回滚并发的管理修改；累计配额重启后被部分重置；integrity 基线可以被「洗白」；用量、指标与事件三处的数据对不上。
+
+## 高危缺陷
+
+| 缺陷 | 性质 | 证据 |
+| --- | --- | --- |
+| 认证模式取决于是否存在带 token 的 key。没有任何 token 时，`/mcp` 以全放行（`.*`、不受限额）的 `mcp-default` 身份服务匿名请求。吊销或删除最后一枚 token 后，整个网关退回开放模式，被吊销的 key 只凭 id 就能用。YAML 定义的 key 在线签发的 token，重启后被 YAML 版本遮蔽；从 YAML 删掉的 key 会从数据库影子行复活。仓库自带的 `run.yaml` 与 K8s 示例都处于开放模式。根 README「换掉或吊销这枚 key，这个代理的范围就随之消失」与实现相反 | 安全（兑现差） | `src/gateway_auth.rs` 的 `GatewayAuth::mcp_auth_required`、`clear_token`；`src/mcp/server.rs` 的 `mcp_default_key`；`src/admin/tokens.rs` 的 `upsert_proxy_key_db`；`src/store/config_merge.rs` 的 `merge_db_into_config` |
+| 工具参数原样拼进上游 URL：传入 `id: "../admin/secrets"`，上游收到的是 `/admin/secrets`。代理可以带着网关凭据越出工具限定的路径 | 安全 | `src/proxy/retry.rs` 的 `build_url` |
+| `/config` 向任意 key 返回全部 key id 与全部 `base_url`；`/metrics` 不需要认证，且带 `proxy_key_id` 标签。配合 legacy `?key=`，代理之间可以横向冒用 | 安全 | `src/http/routes.rs` 的 `get_config`、`ConfigSummary`；`src/http/mod.rs` 的 `metrics_handler` |
+| `/mcp` 关闭了 Host 校验，也不校验 Origin（MCP 规范要求校验）；compose 内置一个公开的 admin token 缺省值 | 安全 | `src/http/mod.rs` 的 `build_app_with_ct`；`.env.schema` 的 `ASTERLANE_ADMIN_TOKEN` |
+| 远程 MCP 的握手、`tools/list`、`tools/call`、prompts 与 resources 都没有超时；启动与刷新逐个串行；admin 在管理写锁内建连。一个只接受 TCP 却不响应的上游，就能让 serve 无法开始监听。与 [MCP 治理](../runtime/mcp-governance-and-key-limits.md) R2「单服务器故障不拖垮网关」不符 | 生产就绪（兑现差） | `src/mcp/registry.rs` 的 `McpServerRegistry::connect_all_with`；`src/mcp/health.rs` 的 `probe_entry`；`src/mcp/peer/methods.rs` 的 `call_tool_ex`；`src/admin/mcp.rs` 的 `create_server` |
+| HTTP 上游的超时只覆盖到响应头；响应体整包读入内存，没有大小上限；读响应体失败时按 200 加空体记为成功 | 生产就绪 | `src/proxy/retry.rs` 的 `send_attempt` |
+| 后台刷新结束时，按 id 无条件写回开始时的快照。刷新期间完成的 PUT（改 URL、轮换密钥）、OAuth 授权或撤销都被回滚，而配置快照与数据库显示的是新值 | 生产就绪 | `src/mcp/health.rs` 的 `refresh_inner` |
+| `max_calls` 回填只统计 `request_events`，而这张表缺省只保留 14 天，重启后累计配额被部分重置 | 兑现差 | `src/limits/seed.rs` 的 `seed_from_store`；`src/store/retention.rs` |
+| 远程 MCP 的错误原文进入代理可见的 `isError`、REST 错误与 admin 的 `last_error`，其中包括 rmcp 的 `HTTP {status}: {body}`（整段响应体）和 reqwest 带 query 的 URL。这与 [Error Model](../architecture/error-model.md) 的脱敏要求相反 | 安全（兑现差） | `src/mcp/peer/mod.rs` 的 `map_service_error`；`src/mcp/error.rs` 的 `From<McpError> for AsterlaneError` |
+
+## 其余缺陷
+
+按支柱列出，修复排在计划的各阶段。
+
+- **支柱一**：
+  - secret ref 没有命名空间：admin 写权限等于能读取网关进程的任意环境变量与可读文件（`src/secrets/backend.rs` 的 `FileBackend`、`EnvBackend`）。
+  - `*_ref` 字段接受明文，MCP transport 会把非引用值直接当 token 用（`src/mcp/transport.rs` 的 `resolve_secret`）。
+  - MCP 上游的静态凭据与 client secret 只在建连时解析，轮换后不生效。
+  - Vault 与 Infisical 的运行期请求没有超时，引导 token 只读一次、不续期（`src/secrets/assemble.rs` 的 `resolve_bootstrap_token`）。
+  - 负载捕获缺省开启，但脱敏只识别少数格式（`src/observability/capture.rs`）。
+- **支柱二**：
+  - 冒号翻译把所有 `:` 都换成 `__`，`(?:…)` 这类合法正则因此失效；非法正则在加载与写入时都不校验（`src/policy.rs` 的 `translate_to_wire_regex`）。
+  - 控制台按逗号拆分正则，含 `{m,n}` 的规则保存一次就坏（`web/src/features/proxy-keys/draft.ts` 的 `splitList`）。
+  - resource template 按最长字面前缀判权，URI 的等价写法可以绕过 resource 级 deny（`src/mcp/surface.rs` 的 `scope_name_for_read`）。
+  - 同一个 key id 出现两次时，`?key=` 可以绕过 token；Bearer 方案名区分大小写。
+- **支柱三**：
+  - `asl__search` 把整个查询串当子串匹配：多词查询（如 README 的 `"web search"`）返回空；README 中文版的「网页搜索」只有配置了语义搜索才能命中英文描述（`src/catalog/query.rs` 的 `search_for_key`）。
+  - 截断提示不给下一段的 offset，`asl__fetch` 续取固定按 48KB 切片。
+  - 结果缓存全局只有 64 条，没有按 key 的配额，cursor 是递增序号、可以猜到（`src/shaping.rs` 的 `ResultCache`）。
+  - 周期刷新无条件推送 `tools/list_changed`，真正的管理变更反而不推送（`src/http/lifecycle.rs` 的 `refresh_mcp_tools`）。
+  - 上游只要有一个工具名不合规，整台 server 就不可用（`src/mcp/convert.rs` 的 `wrap_tools`）。
+  - 发现类调用不限流、不计量；配置语义搜索后，每次查询都用网关凭据调一次 embedding。
+- **支柱四**：
+  - 上游 4xx 的响应体被整个丢弃，代理无法据此修正参数。
+  - 工具的 annotations、title 与 outputSchema 不转发；`structuredContent` 与非文本内容被改写（`src/mcp/call.rs` 的 `wrapped_to_mcp_tool`；`src/mcp/convert.rs` 的 `convert_call_result`）。
+  - admin API 创建的资源不能定义 endpoints；OpenAPI 的 `source: url` 没有实现。
+  - 上游超时写死为 30 秒；`asl__batch` 串行执行。
+  - 每次调用都深拷贝整个工具目录；开启出站校验后，每次调用都新建一个 HTTP client。
+- **支柱五**：
+  - 越权、隔离与凭据失败都不写事件（`src/proxy/invoke/mod.rs` 的模块注释写明了这一点）。
+  - 错误 JSON、请求事件与日志里的 request_id 各不相同。
+  - 用量的时间序列返回最早的 168 个桶，`usage_buckets` 从不清理（`src/store/sqlite_aggregation.rs` 的 `series_by_bucket`）。
+  - 直方图以 summary 形式导出，也没有定期 upkeep；`asterlane_active_requests` 与 `asterlane_queue_hits_total` 从不产生数据。
+  - `sqlite::memory:` 在连接被回收后连同表结构一起消失；文件库没有开启 WAL。
+- **完整性与内容防御**：
+  - quarantine 策略下，启动时不可达、之后恢复的 server，全部工具被永久隔离，也没有解除入口。
+  - 基线不持久化，admin 操作会对所有 server 整表 rebase，drift 因此可以被洗白。
+  - hint 翻转检测只在 `input_schema` 里找，实际永远不会触发（`src/integrity.rs` 的 `read_hint`、`check_drift`）。
+  - content defense 不覆盖 prompts、resources 与续取段。
+- **控制面**：
+  - 管理写落库失败时仍返回成功；删除时先删数据库。
+  - 每次写都全量重建：一个取不到的 secret 就挡住全部写入，包括紧急吊销；限流桶与并发队列被重置（`src/admin/crud.rs` 的 `swap_config_and_catalog`）。
+  - admin 先登记 MCP server、再替换配置，替换失败时留下一个 admin 看不到的幽灵 server。
+  - 优雅关闭没有接线，网关在容器里是 PID 1，会忽略 SIGTERM。
+  - 编辑 MCP 服务会重置 `queue_timeout_secs`；没有乐观并发控制。
 
 # 2026-10-10 方向调整：开源与 SaaS 双形态
 
@@ -67,7 +139,12 @@ timestamp: 2026-10-10T00:00:00Z
 
 ## 支柱二：per-key 工具范围
 
-**基本完整**，是完成度最高的支柱。allow/deny 正则、请求级只收窄不扩权、canonical/alias 三级解析、影子保护都已落地（`policy`、`catalog::resolve_for_key`、`naming`）。
+**能力完整，但边界有安全缺陷**。allow/deny 正则、请求级只收窄不扩权、canonical/alias 三级解析、影子保护都已落地（`policy`、`catalog::resolve_for_key`、`naming`）。2026-10-20 审计发现以下问题，见 [2026-10-20 缺陷审计](#2026-10-20-缺陷审计)：
+
+- 认证缺省是放开；
+- `/config` 泄露 key id；
+- 冒号翻译把合法正则改坏；
+- template 判权可以被绕过。
 
 剩余仅一项轻量项：连接级视图（[Naming Convention](../architecture/naming-convention.md) 明确标为未来方向），不阻塞。wire name 变更时的 deprecated alias 转发 2026-10-09 定为不做：agent 实时加载工具，改名直接切换，只同步网关自己的 prompt 与文档（见 [Compatibility Policy](../architecture/compatibility-policy.md#mcp-工具名兼容性)）。
 
@@ -80,7 +157,7 @@ timestamp: 2026-10-10T00:00:00Z
 | **已交付：订阅上游 `tools/list_changed`**（2026-08-20） | 定位缺口（已清） | `mcp::upstream_notify` 的 `UpstreamNotifyHandler` + `spawn_listen_task`；握手后 best-effort `Peer::listen`（`SubscriptionFilter::tools_list_changed`）。不支持则降级，周期 `mcp.refresh_interval_secs` 兜底。`refresh_interval_secs: 0` 不 tick，仍收 notify。对照 `examples/gateway-mcp.yaml`（Exa）与 `examples/gateway-rollinggo.yaml`（RollingGo Hotel） |
 | **已交付：刷新间隔与 `tools/list` TTL 可配置**（2026-08-20） | 生产就绪（已清） | 顶层 `mcp.refresh_interval_secs`（缺省 60，`0` 不 tick）与 `mcp.tools_list_ttl_ms`（缺省 60000，`0` 不设 `ttlMs`） |
 
-**判断**：代理主路径上的 lazy 与上游目录失效已对齐。本支柱不再阻塞当前 agent 接入。
+**判断**：代理主路径上的 lazy 与上游目录失效已对齐。本支柱不再阻塞当前 agent 接入。2026-10-20 审计另记了关键词搜索、续取契约、结果缓存与 `tools/list_changed` 推送的缺陷，见 [2026-10-20 缺陷审计](#2026-10-20-缺陷审计)。
 
 ## 支柱四：统一上游接入
 
@@ -194,6 +271,7 @@ timestamp: 2026-10-10T00:00:00Z
 - 对至少一个真实 OAuth 类上游 MCP server 做端到端验证（Phase 8 遗留）
 - **已交付（2026-10-11）**：控制台中英双语（顶栏切换，缺省跟随浏览器）；OAuth 回调页中英并列；入口文档（运行网关、配置 Schema）提供英文版
 - 定贡献者签署方式，见[产品决策](#产品决策)「贡献者协议」
+- **待决定（2026-10-20）**：[缺陷审计](#2026-10-20-缺陷审计)里的高危项是否在首次打 tag 前修复，见[产品决策](#产品决策)「缺陷审计与首次发布」
 
 **执行计划**：[开源就绪与首次发布](../plans/2026/10-10/w0-00-开源就绪与首次发布.md)。
 
@@ -278,6 +356,7 @@ timestamp: 2026-10-10T00:00:00Z
 | **下游 MCP OAuth** | 2026-10-10：SaaS 必做，开源版可选 | 身份服务是授权服务器，网关 `/mcp` 是受保护资源；一个 token 对应一个 gateway key |
 | **开源边界** | 2026-10-10：网关核心 MIT，SaaS 控制面私有 | 把租户数据模型与基础身份服务放进 MIT 是对这项决定的解释，**待维护者确认** |
 | **贡献者协议** | 未定 | DCO（提交带 `Signed-off-by`）最轻；若将来可能更换许可证，需要 CLA |
+| **缺陷审计与首次发布** | 未定（2026-10-20） | 建议首次打 tag 前合入 [缺陷审计修复](../plans/2026/10-20/w0-00-缺陷审计修复.md) 的阶段一（PR1–PR6），PR7、PR9 一并合入。阶段一含多项破坏性变更（认证缺省、`?key=`、Origin、`{+name}`、`/config`），逐项见计划的「待确认」一节 |
 
 # 不变的非目标
 
